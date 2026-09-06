@@ -1,0 +1,251 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { X, Layers, Plus, Check, Armchair, Hash } from 'lucide-react';
+
+interface AddRowModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  roomName: string;
+  existingRows: string[];
+  existingSeats?: Array<{ seatNumber: string; rowName?: string; roomId?: string | null }>;
+  onAddRows: (data: { rowNames: string[]; seatsPerRow: number; startNumber?: number }) => Promise<void> | void;
+}
+
+export function AddRowModal({
+  isOpen,
+  onClose,
+  roomName,
+  existingRows,
+  existingSeats = [],
+  onAddRows,
+}: AddRowModalProps) {
+  const [rowInputs, setRowInputs] = useState<string[]>([]);
+  const [seatsPerRow, setSeatsPerRow] = useState<number | ''>(10);
+  const [startNumber, setStartNumber] = useState<number | ''>(1);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Computes the next suggested sequential number based on existing seats
+  const getSuggestedStartNumber = () => {
+    if (!existingSeats || existingSeats.length === 0) return 1;
+    let max = 0;
+    existingSeats.forEach((s) => {
+      const match = s.seatNumber.match(/(\d+)$/);
+      if (match) {
+        const val = parseInt(match[1], 10);
+        if (val > max) max = val;
+      }
+    });
+    return max > 0 ? max + 1 : 1;
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      if (!existingRows || existingRows.length === 0) {
+        setRowInputs(['Row A', 'Row B']);
+      } else {
+        const nextLetter = String.fromCharCode(65 + existingRows.length);
+        setRowInputs([`Row ${nextLetter}`]);
+      }
+      const suggested = getSuggestedStartNumber();
+      setStartNumber(suggested);
+      setSeatsPerRow(10);
+    }
+  }, [isOpen, existingRows, existingSeats]);
+
+  if (!isOpen) return null;
+
+  const handleAddRow = () => {
+    const totalCount = existingRows.length + rowInputs.length;
+    const nextLetter = String.fromCharCode(65 + totalCount);
+    setRowInputs((prev) => [...prev, `Row ${nextLetter}`]);
+  };
+
+  const handleRemoveRow = (index: number) => {
+    if (rowInputs.length <= 1) return;
+    setRowInputs((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const numStart = startNumber === '' ? 1 : Math.max(1, Number(startNumber));
+  const numSeats = seatsPerRow === '' ? 0 : Math.max(0, Number(seatsPerRow));
+  const validRows = rowInputs.map((r) => r.trim()).filter((r) => r.length > 0);
+  const totalSeatsToCreate = rowInputs.length * numSeats;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const finalRows = validRows.length > 0 ? validRows : ['Row A'];
+
+    setIsLoading(true);
+    try {
+      await onAddRows({
+        rowNames: finalRows,
+        seatsPerRow: numSeats,
+        startNumber: numStart,
+      });
+      onClose();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+      <div className="bg-white text-slate-900 w-full max-w-md rounded-2xl shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        {/* Header */}
+        <div className="bg-slate-900 p-5 text-white relative">
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-4 right-4 p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <div className="flex items-center gap-2 mb-1">
+            <Layers className="w-6 h-6 text-indigo-400" />
+            <h3 className="text-xl font-bold">Add Rows & Seats</h3>
+          </div>
+          <p className="text-xs text-slate-300">
+            Adding rows to <strong>{roomName}</strong>
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {/* Row names list */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-bold text-slate-700">
+                Rows to Add
+              </label>
+              <button
+                type="button"
+                onClick={handleAddRow}
+                className="text-xs text-indigo-600 hover:text-indigo-700 font-bold flex items-center gap-1 active:scale-95 transition-transform cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add Another Row
+              </button>
+            </div>
+
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+              {rowInputs.map((rowVal, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    required
+                    value={rowVal}
+                    onChange={(e) => {
+                      const updated = [...rowInputs];
+                      updated[idx] = e.target.value;
+                      setRowInputs(updated);
+                    }}
+                    placeholder={`e.g. Row ${String.fromCharCode(65 + existingRows.length + idx)}`}
+                    className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-colors"
+                  />
+                  {rowInputs.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveRow(idx)}
+                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                      title="Delete row"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Seats per Row & Starting Number in a 2-Column Grid */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Seats per Row
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={150}
+                value={seatsPerRow}
+                onChange={(e) => setSeatsPerRow(e.target.value === '' ? '' : parseInt(e.target.value) || 0)}
+                placeholder="10"
+                className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-colors"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold text-slate-700">
+                  Starting Seat #
+                </label>
+                <span className="text-[10px] text-indigo-600 font-semibold flex items-center gap-0.5">
+                  <Hash className="w-2.5 h-2.5" /> Seq
+                </span>
+              </div>
+              <input
+                type="number"
+                min={1}
+                max={9999}
+                value={startNumber}
+                onChange={(e) => setStartNumber(e.target.value === '' ? '' : parseInt(e.target.value) || 0)}
+                placeholder="1"
+                className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-colors"
+              />
+            </div>
+          </div>
+
+          {/* Sequential Preview Box across rows */}
+          {numSeats > 0 && validRows.length > 0 && (
+            <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-xs space-y-1.5 animate-in fade-in duration-150">
+              <span className="font-semibold text-slate-900 block text-[11px]">
+                Seat Sequence Preview (Continuous Numbering):
+              </span>
+              <div className="space-y-1">
+                {validRows.map((r, i) => {
+                  const rowStart = numStart + (i * numSeats);
+                  const rowEnd = rowStart + numSeats - 1;
+                  const startPadded = rowStart < 10 ? `0${rowStart}` : `${rowStart}`;
+                  const endPadded = rowEnd < 10 ? `0${rowEnd}` : `${rowEnd}`;
+                  return (
+                    <div key={i} className="flex items-center justify-between text-xs bg-white px-2.5 py-1.5 rounded-lg border border-slate-100">
+                      <span className="font-bold text-slate-800">{r}:</span>
+                      <span className="font-mono text-indigo-600 font-bold">
+                        {startPadded} → {endPadded}
+                        <span className="text-[10px] text-slate-400 font-normal ml-1">({numSeats} seats)</span>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Summary Box */}
+          <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-xs text-indigo-900 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Armchair className="w-4 h-4 text-indigo-600 shrink-0" />
+              <span>
+                <strong>{rowInputs.length} new row(s)</strong> • <strong>{totalSeatsToCreate} seats total</strong>
+              </span>
+            </div>
+            <span className="text-[10px] font-bold text-indigo-600 bg-white px-2 py-0.5 rounded-md border border-indigo-200">
+              Starts #{numStart}
+            </span>
+          </div>
+
+          <div className="pt-2">
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Check className="w-4 h-4" />
+              <span>{isLoading ? 'Adding Rows...' : `Save & Add to ${roomName}`}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

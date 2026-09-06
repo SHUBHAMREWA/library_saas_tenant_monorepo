@@ -1,0 +1,1299 @@
+# Library Management SaaS — Initial Product & Architecture Brief
+
+You are acting as a **Senior System Architect, Product Engineer, UI/UX Engineer, Backend Engineer, Database Architect, Security Engineer, and QA Engineer**.
+
+We are going to build a production-grade, scalable, mobile-first **Library Management SaaS platform**.
+
+IMPORTANT:
+
+At this stage, **DO NOT start implementing the application**.
+
+First understand the complete product requirements below and create a detailed implementation plan and architecture proposal.
+
+I will manually review your activity and plans before allowing you to implement major features.
+
+---
+
+# 1. PRODUCT VISION
+
+The product is a SaaS platform for managing physical libraries, especially private study libraries / reading rooms / institute libraries.
+
+The application should be:
+
+* Extremely simple to use
+* Mobile-first
+* PWA
+* Fast
+* Professional
+* Modern
+* Scalable
+* Secure
+* Easy for non-technical library owners
+* Designed so that RFID and networking/device integrations can be added in the future
+
+The UI should NOT feel AI-generated, generic, or like a basic CRUD dashboard.
+
+It should feel like a real commercial SaaS product.
+
+Prioritize:
+
+* Clear information hierarchy
+* Excellent mobile UX
+* Large touch targets
+* Simple workflows
+* Good empty states
+* Good loading states
+* Good error states
+* Consistent typography
+* Consistent spacing
+* Professional forms
+* Useful dashboards
+* Minimal unnecessary animations
+
+---
+
+# 2. SAAS MODEL
+
+This is a MULTI-TENANT SaaS application.
+
+There will be two major platform-level concepts:
+
+## Main Platform Admin
+
+The platform owner/admin manages the entire SaaS.
+
+Admin can:
+
+* View users
+* View libraries
+* View subscriptions
+* Manage subscription plans
+* Manually activate subscriptions
+* Suspend libraries
+* Manage payments
+* Manage coupons
+* Create/edit/disable coupons
+* View audit logs
+* Manage platform-level settings
+
+## Library Owner / User
+
+A normal user can:
+
+* Create an account
+* Create multiple libraries
+* Manage each library
+* Create rooms
+* Create rows
+* Create seats
+* Add students
+* Assign students to seats
+* Manage memberships
+* Manage attendance
+* View dashboard
+* Manage library settings
+* Manage subscription
+
+One user can own MULTIPLE libraries.
+
+Do NOT design the database assuming:
+
+user = one library.
+
+The architecture must support:
+
+User → many Libraries.
+
+---
+
+# 3. MULTI-TENANCY
+
+This is one of the most important requirements.
+
+Use a proper multi-tenant architecture.
+
+Core relationship:
+
+User
+↓
+Library
+↓
+Library Members / Staff
+↓
+Library Resources
+
+A user may have access to multiple libraries.
+
+Future roles should be possible:
+
+* OWNER
+* ADMIN
+* MANAGER
+* STAFF
+
+Every library-owned resource must be protected by tenant authorization.
+
+A user belonging to Library A must NEVER be able to access Library B's:
+
+* students
+* rooms
+* rows
+* seats
+* attendance
+* payments
+* memberships
+* documents
+* notifications
+* reports
+
+Do not rely only on frontend checks.
+
+Authorization MUST happen on the backend.
+
+---
+
+# 4. LIBRARY STRUCTURE
+
+The physical library structure is:
+
+Library
+↓
+Room
+↓
+Row
+↓
+Seat
+
+Example:
+
+Library:
+Knowledge Hub
+
+Room:
+Ground Floor
+
+Rows:
+
+Row A
+
+* Seat A-01
+* Seat A-02
+* Seat A-03
+
+Row B
+
+* Seat B-01
+* Seat B-02
+* Seat B-03
+
+The owner should be able to:
+
+* Create room
+* Rename room
+* Archive room
+* Create rows
+* Rename rows
+* Archive rows
+* Generate seats
+* Rename seats
+* Change seat status
+* Reorder seats where appropriate
+
+Seats should support sequence/order.
+
+The data model should NOT treat seats as simple text values.
+
+Seats need stable IDs so future RFID/device integration can associate hardware with a physical seat.
+
+---
+
+# 5. STUDENT MANAGEMENT
+
+Library owners can add students.
+
+Student information:
+
+* Name
+* Phone number
+* Email
+* Address
+* Father's name
+* Mother's name
+* Purpose for study
+* Profile photo
+* Aadhaar document/photo
+
+Student functionality:
+
+* Add student
+* Edit student
+* View student
+* Search student
+* Filter student
+* Archive student
+* View complete student history
+
+Student documents/images should be stored using Cloudinary.
+
+Do not store large binary files directly in PostgreSQL.
+
+Store appropriate metadata/reference information in PostgreSQL.
+
+Aadhaar documents are sensitive.
+
+Design the system so that they are access-controlled and are not unnecessarily exposed publicly.
+
+---
+
+# 6. STUDENT MEMBERSHIP
+
+A student can join the library for a period.
+
+Example:
+
+Student joins:
+
+4 February
+
+Expected end:
+
+4 March
+
+But the owner does NOT necessarily know whether the student will continue.
+
+Therefore the system needs membership lifecycle management.
+
+Membership states should support concepts such as:
+
+* UPCOMING
+* ACTIVE
+* PAUSED
+* EXPIRED
+* CANCELLED
+
+The system should calculate:
+
+* Active students
+* Upcoming memberships
+* Memberships ending today
+* Memberships ending within 5 days
+* Memberships ending within 7 days
+* Expired memberships
+* Paused memberships
+
+The dashboard should prominently show memberships requiring attention.
+
+---
+
+# 7. MEMBERSHIP HISTORY
+
+Student history is extremely important.
+
+Do not overwrite historical information.
+
+We should be able to understand:
+
+* When student joined
+* When membership ended
+* When membership was renewed
+* When membership was paused
+* Why it was paused
+* When membership resumed
+* Which seat was assigned
+* When the student changed seats
+* Attendance history
+
+Historical records should remain auditable.
+
+---
+
+# 8. MEMBERSHIP PAUSE / GAP
+
+Sometimes a student cannot attend for several days.
+
+Example:
+
+Membership:
+
+4 Feb → 4 Mar
+
+Pause:
+
+15 Feb → 20 Feb
+
+Reason:
+
+College examination
+
+The system should record this as a separate membership pause/history record.
+
+Do NOT simply overwrite the original membership data.
+
+The architecture should support configurable future business rules regarding whether pause days extend membership duration.
+
+---
+
+# 9. SEAT ASSIGNMENT
+
+A student should NOT permanently belong to one seat.
+
+Instead use a historical seat-assignment model.
+
+Example:
+
+February:
+
+Student Rahul → A-12
+
+March:
+
+Student Rahul → A-15
+
+April:
+
+Student Rahul → B-03
+
+Therefore seat assignments should contain concepts such as:
+
+* student
+* seat
+* start date
+* end date
+* status
+
+The system should prevent conflicting active assignments.
+
+---
+
+# 10. ATTENDANCE
+
+Initially attendance should be manual.
+
+But the architecture MUST support future attendance sources.
+
+Possible sources:
+
+* MANUAL
+* QR
+* RFID
+* DEVICE
+* OTHER FUTURE PROVIDERS
+
+Create an abstraction such as an Attendance Provider / Attendance Service.
+
+Do not hard-code the entire application around manual attendance.
+
+Future architecture:
+
+RFID Reader
+↓
+Device Gateway
+↓
+Attendance Service
+↓
+Application
+↓
+Database
+
+The initial version only needs:
+
+Manual check-in
+Manual check-out
+Attendance history
+Student attendance history
+Daily attendance
+
+---
+
+# 11. FUTURE RFID / HARDWARE
+
+We are NOT implementing RFID right now.
+
+However, the architecture must allow it later.
+
+Future devices may include:
+
+* RFID readers
+* Attendance devices
+* Seat sensors
+* Door controllers
+* Printers
+* Other networking devices
+
+Potential future architecture:
+
+Physical Device
+↓
+Device Gateway
+↓
+WebSocket / MQTT
+↓
+Attendance/Event Service
+↓
+Redis
+↓
+PostgreSQL
+
+Do NOT introduce unnecessary IoT infrastructure into V1.
+
+Just design clean interfaces so it can be added later.
+
+---
+
+# 12. OWNER DASHBOARD
+
+The owner dashboard should answer:
+
+"What's happening in my library right now?"
+
+Important metrics:
+
+* Total active students
+* Today's attendance
+* Available seats
+* Occupied seats
+* Memberships ending soon
+* Expired memberships
+* Upcoming memberships
+* Recent activity
+
+Example:
+
+128 Active Students
+
+14 Memberships Ending Soon
+
+92 Students Present Today
+
+25 Available Seats
+
+The dashboard should prioritize actionable information instead of decorative analytics.
+
+Mobile layout is the priority.
+
+---
+
+# 13. SUBSCRIPTION
+
+A library cannot operate normally unless its subscription is active.
+
+The SaaS will have subscription plans.
+
+Potential plans:
+
+* FREE/TRIAL
+* BASIC
+* PRO
+* ENTERPRISE
+
+The architecture must support changing plans later.
+
+Do NOT implement:
+
+library.isPaid = true
+
+Instead use a proper subscription model.
+
+Subscription should contain concepts such as:
+
+* library
+* plan
+* status
+* start date
+* end date
+* provider
+* provider subscription ID
+* auto-renew
+* created/updated timestamps
+
+Subscription statuses should support:
+
+* TRIAL
+* ACTIVE
+* PAST_DUE
+* EXPIRED
+* CANCELLED
+* MANUAL
+
+---
+
+# 14. MANUAL ADMIN SUBSCRIPTION
+
+Platform admin must be able to manually give subscription access.
+
+Example:
+
+Admin gives:
+
+PRO plan
+
+Valid:
+
+1 September → 1 December
+
+This should be represented as a normal subscription record with an appropriate provider/source such as:
+
+ADMIN / MANUAL
+
+Do not bypass the normal subscription system.
+
+The rest of the application should simply ask:
+
+"Does this library currently have an active subscription?"
+
+---
+
+# 15. PAYMENTS
+
+Payment gateways:
+
+* Razorpay
+* Cashfree
+
+Create a payment abstraction.
+
+Conceptually:
+
+PaymentService
+↓
+PaymentProvider
+├── RazorpayProvider
+└── CashfreeProvider
+
+The application should not tightly couple business logic to a single payment provider.
+
+Payment records should contain appropriate:
+
+* library
+* subscription
+* provider
+* provider payment ID
+* provider order/subscription ID
+* amount
+* currency
+* status
+* timestamps
+
+Payment webhooks MUST be idempotent.
+
+If the same webhook is received multiple times, it must NOT create duplicate payments or duplicate subscriptions.
+
+---
+
+# 16. COUPONS
+
+Platform admin can create coupon codes.
+
+Example:
+
+LIBRARY20
+
+20% discount.
+
+Coupon system should support:
+
+* percentage discount
+* fixed discount
+* minimum amount
+* maximum discount
+* start date
+* expiry date
+* usage limit
+* per-user usage limit
+* active/inactive status
+
+Coupon calculation must happen on the backend.
+
+Never trust discount values calculated by the frontend.
+
+---
+
+# 17. AUTHENTICATION
+
+Support:
+
+* Google Sign In
+* Email OTP login
+
+Authentication should be secure.
+
+Consider:
+
+* OTP expiration
+* OTP rate limiting
+* brute-force protection
+* session security
+* account linking
+* logout
+* protected APIs
+
+Authentication and authorization are different concerns.
+
+---
+
+# 18. FILE STORAGE
+
+Use Cloudinary.
+
+Images should be optimized.
+
+Requirements:
+
+* compression
+* WebP conversion
+* responsive image transformations
+* CDN delivery
+
+Prefer direct/signed uploads rather than sending unnecessarily large files through the Node.js API.
+
+PostgreSQL should store metadata/reference information rather than large binary files.
+
+---
+
+# 19. PWA
+
+The application MUST be a Progressive Web App.
+
+Target users will primarily use mobile phones.
+
+Implement eventually:
+
+* Web App Manifest
+* Service Worker
+* Installability
+* Offline app shell
+* Appropriate caching
+* Push notifications
+
+Do NOT blindly cache sensitive information.
+
+Student documents must not be exposed through unsafe caching.
+
+---
+
+# 20. NOTIFICATIONS
+
+The system should eventually send notifications for important events.
+
+Examples:
+
+* Membership ending in 5 days
+* Membership ending tomorrow
+* Membership expired
+* Payment successful
+* Payment failed
+* Subscription expiring
+
+Architecture should support:
+
+Business Event
+↓
+Notification Service
+↓
+Queue
+↓
+Worker
+↓
+Push Notification
+
+Use Redis + background workers where appropriate.
+
+Avoid doing heavy background work inside API requests.
+
+---
+
+# 21. KANBAN
+
+A simple Kanban feature may be included.
+
+It should NOT become a complicated project-management system.
+
+Basic functionality:
+
+* Columns
+* Cards
+* Drag and drop
+* Reorder
+* Persist position
+
+No unnecessary animations.
+
+It must work properly with touch interaction on mobile.
+
+Keep the Kanban component reusable.
+
+---
+
+# 22. UI / UX
+
+The application must be MOBILE FIRST.
+
+Do not design desktop first and then shrink it.
+
+Design mobile screens first.
+
+Important mobile requirements:
+
+* Large touch targets
+* Simple navigation
+* Bottom navigation where appropriate
+* Easy forms
+* Step-based student creation
+* Responsive tables/cards
+* Avoid horizontal scrolling
+* Proper keyboard handling
+* Loading states
+* Skeleton states
+* Empty states
+* Error states
+* Confirmation dialogs for destructive actions
+
+Desktop should then adapt from the mobile-first design.
+
+The interface should look like a polished SaaS product.
+
+Avoid:
+
+* excessive gradients
+* unnecessary animations
+* huge dashboards
+* excessive shadows
+* inconsistent cards
+* random colors
+* AI-looking generic UI
+* overly complicated navigation
+
+---
+
+# 23. TECHNOLOGY
+
+Preferred stack:
+
+Frontend:
+
+Next.js
+TypeScript
+Tailwind CSS
+Material UI where useful
+shadcn/ui where useful
+React Hook Form
+Zod
+TanStack Query
+
+Backend:
+
+Node.js
+TypeScript
+Express.js or Fastify
+Zod
+
+Database:
+
+PostgreSQL
+
+ORM:
+
+Prisma
+
+Infrastructure/support:
+
+Redis
+BullMQ/background worker
+
+Storage:
+
+Cloudinary
+
+Payments:
+
+Razorpay
+Cashfree
+
+Authentication:
+
+Google OAuth
+Email OTP
+
+PWA:
+
+Service Worker
+Web App Manifest
+Web Push
+
+Package manager:
+
+pnpm
+
+Use a monorepo.
+
+---
+
+# 24. INITIAL REPOSITORY STRUCTURE
+
+Propose and justify a structure similar to:
+
+apps/
+web/
+api/
+worker/
+
+packages/
+database/
+validation/
+types/
+ui/
+auth/
+storage/
+config/
+
+docs/
+
+Do not create unnecessary applications/packages.
+
+The architecture should remain understandable to a small engineering team.
+
+---
+
+# 25. ARCHITECTURE STYLE
+
+Start with a:
+
+MODULAR MONOLITH
+
+Do NOT start with microservices.
+
+The initial system should use:
+
+Next.js
++
+Node.js API
++
+PostgreSQL
++
+Redis
++
+Worker
+
+The architecture should have clear modules so that high-load components can be extracted into services later if necessary.
+
+Do NOT introduce:
+
+* Kubernetes
+* Kafka
+* complex event sourcing
+* unnecessary microservices
+* unnecessary infrastructure
+
+unless there is a concrete requirement.
+
+---
+
+# 26. BACKEND DESIGN PRINCIPLES
+
+Use layers such as:
+
+Controller / Route
+↓
+Validation
+↓
+Service
+↓
+Repository / Data Access
+↓
+Database
+
+Business logic should NOT live inside React components.
+
+Business logic should NOT be duplicated across controllers.
+
+Use reusable services.
+
+Important services may include:
+
+AuthService
+LibraryService
+RoomService
+RowService
+SeatService
+StudentService
+MembershipService
+AttendanceService
+SubscriptionService
+PaymentService
+CouponService
+NotificationService
+FileService
+AuditService
+
+These are conceptual modules; don't create unnecessary abstractions.
+
+---
+
+# 27. DATABASE PRINCIPLES
+
+Use PostgreSQL.
+
+Use:
+
+* UUIDs
+* foreign keys
+* indexes
+* unique constraints
+* timestamps
+* transactions
+* soft deletion where appropriate
+
+Important:
+
+Design indexes based on actual query patterns.
+
+Prevent N+1 queries.
+
+Do not expose database models directly as API responses.
+
+Use DTOs / schemas where appropriate.
+
+---
+
+# 28. SECURITY
+
+Security must be considered from the beginning.
+
+Protect against:
+
+* unauthorized tenant access
+* IDOR
+* privilege escalation
+* SQL injection
+* XSS
+* CSRF where relevant
+* brute force
+* OTP abuse
+* malicious uploads
+* payment webhook spoofing
+* sensitive document exposure
+* insecure admin access
+
+Sensitive operations should be auditable.
+
+---
+
+# 29. AUDIT LOGGING
+
+Important mutations should create audit records.
+
+Examples:
+
+* Student created
+* Student archived
+* Seat assigned
+* Seat changed
+* Membership extended
+* Membership paused
+* Subscription manually activated
+* Coupon created
+* Coupon disabled
+* Admin action
+
+Audit logs should contain enough information to understand:
+
+WHO
+did WHAT
+to WHICH RESOURCE
+WHEN
+
+---
+
+# 30. PERFORMANCE
+
+The application should be designed to eventually support:
+
+* hundreds of libraries
+* thousands of libraries
+* potentially large student counts
+* large attendance history
+
+Use:
+
+* pagination
+* indexed queries
+* efficient dashboard queries
+* background jobs
+* caching where appropriate
+* connection pooling
+* optimized API responses
+
+Do not prematurely optimize everything.
+
+---
+
+# 31. IMPORTANT PRODUCT RULE
+
+The application should be:
+
+SIMPLE ON THE SURFACE
++
+SOPHISTICATED UNDER THE HOOD
+
+A library owner should not need to understand:
+
+* tenancy
+* subscriptions
+* queues
+* Redis
+* database transactions
+* RFID architecture
+
+They should simply see:
+
+Students
+Seats
+Attendance
+Memberships
+Payments
+Dashboard
+
+---
+
+# 32. V1 SCOPE
+
+The first production version should focus on:
+
+1. Authentication
+2. Multi-tenancy
+3. Library creation
+4. Rooms
+5. Rows
+6. Seats
+7. Students
+8. Student documents
+9. Memberships
+10. Membership pauses
+11. Seat assignments
+12. Manual attendance
+13. Dashboard
+14. Subscriptions
+15. Razorpay
+16. Cashfree
+17. Coupons
+18. Platform Admin
+19. Notifications
+20. PWA
+21. Service Worker
+22. Push notifications
+23. Basic Kanban
+
+---
+
+# 33. FUTURE V2/V3
+
+Future features may include:
+
+V2:
+
+* QR attendance
+* advanced reports
+* staff accounts
+* advanced analytics
+* better notification management
+
+V3:
+
+* RFID
+* device gateway
+* networking devices
+* WebSocket/MQTT
+* seat sensors
+* hardware integrations
+
+Do NOT implement V2/V3 features now.
+
+Only ensure V1 architecture does not prevent them.
+
+---
+
+# 34. YOUR FIRST TASK
+
+Again:
+
+DO NOT BUILD THE APPLICATION YET.
+
+First inspect this complete requirement.
+
+Then create:
+
+/docs/product-requirements.md
+/docs/system-architecture.md
+/docs/database-design.md
+/docs/security-model.md
+/docs/api-architecture.md
+/docs/frontend-architecture.md
+/docs/testing-strategy.md
+/docs/development-roadmap.md
+
+Also create:
+
+/docs/decisions/
+
+for important Architecture Decision Records (ADRs).
+
+Create an initial:
+
+ADR-001: Modular Monolith Architecture
+
+ADR-002: Multi-Tenant Architecture
+
+ADR-003: Attendance Provider Abstraction
+
+ADR-004: Payment Provider Abstraction
+
+ADR-005: Storage Architecture
+
+ADR-006: Notification Architecture
+
+---
+
+# 35. ARCHITECTURE DIAGRAMS
+
+Include diagrams using Mermaid where useful.
+
+At minimum provide:
+
+1. High-level system architecture
+2. Multi-tenancy relationship
+3. Database ER diagram
+4. Student membership lifecycle
+5. Attendance architecture
+6. Payment architecture
+7. Notification architecture
+8. Future RFID architecture
+
+---
+
+# 36. DO NOT MAKE ASSUMPTIONS SILENTLY
+
+If a requirement is ambiguous:
+
+DO NOT silently make a major architectural decision.
+
+Document the assumption.
+
+For example:
+
+"Assumption: membership pause days extend the membership end date."
+
+Then mark it as:
+
+OPEN PRODUCT DECISION
+
+so it can be reviewed.
+
+---
+
+# 37. REQUIRED OUTPUT
+
+At the end, provide me with:
+
+## A. Architecture Summary
+
+Explain the proposed architecture in simple language.
+
+## B. Repository Structure
+
+Show the complete proposed folder structure.
+
+## C. Database ER Diagram
+
+Show all major relationships.
+
+## D. Module Architecture
+
+Explain backend modules.
+
+## E. Authentication Architecture
+
+Explain Google + Email OTP.
+
+## F. Subscription Architecture
+
+Explain plans, subscriptions, payments and coupons.
+
+## G. PWA Architecture
+
+Explain service worker and push notifications.
+
+## H. Future RFID Architecture
+
+Explain how RFID can be integrated without rebuilding the application.
+
+## I. Development Roadmap
+
+Break development into small phases.
+
+## J. Risks
+
+Identify architectural/product risks.
+
+## K. Open Questions
+
+List decisions that require my approval.
+
+---
+
+# 38. STRICT AGENT BEHAVIOR
+
+Before implementing anything:
+
+1. Analyze.
+2. Plan.
+3. Document.
+4. Show proposed architecture.
+5. Identify risks.
+6. Identify assumptions.
+7. Wait for approval.
+
+Do NOT:
+
+* randomly install dependencies
+* create unnecessary files
+* implement features prematurely
+* redesign requirements without explaining why
+* introduce unnecessary infrastructure
+* delete existing work
+* make destructive changes
+* claim something is complete without verification
+
+When implementation begins later:
+
+For every phase:
+
+PLAN
+→ IMPLEMENT
+→ TYPECHECK
+→ LINT
+→ TEST
+→ BROWSER TEST
+→ REVIEW
+→ REPORT
+
+Do not mark a phase complete until verification succeeds.
+
+---
+
+# 39. FINAL INSTRUCTION
+
+Your immediate task is ONLY:
+
+UNDERSTAND THE PRODUCT
++
+DESIGN THE ARCHITECTURE
++
+CREATE THE DOCUMENTATION
++
+CREATE THE ROADMAP.
+
+Do not build the actual application yet.
+
+After completing the planning phase, stop and wait for my approval.
+
+I will review your generated artifacts and your activity before giving you permission to proceed to Phase 1.

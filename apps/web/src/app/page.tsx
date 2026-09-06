@@ -1,0 +1,2331 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import {
+  LayoutDashboard,
+  Armchair,
+  CheckCircle2,
+  Users,
+  MoreHorizontal,
+  Bell,
+  Clock,
+  ChevronRight,
+  Plus,
+  Layers,
+  Building2,
+  Sparkles,
+  LogIn,
+  LogOut,
+  Check,
+  Zap,
+  ChevronDown,
+  ShieldCheck,
+  MapPin,
+  Phone,
+  ArrowLeft,
+  ArrowRight,
+  MoreVertical,
+  Trash2,
+  Pencil,
+  IndianRupee,
+  ReceiptText,
+} from 'lucide-react';
+import type { SeatStatus } from '@library/types';
+import dynamic from 'next/dynamic';
+import { SeatGrid, VisualSeatItem } from '../components/SeatGrid';
+import { BatchSeatModal } from '../components/BatchSeatModal';
+import { StudentList, StudentItem, StudentFeeRecord } from '../components/StudentList';
+import { StudentModal } from '../components/StudentModal';
+import { AttendanceRoster, RosterItem } from '../components/AttendanceRoster';
+import { SubscriptionCard } from '../components/SubscriptionCard';
+import { KanbanBoard } from '../components/KanbanBoard';
+import { AuthModal } from '../components/AuthModal';
+import { CreateLibraryModal } from '../components/CreateLibraryModal';
+import { RoomRowModal } from '../components/RoomRowModal';
+import { AddRowModal } from '../components/AddRowModal';
+import { EditRoomModal } from '../components/EditRoomModal';
+import { StudentProfileModal } from '../components/StudentProfileModal';
+import { AssignSeatModal } from '../components/AssignSeatModal';
+import { QuickCheckHero } from '../components/QuickCheckHero';
+import { PublicLandingPage } from '../components/PublicLandingPage';
+import { AdminDashboard } from '../components/AdminDashboard';
+import { TransactionsView } from '../components/TransactionsView';
+import { CollectFeeModal } from '../components/CollectFeeModal';
+import { DesktopSidebar } from '../components/DesktopSidebar';
+import { DashboardChart } from '../components/DashboardChart';
+
+const PWACompanion = dynamic(
+  () => import('../components/PWACompanion').then((m) => m.PWACompanion),
+  { ssr: false }
+);
+
+export interface LibraryBranch {
+  id: string;
+  name: string;
+  contactPhone: string;
+  address?: string;
+  rooms: { id: string; name: string; rows: string[] }[];
+  seats: VisualSeatItem[];
+  students: StudentItem[];
+  feeTransactions?: StudentFeeRecord[];
+  createdAt: string;
+}
+
+export default function MobileDashboard() {
+  const [mounted, setMounted] = useState(false);
+  const [activeTab, setActiveTab] = useState<'home' | 'seats' | 'attendance' | 'students' | 'transactions' | 'more'>('home');
+  const [studentSubTab, setStudentSubTab] = useState<'directory' | 'pipeline'>('directory');
+  const [studentFilterTab, setStudentFilterTab] = useState<'ALL' | 'EXPIRING_5_DAYS' | 'FEE_DUE' | 'ACTIVE'>('ALL');
+  const [isCollectFeeModalOpen, setIsCollectFeeModalOpen] = useState(false);
+  const [studentForFeeCollection, setStudentForFeeCollection] = useState<StudentItem | null>(null);
+  const [returnToStudentProfileId, setReturnToStudentProfileId] = useState<string | null>(null);
+
+  // User Authentication State - ZERO dummy user initially
+  const [currentUser, setCurrentUser] = useState<{
+    fullName: string;
+    email: string;
+    phone: string;
+    role: string;
+    avatar?: string;
+  } | null>(null);
+
+  // Multi-Library State - ZERO dummy data initially
+  const [libraries, setLibraries] = useState<LibraryBranch[]>([]);
+  const [activeLibraryId, setActiveLibraryId] = useState<string | null>(null);
+  const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
+  const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'kushwahashubham5932@gmail.com').toLowerCase().trim();
+  const isSuperAdmin =
+    currentUser?.role === 'SUPER_ADMIN' ||
+    Boolean(
+      currentUser?.email &&
+        (currentUser.email.toLowerCase().trim() === adminEmail ||
+          currentUser.email.toLowerCase().trim() === 'kushwahashubham5932@gmail.com' ||
+          currentUser.email.toLowerCase().trim() === 'admin@libraryhub.com')
+    );
+  const [isAdminPortalView, setIsAdminPortalView] = useState(false);
+
+  useEffect(() => {
+    if (isSuperAdmin) {
+      setIsAdminPortalView(true);
+      if (currentUser && currentUser.role !== 'SUPER_ADMIN') {
+        const upgraded = { ...currentUser, role: 'SUPER_ADMIN' };
+        setCurrentUser(upgraded);
+        try {
+          localStorage.setItem('seelibrary_user', JSON.stringify(upgraded));
+        } catch {}
+      }
+    } else {
+      setIsAdminPortalView(false);
+    }
+  }, [isSuperAdmin, currentUser?.role]);
+
+  // Modal States
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
+  const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
+  const [isAddRowModalOpen, setIsAddRowModalOpen] = useState(false);
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+  const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
+  const [selectedStudentForProfile, setSelectedStudentForProfile] = useState<StudentItem | null>(null);
+  const [selectedSeatForAssignment, setSelectedSeatForAssignment] = useState<VisualSeatItem | null>(null);
+  const [preselectedSeatNumberForNewStudent, setPreselectedSeatNumberForNewStudent] = useState<string | null>(null);
+
+  // Selected Room for Room-First Hierarchy
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [editingRoom, setEditingRoom] = useState<{ id: string; name: string } | null>(null);
+  const [activeRoomMenuId, setActiveRoomMenuId] = useState<string | null>(null);
+
+  // Sync and fetch libraries from PostgreSQL
+  const loadUserLibrariesFromDb = async (userEmail: string, localFallbackLibs?: LibraryBranch[]) => {
+    try {
+      // 1. Sync User in DB and get canonical role
+      const authRes = await fetch('/api/auth/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: userEmail, fullName: currentUser?.fullName || '' }),
+      });
+
+      if (authRes.ok) {
+        const authData = await authRes.json();
+        if (authData.user?.role === 'SUPER_ADMIN') {
+          setCurrentUser((prev) => (prev ? { ...prev, role: 'SUPER_ADMIN' } : null));
+          setIsAdminPortalView(true);
+          try {
+            const currentSaved = localStorage.getItem('seelibrary_user');
+            if (currentSaved) {
+              const parsed = JSON.parse(currentSaved);
+              parsed.role = 'SUPER_ADMIN';
+              localStorage.setItem('seelibrary_user', JSON.stringify(parsed));
+            }
+          } catch {}
+        }
+      }
+
+      // 2. Sync and fetch all libraries for this user from DB
+      const res = await fetch('/api/libraries/sync-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userEmail, localLibraries: localFallbackLibs || [] }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.libraries && Array.isArray(data.libraries)) {
+          setLibraries(data.libraries);
+          try {
+            localStorage.setItem('seelibrary_libraries', JSON.stringify(data.libraries));
+          } catch {}
+
+          if (data.libraries.length > 0) {
+            setActiveLibraryId((prev) => {
+              if (prev && data.libraries.some((l: any) => l.id === prev)) return prev;
+              return data.libraries[0].id;
+            });
+          } else {
+            setActiveLibraryId(null);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Database sync encountered an issue, using local cache:', err);
+    }
+  };
+
+  useEffect(() => {
+    setMounted(true);
+    try {
+      const savedUser = localStorage.getItem('seelibrary_user') || localStorage.getItem('quickcheck_user');
+      const savedLibs = localStorage.getItem('seelibrary_libraries') || localStorage.getItem('quickcheck_libraries');
+      const savedActiveId = localStorage.getItem('seelibrary_active_lib_id') || localStorage.getItem('quickcheck_active_lib_id');
+
+      let parsedUser = null;
+      let parsedLibs: LibraryBranch[] = [];
+
+      if (savedUser) {
+        parsedUser = JSON.parse(savedUser);
+        const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'kushwahashubham5932@gmail.com').toLowerCase().trim();
+        const userClean = (parsedUser.email || '').toLowerCase().trim();
+        if (userClean === adminEmail || userClean === 'kushwahashubham5932@gmail.com' || userClean === 'admin@libraryhub.com') {
+          parsedUser.role = 'SUPER_ADMIN';
+          setIsAdminPortalView(true);
+        }
+        setCurrentUser(parsedUser);
+      }
+
+      if (savedLibs) {
+        parsedLibs = JSON.parse(savedLibs);
+        setLibraries(parsedLibs);
+        if (savedActiveId) {
+          setActiveLibraryId(savedActiveId);
+        } else if (parsedLibs.length > 0) {
+          setActiveLibraryId(parsedLibs[0].id);
+        }
+      }
+
+      // Automatically sync with PostgreSQL database if user is logged in
+      if (parsedUser?.email) {
+        loadUserLibrariesFromDb(parsedUser.email, parsedLibs);
+      }
+    } catch {
+      // Ignore localStorage errors in private browsing
+    }
+  }, []);
+
+  // Sync state changes to localStorage and database
+  const handleUserLogin = (user: { fullName: string; email: string; phone: string; role: string; avatar?: string }) => {
+    const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'kushwahashubham5932@gmail.com').toLowerCase().trim();
+    const userClean = (user.email || '').toLowerCase().trim();
+    const isSuper = userClean === adminEmail || userClean === 'kushwahashubham5932@gmail.com' || userClean === 'admin@libraryhub.com' || user.role === 'SUPER_ADMIN';
+    const effectiveUser = isSuper ? { ...user, role: 'SUPER_ADMIN' } : user;
+    if (isSuper) {
+      setIsAdminPortalView(true);
+    }
+    setCurrentUser(effectiveUser);
+    try {
+      localStorage.setItem('seelibrary_user', JSON.stringify(effectiveUser));
+    } catch {}
+
+    // Load libraries for this user from database
+    loadUserLibrariesFromDb(effectiveUser.email, libraries);
+  };
+
+  const handleUserLogout = () => {
+    setCurrentUser(null);
+    setLibraries([]);
+    setActiveLibraryId(null);
+    setIsAuthModalOpen(false);
+    try {
+      localStorage.removeItem('seelibrary_user');
+      localStorage.removeItem('quickcheck_user');
+      localStorage.removeItem('seelibrary_libraries');
+      localStorage.removeItem('seelibrary_active_lib_id');
+    } catch {}
+  };
+
+  // Find active library
+  const activeLibrary = libraries.find((l) => l.id === activeLibraryId) || libraries[0] || null;
+
+  // Active library child entities
+  const rawSeats = activeLibrary ? activeLibrary.seats : [];
+  const seats = [...rawSeats].sort((a, b) =>
+    a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' })
+  );
+  const students = activeLibrary ? activeLibrary.students : [];
+  const rooms = activeLibrary ? activeLibrary.rooms : [];
+
+  // Display rooms with fallback for libraries with seats but unconfigured rooms
+  const displayRooms = (rooms && rooms.length > 0)
+    ? rooms
+    : seats.length > 0
+      ? [{ id: 'room-default', name: 'Main Study Hall', rows: Array.from(new Set(seats.map((s) => s.rowName || 'Row A'))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })) }]
+      : [];
+
+  const getSeatsForRoom = (room: { id: string; name: string; rows: string[] }) => {
+    return seats
+      .filter((s) => {
+        if (s.roomId) {
+          return s.roomId === room.id;
+        }
+        if (room.rows && room.rows.some((r) => r.toLowerCase().trim() === (s.rowName || '').toLowerCase().trim())) {
+          return true;
+        }
+        const otherRooms = displayRooms.filter((r) => r.id !== room.id);
+        const matchesOther = otherRooms.some(
+          (or) => or.rows && or.rows.some((r) => r.toLowerCase().trim() === (s.rowName || '').toLowerCase().trim())
+        );
+        if (!matchesOther && displayRooms[0]?.id === room.id) {
+          return true;
+        }
+        return false;
+      })
+      .sort((a, b) =>
+        a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' })
+      );
+  };
+
+  const currentSelectedRoom = displayRooms.find((r) => r.id === selectedRoomId) || null;
+  const currentRoomSeats = currentSelectedRoom ? getSeatsForRoom(currentSelectedRoom) : [];
+  const currentRoomOccupied = currentRoomSeats.filter((s) => s.status === 'OCCUPIED').length;
+
+  // Metrics computed purely on real data
+  const totalSeats = seats.length;
+  const occupiedCount = seats.filter((s) => s.status === 'OCCUPIED').length;
+  const availableCount = seats.filter((s) => s.status === 'AVAILABLE').length;
+  const occupancyPercentage = totalSeats > 0 ? Math.round((occupiedCount / totalSeats) * 100) : 0;
+  const expiringSoonCount = students.filter((s) => s.membershipEndsInDays <= 5 && s.status === 'ACTIVE').length;
+
+  // Mutators for active library
+  const updateActiveLibrary = (updater: (prevLib: LibraryBranch) => LibraryBranch) => {
+    if (!activeLibrary) return;
+    setLibraries((prev) => {
+      const updated = prev.map((lib) => {
+        if (lib.id === activeLibrary.id) {
+          const res = updater(lib);
+          if (res.seats && Array.isArray(res.seats)) {
+            res.seats = [...res.seats].sort((a, b) =>
+              a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' })
+            );
+          }
+          return res;
+        }
+        return lib;
+      });
+      try {
+        localStorage.setItem('seelibrary_libraries', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const handleCreateLibrary = async (data: { name: string; contactPhone: string; address?: string }) => {
+    try {
+      const res = await fetch('/api/libraries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userEmail: currentUser?.email || 'admin@seelibrary.com',
+          name: data.name,
+          contactPhone: data.contactPhone,
+          address: data.address,
+        }),
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        const newLib = result.library;
+        setLibraries((prev) => {
+          const updated = [...prev, newLib];
+          try {
+            localStorage.setItem('seelibrary_libraries', JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+        setActiveLibraryId(newLib.id);
+        setIsBranchDropdownOpen(false);
+        setIsLibraryModalOpen(false);
+        return;
+      }
+    } catch (e) {
+      console.error('Database create library error:', e);
+    }
+
+    // Fallback if network offline
+    const newLib: LibraryBranch = {
+      id: `lib-${Date.now()}`,
+      name: data.name,
+      contactPhone: data.contactPhone,
+      address: data.address,
+      rooms: [{ id: `r-${Date.now()}`, name: 'Main Hall', rows: ['Row A', 'Row B'] }],
+      seats: [],
+      students: [],
+      createdAt: new Date().toISOString(),
+    };
+
+    setLibraries((prev) => {
+      const updated = [...prev, newLib];
+      try {
+        localStorage.setItem('seelibrary_libraries', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    setActiveLibraryId(newLib.id);
+    try {
+      localStorage.setItem('seelibrary_active_lib_id', newLib.id);
+    } catch {}
+    setIsBranchDropdownOpen(false);
+    setIsLibraryModalOpen(false);
+  };
+
+  const handleStatusChange = async (seatId: string, newStatus: SeatStatus) => {
+    if (activeLibrary) {
+      try {
+        await fetch(`/api/libraries/${activeLibrary.id}/seats`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seatId, status: newStatus }),
+        });
+      } catch (e) {
+        console.error('Failed to update seat status in DB:', e);
+      }
+    }
+
+    updateActiveLibrary((lib) => ({
+      ...lib,
+      seats: lib.seats.map((s) =>
+        s.id === seatId
+          ? {
+              ...s,
+              status: newStatus,
+              studentName: newStatus === 'AVAILABLE' ? null : s.studentName,
+            }
+          : s
+      ),
+    }));
+  };
+
+  const handleRoomCreated = async (data: {
+    roomName: string;
+    rowNames: string[];
+    seatsPerRow?: number;
+    startNumber?: number;
+  }) => {
+    if (activeLibrary) {
+      try {
+        const res = await fetch(`/api/libraries/${activeLibrary.id}/rooms`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+
+        if (res.ok) {
+          const result = await res.json();
+          const createdRoom = result.room;
+          const createdSeats = result.seats || [];
+
+          updateActiveLibrary((lib) => {
+            const existingRooms = (lib.rooms || []).filter(
+              (r) => r.name !== 'Main Hall' || lib.seats.length > 0
+            );
+            return {
+              ...lib,
+              rooms: [...existingRooms, createdRoom],
+              seats: [...lib.seats, ...createdSeats],
+            };
+          });
+
+          setSelectedRoomId(createdRoom.id);
+          return;
+        }
+      } catch (e) {
+        console.error('Database create room error:', e);
+      }
+    }
+
+    // Fallback if offline
+    const finalRoomName = data.roomName.trim() || 'Ground Floor - Silent Hall';
+    const validRows = data.rowNames.filter((r) => r.trim().length > 0);
+    const finalRows = validRows.length > 0 ? validRows : ['Row A', 'Row B'];
+
+    const newRoomId = `r-${Date.now()}`;
+    const newRoom = { id: newRoomId, name: finalRoomName, rows: finalRows };
+    const seatsPerRow = data.seatsPerRow ?? 10;
+    const newSeats: VisualSeatItem[] = [];
+
+    if (seatsPerRow > 0) {
+      let currentNum = Math.max(1, data.startNumber || 1);
+      finalRows.forEach((rowName, rIdx) => {
+        const rowMatch = rowName.match(/([A-Za-z0-9]+)$/);
+        const prefix = rowMatch ? `${rowMatch[1].toUpperCase()}-` : `R${rIdx + 1}-`;
+
+        for (let i = 0; i < seatsPerRow; i++) {
+          const num = currentNum < 10 ? `0${currentNum}` : `${currentNum}`;
+          newSeats.push({
+            id: `seat-${Date.now()}-${rIdx}-${currentNum}`,
+            seatNumber: `${prefix}${num}`,
+            rowName: rowName,
+            status: 'AVAILABLE',
+            studentName: null,
+            roomId: newRoomId,
+          });
+          currentNum++;
+        }
+      });
+    }
+
+    updateActiveLibrary((lib) => {
+      const existingRooms = (lib.rooms || []).filter(
+        (r) => r.name !== 'Main Hall' || lib.seats.length > 0
+      );
+      return {
+        ...lib,
+        rooms: [...existingRooms, newRoom],
+        seats: [...lib.seats, ...newSeats],
+      };
+    });
+
+    setSelectedRoomId(newRoomId);
+  };
+
+  const handleAddRowsToRoom = async (data: { rowNames: string[]; seatsPerRow: number; startNumber?: number }) => {
+    if (!currentSelectedRoom || !activeLibrary) return;
+    const roomId = currentSelectedRoom.id;
+
+    try {
+      const res = await fetch(`/api/libraries/${activeLibrary.id}/rows`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId,
+          rowNames: data.rowNames,
+          seatsPerRow: data.seatsPerRow,
+          startNumber: data.startNumber,
+        }),
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        updateActiveLibrary((lib) => ({
+          ...lib,
+          rooms: (lib.rooms || []).map((r) =>
+            r.id === roomId
+              ? { ...r, rows: Array.from(new Set([...r.rows, ...data.rowNames])) }
+              : r
+          ),
+          seats: [...lib.seats, ...(result.seats || [])],
+        }));
+        setIsAddRowModalOpen(false);
+        return;
+      }
+    } catch (e) {
+      console.error('Failed to add rows to room in DB:', e);
+    }
+
+    // Fallback if offline
+    const fallbackSeats: VisualSeatItem[] = [];
+    let currentNum = Math.max(1, data.startNumber || 1);
+    data.rowNames.forEach((rName) => {
+      for (let i = 0; i < data.seatsPerRow; i++) {
+        const num = currentNum < 10 ? `0${currentNum}` : `${currentNum}`;
+        fallbackSeats.push({
+          id: `seat-${Date.now()}-${rName}-${currentNum}`,
+          seatNumber: `${num}`,
+          rowName: rName,
+          status: 'AVAILABLE',
+          studentName: null,
+          roomId,
+        });
+        currentNum++;
+      }
+    });
+
+    updateActiveLibrary((lib) => ({
+      ...lib,
+      rooms: (lib.rooms || []).map((r) =>
+        r.id === roomId
+          ? { ...r, rows: Array.from(new Set([...r.rows, ...data.rowNames])) }
+          : r
+      ),
+      seats: [...lib.seats, ...fallbackSeats],
+    }));
+    setIsAddRowModalOpen(false);
+  };
+
+  const handleBatchGenerate = async (data: { prefix: string; startNumber: number; count: number; rowName?: string }) => {
+    const targetRoom = currentSelectedRoom || displayRooms[0];
+    const targetRoomId = targetRoom?.id;
+    const targetRow = data.rowName || targetRoom?.rows?.[0] || 'Row A';
+
+    if (!activeLibrary) return;
+
+    try {
+      const res = await fetch(`/api/libraries/${activeLibrary.id}/seats`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...data,
+          roomId: targetRoomId,
+          rowName: targetRow,
+        }),
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        if (result.seats && result.seats.length > 0) {
+          updateActiveLibrary((lib) => ({
+            ...lib,
+            rooms: (lib.rooms || []).map((r) =>
+              r.id === targetRoomId && !r.rows.includes(targetRow)
+                ? { ...r, rows: [...r.rows, targetRow] }
+                : r
+            ),
+            seats: [...lib.seats, ...result.seats],
+          }));
+          return;
+        } else if (result.message) {
+          alert(result.message);
+          return;
+        }
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Could not generate seats: ${err.error || 'Server error'}`);
+        return;
+      }
+    } catch (e) {
+      console.error('Database batch generate error:', e);
+      alert('Network error while generating batch seats. Please check your connection.');
+      return;
+    }
+  };
+
+  const handleSaveRoomName = async (newName: string) => {
+    if (!editingRoom || !activeLibrary) return;
+
+    try {
+      await fetch(`/api/libraries/${activeLibrary.id}/rooms`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId: editingRoom.id, newName }),
+      });
+    } catch (e) {
+      console.error('Failed to rename room in DB:', e);
+    }
+
+    updateActiveLibrary((lib) => ({
+      ...lib,
+      rooms: (lib.rooms || []).map((r) =>
+        r.id === editingRoom.id ? { ...r, name: newName } : r
+      ),
+    }));
+    setEditingRoom(null);
+  };
+
+  const handleDeleteRoom = async (roomId: string) => {
+    const targetRoom = displayRooms.find((r) => r.id === roomId);
+    if (!targetRoom || !activeLibrary) return;
+
+    if (
+      !window.confirm(
+        `Are you sure you want to delete room "${targetRoom.name}"?\nAll rows and seats in this room will be permanently deleted from the database.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await fetch(`/api/libraries/${activeLibrary.id}/rooms?roomId=${roomId}`, {
+        method: 'DELETE',
+      });
+    } catch (e) {
+      console.error('Failed to delete room in DB:', e);
+    }
+
+    const roomSeats = getSeatsForRoom(targetRoom);
+    const roomSeatIds = new Set(roomSeats.map((s) => s.id));
+
+    updateActiveLibrary((lib) => ({
+      ...lib,
+      rooms: (lib.rooms || []).filter((r) => r.id !== roomId),
+      seats: (lib.seats || []).filter((s) => !roomSeatIds.has(s.id)),
+    }));
+
+    if (selectedRoomId === roomId) {
+      setSelectedRoomId(null);
+    }
+    setActiveRoomMenuId(null);
+  };
+
+  const handleDeleteRow = async (rowName: string) => {
+    if (!currentSelectedRoom || !activeLibrary) return;
+
+    try {
+      const res = await fetch(
+        `/api/libraries/${activeLibrary.id}/rows?rowName=${encodeURIComponent(rowName)}&roomId=${currentSelectedRoom.id}`,
+        { method: 'DELETE' }
+      );
+      if (!res.ok) {
+        console.error('Failed to delete row in DB:', await res.text());
+      }
+    } catch (e) {
+      console.error('Failed to delete row in DB:', e);
+    }
+
+    updateActiveLibrary((lib) => {
+      const deletedSeatNumbers = (lib.seats || [])
+        .filter((s) => {
+          const isThisRoom =
+            s.roomId === currentSelectedRoom.id ||
+            (!s.roomId && displayRooms[0]?.id === currentSelectedRoom.id);
+          return isThisRoom && (s.rowName || 'Row A').toLowerCase() === rowName.toLowerCase();
+        })
+        .map((s) => s.seatNumber);
+
+      return {
+        ...lib,
+        rooms: (lib.rooms || []).map((r) =>
+          r.id === currentSelectedRoom.id
+            ? { ...r, rows: r.rows.filter((rw) => rw.toLowerCase() !== rowName.toLowerCase()) }
+            : r
+        ),
+        seats: (lib.seats || []).filter((s) => !deletedSeatNumbers.includes(s.seatNumber)),
+        students: (lib.students || []).map((std) =>
+          std.seatNumber && deletedSeatNumbers.includes(std.seatNumber)
+            ? { ...std, seatNumber: null }
+            : std
+        ),
+      };
+    });
+  };
+
+  const handleDeleteSeat = async (seatId: string) => {
+    if (activeLibrary) {
+      try {
+        await fetch(`/api/libraries/${activeLibrary.id}/seats?seatId=${seatId}`, {
+          method: 'DELETE',
+        });
+      } catch (e) {
+        console.error('Failed to delete seat in DB:', e);
+      }
+    }
+
+    updateActiveLibrary((lib) => ({
+      ...lib,
+      seats: (lib.seats || []).filter((s) => s.id !== seatId),
+    }));
+  };
+
+  const handleStudentCreated = async (data: {
+    fullName: string;
+    phone: string;
+    studyPurpose?: string;
+    shift: string;
+    durationMonths?: number;
+    feeAmount?: number;
+    seatNumber?: string | null;
+    photoUrl?: string | null;
+    kycPhotoUrl?: string | null;
+    kycDocId?: string;
+    kycType?: string;
+  }) => {
+    if (!activeLibrary) return;
+
+    const chosenSeatNumber = data.seatNumber || null;
+
+    try {
+      const res = await fetch(`/api/libraries/${activeLibrary.id}/students`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...data,
+          seatNumber: chosenSeatNumber,
+        }),
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        const newStudent = result.student;
+        const initialTx = result.transaction;
+
+        updateActiveLibrary((lib) => ({
+          ...lib,
+          students: [newStudent, ...lib.students],
+          feeTransactions: initialTx ? [initialTx, ...(lib.feeTransactions || [])] : (lib.feeTransactions || []),
+          seats: chosenSeatNumber
+            ? lib.seats.map((s) =>
+                s.seatNumber === chosenSeatNumber
+                  ? { ...s, status: 'OCCUPIED' as const, studentName: data.fullName, shift: data.shift }
+                  : s
+              )
+            : lib.seats,
+        }));
+        setIsStudentModalOpen(false);
+        setPreselectedSeatNumberForNewStudent(null);
+        return;
+      }
+    } catch (e) {
+      console.error('Failed to create student in DB:', e);
+    }
+
+    // Fallback if offline
+    const fallbackStdId = `std-${Date.now()}`;
+    const fallbackAmount = data.feeAmount ? Number(data.feeAmount) : 0;
+    let fallbackTx: StudentFeeRecord | null = null;
+    if (fallbackAmount > 0) {
+      const fallbackMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      fallbackTx = {
+        id: `tx-${Date.now()}`,
+        studentId: fallbackStdId,
+        studentName: data.fullName,
+        studentPhone: data.phone,
+        seatNumber: chosenSeatNumber,
+        amount: fallbackAmount,
+        paidForMonth: fallbackMonth,
+        paymentDate: new Date().toISOString(),
+        paymentMode: 'UPI',
+        status: 'PAID',
+        receiptNumber: `REC-${Date.now().toString().slice(-6)}`,
+        notes: 'Initial registration fee',
+      };
+    }
+
+    const newStudent: StudentItem = {
+      id: fallbackStdId,
+      fullName: data.fullName,
+      phone: data.phone,
+      studyPurpose: data.studyPurpose,
+      shift: data.shift,
+      seatNumber: fallbackAmount > 0 ? chosenSeatNumber : null,
+      status: fallbackAmount > 0 ? 'ACTIVE' : 'EXPIRED',
+      membershipEndsInDays: fallbackAmount > 0 ? (data.durationMonths || 1) * 30 : 0,
+      photoUrl: data.photoUrl || undefined,
+      kycPhotoUrl: data.kycPhotoUrl || undefined,
+      kycDocId: data.kycDocId || undefined,
+      kycType: data.kycType || 'AADHAAR',
+      monthlyFee: fallbackAmount,
+      transactions: fallbackTx ? [fallbackTx] : [],
+    };
+
+    updateActiveLibrary((lib) => ({
+      ...lib,
+      students: [newStudent, ...lib.students],
+      feeTransactions: fallbackTx ? [fallbackTx, ...(lib.feeTransactions || [])] : (lib.feeTransactions || []),
+      seats: chosenSeatNumber && fallbackAmount > 0
+        ? lib.seats.map((s) =>
+            s.seatNumber === chosenSeatNumber
+              ? { ...s, status: 'OCCUPIED' as const, studentName: data.fullName, shift: data.shift }
+              : s
+          )
+        : lib.seats,
+    }));
+    setIsStudentModalOpen(false);
+    setPreselectedSeatNumberForNewStudent(null);
+  };
+
+  const handleAssignSeat = async (studentId: string, seatNumber: string | null) => {
+    if (!activeLibrary) return;
+    const student = activeLibrary.students.find((s) => s.id === studentId);
+    const oldSeatNumber = student?.seatNumber;
+
+    // 1. Optimistic UI update
+    updateActiveLibrary((lib) => {
+      const updatedStudents = lib.students.map((std) =>
+        std.id === studentId ? { ...std, seatNumber } : std
+      );
+
+      const updatedSeats = lib.seats.map((seat) => {
+        // Free old seat if previously occupied by this student
+        if (oldSeatNumber && seat.seatNumber === oldSeatNumber) {
+          return { ...seat, status: 'AVAILABLE' as const, studentName: null };
+        }
+        // Occupy new seat
+        if (seatNumber && seat.seatNumber === seatNumber) {
+          return {
+            ...seat,
+            status: 'OCCUPIED' as const,
+            studentName: student?.fullName || 'Student',
+          };
+        }
+        return seat;
+      });
+
+      return { ...lib, students: updatedStudents, seats: updatedSeats };
+    });
+
+    // Update active modal student state
+    setSelectedStudentForProfile((prev) =>
+      prev && prev.id === studentId ? { ...prev, seatNumber } : prev
+    );
+
+    // 2. Sync with database
+    try {
+      await fetch(`/api/libraries/${activeLibrary.id}/seats/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId, seatNumber }),
+      });
+    } catch (e) {
+      console.error('Failed to sync seat assignment with DB:', e);
+    }
+  };
+
+  const handleUpdateStudent = async (studentId: string, data: Partial<StudentItem>) => {
+    if (!activeLibrary) return;
+
+    // 1. Optimistic UI update
+    updateActiveLibrary((lib) => {
+      const updatedStudents = lib.students.map((s) =>
+        s.id === studentId ? { ...s, ...data } : s
+      );
+
+      // If name or shift changed, also update any seat assigned to this student
+      const updatedSeats = lib.seats.map((seat) => {
+        const student = lib.students.find((s) => s.id === studentId);
+        if (student && student.seatNumber && seat.seatNumber === student.seatNumber) {
+          return {
+            ...seat,
+            studentName: data.fullName ?? seat.studentName,
+            shift: data.shift ?? seat.shift,
+          };
+        }
+        return seat;
+      });
+
+      return { ...lib, students: updatedStudents, seats: updatedSeats };
+    });
+
+    // Update active modal student state
+    setSelectedStudentForProfile((prev) =>
+      prev && prev.id === studentId ? { ...prev, ...data } : prev
+    );
+
+    // 2. Persist to PostgreSQL database
+    try {
+      await fetch(`/api/libraries/${activeLibrary.id}/students/${studentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+    } catch (e) {
+      console.error('Failed to update student in DB:', e);
+    }
+  };
+
+  const handleDeleteStudent = async (studentId: string) => {
+    if (!activeLibrary) return;
+    const student = activeLibrary.students.find((s) => s.id === studentId);
+    const assignedSeat = student?.seatNumber;
+
+    // 1. Optimistic UI update
+    updateActiveLibrary((lib) => {
+      const remainingStudents = lib.students.filter((s) => s.id !== studentId);
+      const updatedSeats = lib.seats.map((seat) => {
+        if (assignedSeat && seat.seatNumber === assignedSeat) {
+          return {
+            ...seat,
+            status: 'AVAILABLE' as const,
+            studentName: null,
+            shift: undefined,
+          };
+        }
+        return seat;
+      });
+
+      return { ...lib, students: remainingStudents, seats: updatedSeats };
+    });
+
+    setSelectedStudentForProfile(null);
+
+    // 2. Persist delete to PostgreSQL backend
+    try {
+      await fetch(`/api/libraries/${activeLibrary.id}/students/${studentId}`, {
+        method: 'DELETE',
+      });
+    } catch (e) {
+      console.error('Failed to delete student in DB:', e);
+    }
+  };
+
+  const handleRecordFeePayment = async (paymentData: {
+    studentId: string;
+    amount: number;
+    paidForMonth: string;
+    paymentMode: string;
+    paymentDate: string;
+    notes?: string;
+    extendDays: number;
+    shift?: string;
+  }) => {
+    if (!activeLibrary) return;
+
+    const receiptNumber = `REC-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const student = activeLibrary.students.find((s) => s.id === paymentData.studentId);
+
+    const newTx: StudentFeeRecord = {
+      id: `tx-${Date.now()}`,
+      studentId: paymentData.studentId,
+      studentName: student?.fullName || 'Student',
+      studentPhone: student?.phone || '',
+      seatNumber: student?.seatNumber || null,
+      amount: paymentData.amount,
+      paidForMonth: paymentData.paidForMonth,
+      paymentDate: paymentData.paymentDate,
+      paymentMode: paymentData.paymentMode,
+      status: 'PAID',
+      receiptNumber,
+      notes: paymentData.notes,
+    };
+
+    // 1. Optimistic UI update
+    updateActiveLibrary((lib) => {
+      const updatedStudents = lib.students.map((s) => {
+        if (s.id === paymentData.studentId) {
+          const currentDays = Math.max(0, s.membershipEndsInDays || 0);
+          return {
+            ...s,
+            shift: paymentData.shift || s.shift,
+            monthlyFee: paymentData.amount,
+            status: 'ACTIVE' as const,
+            membershipEndsInDays:
+              paymentData.extendDays > 0
+                ? currentDays <= 0
+                  ? paymentData.extendDays
+                  : currentDays + paymentData.extendDays
+                : currentDays,
+            transactions: [newTx, ...(s.transactions || [])],
+          };
+        }
+        return s;
+      });
+
+      // Update seat's shift if this student has an assigned seat
+      const updatedSeats = lib.seats.map((seat) => {
+        if (student && student.seatNumber && seat.seatNumber === student.seatNumber && paymentData.shift) {
+          return {
+            ...seat,
+            shift: paymentData.shift,
+          };
+        }
+        return seat;
+      });
+
+      const updatedTransactions = [newTx, ...(lib.feeTransactions || [])];
+
+      return {
+        ...lib,
+        students: updatedStudents,
+        seats: updatedSeats,
+        feeTransactions: updatedTransactions,
+      };
+    });
+
+    // Also update student in selected profile modal if open
+    setSelectedStudentForProfile((prev) => {
+      if (prev && prev.id === paymentData.studentId) {
+        const currentDays = Math.max(0, prev.membershipEndsInDays || 0);
+        return {
+          ...prev,
+          shift: paymentData.shift || prev.shift,
+          monthlyFee: paymentData.amount,
+          status: 'ACTIVE' as const,
+          membershipEndsInDays:
+            paymentData.extendDays > 0
+              ? currentDays <= 0
+                ? paymentData.extendDays
+                : currentDays + paymentData.extendDays
+              : currentDays,
+          transactions: [newTx, ...(prev.transactions || [])],
+        };
+      }
+      return prev;
+    });
+
+    // 2. Persist to PostgreSQL backend
+    try {
+      await fetch(`/api/libraries/${activeLibrary.id}/transactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(paymentData),
+      });
+    } catch (e) {
+      console.error('Failed to save fee transaction in DB:', e);
+    }
+  };
+
+  // 1. PUBLIC LANDING PAGE (When visitor is NOT logged in)
+  if (mounted && !currentUser) {
+    return (
+      <>
+        <PWACompanion />
+        <PublicLandingPage onOpenAuth={() => setIsAuthModalOpen(true)} />
+
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          currentUser={currentUser}
+          onLoginSuccess={handleUserLogin}
+          onLogout={handleUserLogout}
+        />
+      </>
+    );
+  }
+
+  // 1.5. SUPER ADMIN PLATFORM CONSOLE VIEW
+  if (mounted && currentUser && isSuperAdmin && isAdminPortalView) {
+    return (
+      <div className="flex flex-col min-h-screen bg-slate-950 text-slate-100">
+        <PWACompanion />
+
+        {/* Super Admin Top Header */}
+        <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 sm:px-8 py-3 flex items-center justify-between shadow-md">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center font-black text-sm">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-base sm:text-lg font-black tracking-tight text-white">
+                  see<span className="text-amber-400">Library</span>
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  Super Admin
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 hidden sm:block">Platform Governance & Multi-Tenant Control</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {libraries.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setIsAdminPortalView(false)}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-700"
+              >
+                <Layers className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Switch to Library View</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setIsLibraryModalOpen(true)}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">New Library</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleUserLogout}
+              className="text-xs text-rose-400 hover:text-rose-300 font-bold px-2.5 py-1.5 rounded-lg hover:bg-rose-500/10 transition-colors flex items-center gap-1"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sign Out</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Main Admin Console */}
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-6">
+          <AdminDashboard
+            currentUser={currentUser}
+            onSwitchToLibraryView={(targetLibId) => {
+              if (targetLibId) {
+                setActiveLibraryId(targetLibId);
+              }
+              setIsAdminPortalView(false);
+            }}
+          />
+        </main>
+
+        <CreateLibraryModal
+          isOpen={isLibraryModalOpen}
+          onClose={() => setIsLibraryModalOpen(false)}
+          onCreated={handleCreateLibrary}
+        />
+      </div>
+    );
+  }
+
+  // 2. WELCOME / BLANK DASHBOARD (When logged in, but ZERO libraries created yet)
+  if (mounted && currentUser && libraries.length === 0) {
+    return (
+      <div className="flex flex-col min-h-screen bg-slate-900 text-white selection:bg-indigo-500 selection:text-white">
+        <PWACompanion />
+
+        {/* Header */}
+        <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 sm:px-8 py-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-indigo-700 text-white flex items-center justify-center font-black text-sm shadow-md shadow-indigo-500/20">
+              sL
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xl font-black tracking-tight text-white">
+                see<span className="text-indigo-400">Library</span>
+              </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                Dashboard
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs font-semibold text-slate-200">
+              <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white font-bold flex items-center justify-center text-xs overflow-hidden">
+                {currentUser.avatar ? (
+                  <img src={currentUser.avatar} alt={currentUser.fullName} className="w-full h-full object-cover" />
+                ) : (
+                  currentUser.fullName.charAt(0)
+                )}
+              </div>
+              <span className="hidden sm:inline font-bold">{currentUser.fullName}</span>
+            </div>
+
+            {isSuperAdmin && (
+              <button
+                type="button"
+                onClick={() => setIsAdminPortalView(true)}
+                className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-all"
+              >
+                <ShieldCheck className="w-4 h-4 text-slate-950" />
+                <span>Super Admin Portal</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleUserLogout}
+              className="text-xs text-rose-400 hover:text-rose-300 font-bold px-2.5 py-1.5 rounded-lg hover:bg-rose-500/10 transition-colors flex items-center gap-1"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Sign Out</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Blank Slate Onboarding Card */}
+        <main className="flex-1 p-4 sm:p-8 max-w-4xl mx-auto w-full flex flex-col items-center justify-center text-center">
+          <div className="w-full bg-slate-800/60 border border-slate-700/80 rounded-3xl p-8 sm:p-12 shadow-2xl relative overflow-hidden flex flex-col items-center">
+            {/* Background Glow */}
+            <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 flex items-center justify-center mb-6 shadow-md">
+              <Building2 className="w-8 h-8" />
+            </div>
+
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold mb-3 border border-emerald-500/30">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Free Starter Tier Included</span>
+            </div>
+
+            <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight max-w-xl">
+              Welcome to seeLibrary, {currentUser.fullName}!
+            </h2>
+
+            <p className="text-xs sm:text-sm text-slate-300 mt-3 max-w-lg leading-relaxed">
+              You don't have any study center or library branches created yet. Create your first branch to start setting up study rooms, numbered rows, seat layouts, and admitting students.
+            </p>
+
+            {isSuperAdmin && (
+              <button
+                type="button"
+                onClick={() => setIsAdminPortalView(true)}
+                className="mt-6 px-8 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm rounded-2xl shadow-xl shadow-amber-500/20 active:scale-95 transition-all flex items-center gap-2 border border-amber-300/40"
+              >
+                <ShieldCheck className="w-5 h-5 text-slate-950" />
+                <span>Open Super Admin Portal</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setIsLibraryModalOpen(true)}
+              className="mt-8 px-8 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-sm rounded-2xl shadow-xl shadow-indigo-600/30 active:scale-95 transition-all flex items-center gap-2"
+            >
+              <Plus className="w-5 h-5" />
+              <span>Create Your First Library (Free)</span>
+            </button>
+
+            {/* Quick 3-Step Guide */}
+            <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-4 w-full text-left">
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-700/50">
+                <span className="text-[10px] font-black uppercase text-indigo-400">Step 1</span>
+                <h4 className="text-xs font-bold text-white mt-1">Name & Contact</h4>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Enter branch name, location, and owner phone number.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-700/50">
+                <span className="text-[10px] font-black uppercase text-purple-400">Step 2</span>
+                <h4 className="text-xs font-bold text-white mt-1">Configure Rooms</h4>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Designate quiet study halls, AC cubicles, and rows (Row A, Row B).
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-700/50">
+                <span className="text-[10px] font-black uppercase text-emerald-400">Step 3</span>
+                <h4 className="text-xs font-bold text-white mt-1">Seats & Students</h4>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Batch generate seats and register students with shift schedules.
+                </p>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <CreateLibraryModal
+          isOpen={isLibraryModalOpen}
+          onClose={() => setIsLibraryModalOpen(false)}
+          onCreated={handleCreateLibrary}
+        />
+      </div>
+    );
+  }
+
+  // 3. AUTHENTICATED DASHBOARD (With created libraries)
+  return (
+    <div className="flex flex-col min-h-screen pb-20 md:pb-8 select-none bg-slate-50 md:pl-64">
+      <PWACompanion />
+
+      {/* Desktop Sidebar (visible on md: screens and above) */}
+      <DesktopSidebar
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
+        activeLibrary={activeLibrary}
+        libraries={libraries}
+        onSelectLibrary={(lib) => {
+          setActiveLibraryId(lib.id);
+          try {
+            localStorage.setItem('seelibrary_active_lib_id', lib.id);
+          } catch {}
+        }}
+        onOpenCreateLibrary={() => setIsLibraryModalOpen(true)}
+        currentUser={currentUser}
+        onLogout={handleUserLogout}
+        isSuperAdmin={isSuperAdmin}
+        onOpenAdminPortal={() => setIsAdminPortalView(true)}
+        onOpenAddStudent={() => setIsStudentModalOpen(true)}
+        onOpenCollectFee={() => setIsCollectFeeModalOpen(true)}
+      />
+
+      {/* Mobile Top Navigation Header (Mobile only - hidden on desktop where sidebar is present) */}
+      <header className="md:hidden sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-xs">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-800 text-white flex items-center justify-center font-black text-sm shadow-sm tracking-tight">
+            sL
+          </div>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
+                see<span className="text-indigo-600">Library</span>
+              </h1>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700">
+                SaaS
+              </span>
+            </div>
+
+            {/* Branch Switcher Dropdown */}
+            {activeLibrary && (
+              <div className="relative mt-0.5">
+                <button
+                  type="button"
+                  onClick={() => setIsBranchDropdownOpen((prev) => !prev)}
+                  className="flex items-center gap-1 text-[11px] text-slate-700 font-bold hover:text-indigo-600 transition-colors"
+                >
+                  <span className="truncate max-w-[130px] sm:max-w-[200px]">
+                    {activeLibrary.name}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                </button>
+
+                {isBranchDropdownOpen && (
+                  <div className="absolute top-full left-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-1 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-slate-400 border-b border-slate-100">
+                      Select Library Branch ({libraries.length})
+                    </div>
+
+                    <div className="max-h-48 overflow-y-auto py-1 space-y-0.5">
+                      {libraries.map((lib) => (
+                        <button
+                          key={lib.id}
+                          type="button"
+                          onClick={() => {
+                            setActiveLibraryId(lib.id);
+                            try {
+                              localStorage.setItem('seelibrary_active_lib_id', lib.id);
+                            } catch {}
+                            setIsBranchDropdownOpen(false);
+                          }}
+                          className={`w-full px-3 py-2 text-left rounded-lg text-xs font-semibold flex items-center justify-between transition-colors ${
+                            lib.id === activeLibrary.id
+                              ? 'bg-indigo-50 text-indigo-700'
+                              : 'text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <span className="truncate">{lib.name}</span>
+                          {lib.id === activeLibrary.id && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsBranchDropdownOpen(false);
+                          setIsLibraryModalOpen(true);
+                        }}
+                        className="w-full px-3 py-2 text-left rounded-lg text-xs font-bold text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Create Another Library</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {isSuperAdmin && (
+            <button
+              type="button"
+              onClick={() => setIsAdminPortalView(true)}
+              className="px-3 py-1.5 bg-slate-900 hover:bg-black text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Admin Portal</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="p-2 rounded-full text-slate-600 hover:bg-slate-100 relative"
+            aria-label="Notifications"
+          >
+            <Bell className="w-5 h-5" />
+            {expiringSoonCount > 0 && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-500 rounded-full" />
+            )}
+          </button>
+
+          {currentUser && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setIsAuthModalOpen(true)}
+                className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-semibold text-slate-700 transition-colors"
+                title="Click to view profile or sign out"
+              >
+                <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center overflow-hidden">
+                  {currentUser.avatar ? (
+                    <img src={currentUser.avatar} alt={currentUser.fullName} className="w-full h-full object-cover" />
+                  ) : (
+                    currentUser.fullName.charAt(0)
+                  )}
+                </div>
+                <span className="hidden sm:inline font-bold">{currentUser.fullName}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleUserLogout}
+                className="px-2.5 py-1.5 text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors flex items-center gap-1"
+                title="Sign out of seeLibrary"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Sign Out</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </header>
+
+      {/* Desktop Top Bar (Clean breadcrumb / title + notifications on desktop) */}
+      <header className="hidden md:flex sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-slate-200 px-6 py-3 items-center justify-between shadow-2xs">
+        <div className="flex items-center gap-3">
+          <h2 className="text-base font-bold text-slate-900 capitalize">
+            {activeTab === 'home'
+              ? 'Dashboard Overview'
+              : activeTab === 'seats'
+              ? 'Seat Layout & Halls'
+              : activeTab === 'attendance'
+              ? 'Attendance Roster'
+              : activeTab === 'students'
+              ? 'Student Directory'
+              : activeTab === 'transactions'
+              ? 'Fee Ledger & Payments'
+              : 'Branch Settings'}
+          </h2>
+          {activeLibrary && (
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 flex items-center gap-1">
+              <Building2 className="w-3 h-3" />
+              {activeLibrary.name}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="p-2 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 relative transition-colors cursor-pointer"
+            aria-label="Notifications"
+          >
+            <Bell className="w-4 h-4" />
+            {expiringSoonCount > 0 && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-500 rounded-full" />
+            )}
+          </button>
+          <div className="h-4 w-[1px] bg-slate-200" />
+          <div className="text-xs text-slate-500 font-medium">
+            {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="flex-1 p-4 md:p-6 max-w-5xl mx-auto w-full space-y-4">
+        {/* Tab 1: Home Dashboard */}
+        {activeTab === 'home' && (
+          <>
+            {/* If zero seats and zero students, render the setup guide */}
+            {totalSeats === 0 && students.length === 0 && (
+              <QuickCheckHero
+                onOpenAuth={() => setIsAuthModalOpen(true)}
+                onOpenCreateLibrary={() => setIsLibraryModalOpen(true)}
+                onOpenAddRoom={() => setIsRoomModalOpen(true)}
+                onOpenGenerateSeats={() => setIsBatchModalOpen(true)}
+                onOpenAddStudent={() => setIsStudentModalOpen(true)}
+                isLoggedIn={!!currentUser}
+                libraryName={activeLibrary ? activeLibrary.name : 'Your Library'}
+              />
+            )}
+
+            {/* Dashboard Visual Chart (Occupancy, Attendance trends, Shifts) */}
+            <DashboardChart
+              students={students}
+              seats={seats}
+              totalSeats={totalSeats}
+              occupiedSeats={occupiedCount}
+            />
+
+            {/* Quick Glance Metrics (computed from real state) */}
+            <section className="grid grid-cols-2 gap-3">
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+                <span className="text-xs text-slate-500 font-medium">Active Students</span>
+                <div className="text-2xl font-bold text-slate-900 mt-1">
+                  {students.filter((s) => s.status === 'ACTIVE').length}
+                </div>
+                <div className="text-[11px] text-emerald-600 font-medium mt-1 flex items-center gap-1">
+                  <span>●</span> {occupiedCount} currently present
+                </div>
+              </div>
+
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+                <span className="text-xs text-slate-500 font-medium">Available Seats</span>
+                <div className="text-2xl font-bold text-indigo-600 mt-1">
+                  {availableCount} <span className="text-xs font-normal text-slate-400">/ {totalSeats}</span>
+                </div>
+                <div className="text-[11px] text-slate-500 font-medium mt-1">
+                  {occupancyPercentage}% occupancy rate
+                </div>
+              </div>
+            </section>
+
+            {/* Action Needed Banner: Memberships Expiring */}
+            {expiringSoonCount > 0 && (
+              <section
+                onClick={() => {
+                  setStudentFilterTab('EXPIRING_5_DAYS');
+                  setStudentSubTab('directory');
+                  setActiveTab('students');
+                }}
+                className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center justify-between cursor-pointer hover:bg-amber-100/80 transition-all shadow-2xs group"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-amber-100 rounded-lg text-amber-700">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-amber-900 group-hover:text-amber-950">
+                      {expiringSoonCount} Membership{expiringSoonCount > 1 ? 's' : ''} Ending Soon
+                    </h4>
+                    <p className="text-xs text-amber-700">Expiring within the next 5 days — click to view & collect fees</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 text-xs font-bold text-amber-800 bg-amber-200/60 group-hover:bg-amber-200 px-2.5 py-1.5 rounded-lg transition-colors">
+                  <span>View Due</span>
+                  <ChevronRight className="w-4 h-4 text-amber-600" />
+                </div>
+              </section>
+            )}
+
+            {/* Quick Actions Bar */}
+            <section className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setIsStudentModalOpen(true)}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-medium py-2.5 px-3 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+              >
+                <Plus className="w-4 h-4" /> Add Student
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsRoomModalOpen(true)}
+                className="flex-1 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 border border-slate-200 font-medium py-2.5 px-3 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-xs"
+              >
+                <Building2 className="w-4 h-4" /> Add Room/Rows
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsBatchModalOpen(true)}
+                className="flex-1 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 border border-slate-200 font-medium py-2.5 px-3 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-xs"
+              >
+                <Layers className="w-4 h-4" /> Batch Seats
+              </button>
+            </section>
+
+            {/* Room-First Visual Section */}
+            {!currentSelectedRoom ? (
+              /* State A: Show Rooms First */
+              <section className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                      <Building2 className="w-4 h-4 text-indigo-600" />
+                      Study Rooms & Halls
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Click a room to view rows and seat arrangement
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsRoomModalOpen(true)}
+                    className="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Room & Rows
+                  </button>
+                </div>
+
+                {displayRooms.length === 0 ? (
+                  <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto">
+                      <Building2 className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-sm">No Study Rooms Created Yet</h4>
+                      <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
+                        Add your study halls and rows (e.g. Ground Floor, Silent Hall, AC Section) to start managing seats.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsRoomModalOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs"
+                    >
+                      <Plus className="w-4 h-4" /> Create Study Room
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {displayRooms.map((rm) => {
+                      const rmSeats = getSeatsForRoom(rm);
+                      const rmOccupied = rmSeats.filter((s) => s.status === 'OCCUPIED').length;
+                      const rmRate = rmSeats.length > 0 ? Math.round((rmOccupied / rmSeats.length) * 100) : 0;
+                      return (
+                        <div
+                          key={rm.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setSelectedRoomId(rm.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedRoomId(rm.id);
+                            }
+                          }}
+                          className="relative group text-left p-4 rounded-xl border border-slate-200 hover:border-indigo-500 hover:shadow-md bg-white hover:bg-indigo-50/10 transition-all cursor-pointer flex flex-col justify-between"
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                                <Building2 className="w-4 h-4" />
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100/60">
+                                  {rmSeats.length} {rmSeats.length === 1 ? 'Seat' : 'Seats'}
+                                </span>
+                                <div className="relative">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveRoomMenuId(activeRoomMenuId === rm.id ? null : rm.id);
+                                    }}
+                                    className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                                    title="Room Options"
+                                  >
+                                    <MoreVertical className="w-4 h-4" />
+                                  </button>
+
+                                  {/* 3-Dot Dropdown Menu */}
+                                  {activeRoomMenuId === rm.id && (
+                                    <div
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="absolute right-0 top-full mt-1 w-36 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-30 animate-in fade-in zoom-in-95 duration-100"
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setActiveRoomMenuId(null);
+                                          setEditingRoom(rm);
+                                        }}
+                                        className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors cursor-pointer"
+                                      >
+                                        <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                                        <span>Edit Name</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handleDeleteRoom(rm.id);
+                                        }}
+                                        className="w-full px-3 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2 transition-colors cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                        <span>Delete Room</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div>
+                              <h4 className="font-bold text-slate-900 group-hover:text-indigo-600 text-base transition-colors">
+                                {rm.name}
+                              </h4>
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                {rmSeats.length} Total Seats
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-800">
+                                {rmSeats.length} Seats
+                              </span>
+                              <span className="text-[11px] text-slate-500 font-medium">
+                                {rmOccupied} Occupied ({rmRate}%)
+                              </span>
+                            </div>
+
+                            {/* Mini progress bar */}
+                            <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-indigo-600 rounded-full transition-all"
+                                style={{ width: `${rmRate}%` }}
+                              />
+                            </div>
+
+                            <div className="pt-1 flex items-center justify-between text-xs font-bold text-indigo-600 group-hover:translate-x-0.5 transition-transform">
+                              <span>Open Room & Seats</span>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Add Another Room Card */}
+                    <button
+                      type="button"
+                      onClick={() => setIsRoomModalOpen(true)}
+                      className="p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-indigo-400 bg-slate-50/50 hover:bg-indigo-50/30 text-slate-500 hover:text-indigo-600 flex flex-col items-center justify-center min-h-[140px] text-center gap-2 transition-all cursor-pointer"
+                    >
+                      <div className="p-2 rounded-full bg-white border border-slate-200 text-slate-400 shadow-2xs">
+                        <Plus className="w-4 h-4" />
+                      </div>
+                      <span className="text-xs font-bold">Add Another Room</span>
+                    </button>
+                  </div>
+                )}
+              </section>
+            ) : (
+              /* State B: Inside Specific Room View */
+              <section className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRoomId(null)}
+                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" /> All Rooms
+                    </button>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base font-bold text-slate-900">
+                          {currentSelectedRoom.name}
+                        </h3>
+                        <span className="text-[10px] px-2 py-0.5 bg-indigo-50 text-indigo-700 font-semibold rounded-full border border-indigo-100">
+                          {currentSelectedRoom.rows.join(', ')}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        {currentRoomOccupied} occupied of {currentRoomSeats.length} seats
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setEditingRoom(currentSelectedRoom)}
+                      className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-slate-500" /> Edit Name
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteRoom(currentSelectedRoom.id)}
+                      className="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-500" /> Delete Room
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddRowModalOpen(true)}
+                      className="text-xs bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer shadow-xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add Row & Seats
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsBatchModalOpen(true)}
+                      className="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Batch Seats
+                    </button>
+                  </div>
+                </div>
+
+                <SeatGrid
+                  seats={currentRoomSeats}
+                  onStatusChange={handleStatusChange}
+                  onAssignStudent={(seatId) => {
+                    const seat = activeLibrary?.seats.find((s) => s.id === seatId || s.seatNumber === seatId);
+                    if (seat) {
+                      setSelectedSeatForAssignment(seat);
+                    }
+                  }}
+                  onAddRow={() => setIsAddRowModalOpen(true)}
+                  onAddRoom={() => setIsAddRowModalOpen(true)}
+                  onBatchGenerate={() => setIsBatchModalOpen(true)}
+                  onDeleteRow={handleDeleteRow}
+                  onDeleteSeat={handleDeleteSeat}
+                />
+              </section>
+            )}
+          </>
+        )}
+
+        {/* Tab 2: Seats Grid Full View */}
+        {activeTab === 'seats' && (
+          <section className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Seat Inventory</h3>
+                <p className="text-xs text-slate-500">
+                  {currentSelectedRoom ? (
+                    <>Showing <b>{currentSelectedRoom.name}</b> ({currentRoomSeats.length} seats)</>
+                  ) : (
+                    <>{availableCount} available out of {totalSeats} total seats</>
+                  )}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsRoomModalOpen(true)}
+                  className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-xs transition-colors"
+                >
+                  <Building2 className="w-3.5 h-3.5" /> Add Room/Row
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsBatchModalOpen(true)}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-xs transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Batch Generate
+                </button>
+              </div>
+            </div>
+
+            {/* Room Selector Pills */}
+            {displayRooms.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setSelectedRoomId(null)}
+                  className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 shrink-0 transition-colors ${
+                    !selectedRoomId
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  <span>All Rooms</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-md ${
+                    !selectedRoomId ? 'bg-indigo-500 text-white' : 'bg-slate-200 text-slate-700'
+                  }`}>
+                    {seats.length}
+                  </span>
+                </button>
+
+                {displayRooms.map((rm) => {
+                  const isSelected = selectedRoomId === rm.id;
+                  const count = getSeatsForRoom(rm).length;
+                  return (
+                    <button
+                      key={rm.id}
+                      type="button"
+                      onClick={() => setSelectedRoomId(rm.id)}
+                      className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 shrink-0 transition-colors ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-100'
+                      }`}
+                    >
+                      <Building2 className={`w-3.5 h-3.5 ${isSelected ? 'text-white' : 'text-indigo-600'}`} />
+                      <span>{rm.name}</span>
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded-md ${
+                        isSelected ? 'bg-indigo-500 text-white' : 'bg-indigo-200 text-indigo-800'
+                      }`}>
+                        {count} {count === 1 ? 'seat' : 'seats'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <SeatGrid
+              seats={currentSelectedRoom ? currentRoomSeats : seats}
+              onStatusChange={handleStatusChange}
+              onAssignStudent={(seatId) => {
+                const seat = activeLibrary?.seats.find((s) => s.id === seatId || s.seatNumber === seatId);
+                if (seat) {
+                  setSelectedSeatForAssignment(seat);
+                }
+              }}
+              onAddRow={currentSelectedRoom ? () => setIsAddRowModalOpen(true) : undefined}
+              onAddRoom={() => (currentSelectedRoom ? setIsAddRowModalOpen(true) : setIsRoomModalOpen(true))}
+              onBatchGenerate={() => setIsBatchModalOpen(true)}
+              onDeleteRow={handleDeleteRow}
+              onDeleteSeat={handleDeleteSeat}
+            />
+          </section>
+        )}
+
+        {/* Tab 3: Attendance Roster */}
+        {activeTab === 'attendance' && (
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Today's Attendance</h3>
+                <p className="text-xs text-slate-500">One-touch presence tracking</p>
+              </div>
+            </div>
+
+            <AttendanceRoster
+              roster={students.map((s, idx) => ({
+                studentId: s.id,
+                studentName: s.fullName,
+                phone: s.phone,
+                seatNumber: s.seatNumber,
+                shift: s.shift,
+                checkInTime: idx % 2 === 0 ? '2026-09-04T08:30:00Z' : null,
+                isPresent: idx % 2 === 0,
+              }))}
+              onToggleAttendance={(studentId, currentPresent) => {
+                alert(`${currentPresent ? 'Checking out' : 'Checking in'} student`);
+              }}
+            />
+          </section>
+        )}
+
+        {/* Tab 4: Students Directory & Pipeline Kanban */}
+        {activeTab === 'students' && (
+          <section className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  {studentSubTab === 'directory' ? 'Student Directory' : 'Admission & Lead Pipeline'}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {studentSubTab === 'directory'
+                    ? `${students.length} total enrolled students`
+                    : 'Touch-optimized stage workflow from inquiry to active enrollment'}
+                </p>
+              </div>
+
+              {/* View Switcher: Directory vs Pipeline */}
+              <div className="inline-flex bg-slate-200/80 p-1 rounded-xl shadow-inner self-start">
+                <button
+                  type="button"
+                  onClick={() => setStudentSubTab('directory')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    studentSubTab === 'directory'
+                      ? 'bg-white text-indigo-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Directory
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudentSubTab('pipeline')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    studentSubTab === 'pipeline'
+                      ? 'bg-white text-indigo-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Leads Kanban
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('transactions')}
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg transition-all text-emerald-700 hover:text-emerald-900 flex items-center gap-1 cursor-pointer"
+                  title="View all fee transactions"
+                >
+                  <IndianRupee className="w-3.5 h-3.5" />
+                  <span>Fee Ledger</span>
+                </button>
+              </div>
+            </div>
+
+            {studentSubTab === 'directory' ? (
+              <StudentList
+                students={students}
+                initialFilterTab={studentFilterTab}
+                onAddStudent={() => {
+                  setPreselectedSeatNumberForNewStudent(null);
+                  setIsStudentModalOpen(true);
+                }}
+                onStudentClick={(student) => setSelectedStudentForProfile(student)}
+              />
+            ) : (
+              <KanbanBoard libraryId={activeLibrary?.id} />
+            )}
+          </section>
+        )}
+
+        {/* Tab: Fee Transactions & Revenue Ledger */}
+        {activeTab === 'transactions' && activeLibrary && (
+          <section className="space-y-4">
+            <TransactionsView
+              transactions={activeLibrary.feeTransactions || []}
+              onOpenCollectFee={() => {
+                setStudentForFeeCollection(null);
+                setIsCollectFeeModalOpen(true);
+              }}
+              onStudentClick={(studentId) => {
+                const std = activeLibrary.students.find((s) => s.id === studentId);
+                if (std) setSelectedStudentForProfile(std);
+              }}
+            />
+          </section>
+        )}
+
+        {/* Tab 5: More / Settings / Library Info */}
+        {activeTab === 'more' && activeLibrary && (
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Branch & SaaS Subscription</h3>
+                <p className="text-xs text-slate-500">Manage branch details, plan, and notifications</p>
+              </div>
+            </div>
+
+            {/* Branch Details Card */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+                    <Building2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">{activeLibrary.name}</h4>
+                    <p className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
+                      <Phone className="w-3 h-3 text-slate-400" />
+                      <span>{activeLibrary.contactPhone}</span>
+                      {activeLibrary.address && (
+                        <>
+                          <span>•</span>
+                          <MapPin className="w-3 h-3 text-slate-400" />
+                          <span>{activeLibrary.address}</span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold rounded-lg">
+                  Free Starter Plan
+                </span>
+              </div>
+            </div>
+
+            <SubscriptionCard
+              currentPlanName="Free Starter Plan (0₹)"
+              status="ACTIVE"
+              validUntil="Free Forever"
+              onUpgrade={(planId, coupon) => {
+                console.log('Upgrading plan to', planId, 'with coupon', coupon);
+              }}
+            />
+
+            {/* PWA Offline & Push Notification Hub */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+                  <Bell className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900">Mobile Push & Offline PWA</h4>
+                  <p className="text-xs text-slate-500">Service Worker caching & instant push alerts</p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-slate-800">Direct Push Notifications</p>
+                  <p className="text-[11px] text-slate-500">
+                    Receive immediate notifications on check-in anomalies and pending dues.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if ('Notification' in window) {
+                      const res = await Notification.requestPermission();
+                      if (res === 'granted' && 'serviceWorker' in navigator) {
+                        const reg = await navigator.serviceWorker.ready;
+                        reg.showNotification('seeLibrary Alert', {
+                          body: 'Push notifications are now active on your device!',
+                          icon: '/icons/icon-192x192.png',
+                        });
+                      }
+                    } else {
+                      alert('Notifications are not supported in this environment.');
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs active:scale-95 transition-all self-start sm:self-auto"
+                >
+                  Test Push Alert
+                </button>
+              </div>
+            </div>
+
+            {/* Sign Out Card */}
+            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold text-rose-900">Sign Out of Account</p>
+                <p className="text-[11px] text-rose-700">Currently signed in as {currentUser?.email}</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleUserLogout}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs active:scale-95 transition-all flex items-center gap-1.5"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </section>
+        )}
+      </main>
+
+      {/* User Login & Authentication Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        currentUser={currentUser}
+        onLoginSuccess={handleUserLogin}
+        onLogout={handleUserLogout}
+      />
+
+      {/* Create / Switch Library Branch Modal */}
+      <CreateLibraryModal
+        isOpen={isLibraryModalOpen}
+        onClose={() => setIsLibraryModalOpen(false)}
+        onCreated={handleCreateLibrary}
+      />
+
+      {/* Room & Row Configuration Modal */}
+      <RoomRowModal
+        isOpen={isRoomModalOpen}
+        onClose={() => setIsRoomModalOpen(false)}
+        onCreated={handleRoomCreated}
+      />
+
+      {/* Edit Room Name Modal */}
+      <EditRoomModal
+        isOpen={!!editingRoom}
+        currentRoom={editingRoom}
+        onClose={() => setEditingRoom(null)}
+        onSave={handleSaveRoomName}
+      />
+
+      {/* Add Row & Seats to Current Room Modal */}
+      <AddRowModal
+        isOpen={isAddRowModalOpen}
+        onClose={() => setIsAddRowModalOpen(false)}
+        roomName={currentSelectedRoom?.name || 'Current Room'}
+        existingRows={currentSelectedRoom?.rows || []}
+        existingSeats={currentRoomSeats}
+        onAddRows={handleAddRowsToRoom}
+      />
+
+      {/* Batch Seat Modal */}
+      <BatchSeatModal
+        isOpen={isBatchModalOpen}
+        onClose={() => setIsBatchModalOpen(false)}
+        targetRoomName={currentSelectedRoom?.name}
+        availableRows={currentSelectedRoom?.rows || []}
+        existingSeats={activeLibrary?.seats || []}
+        onGenerate={handleBatchGenerate}
+      />
+
+      {/* 3-Step Student Registration Wizard */}
+      <StudentModal
+        isOpen={isStudentModalOpen}
+        onClose={() => {
+          setIsStudentModalOpen(false);
+          setPreselectedSeatNumberForNewStudent(null);
+        }}
+        availableSeats={seats.filter((s) => s.status === 'AVAILABLE')}
+        preselectedSeatNumber={preselectedSeatNumberForNewStudent}
+        onStudentCreated={handleStudentCreated}
+      />
+
+      {/* Student Profile Modal with Direct Seat Allocation, Editing & Deleting */}
+      <StudentProfileModal
+        isOpen={!!selectedStudentForProfile}
+        onClose={() => setSelectedStudentForProfile(null)}
+        student={selectedStudentForProfile}
+        availableSeats={seats.filter((s) => s.status === 'AVAILABLE')}
+        onAssignSeat={handleAssignSeat}
+        onUpdateStudent={handleUpdateStudent}
+        onDeleteStudent={handleDeleteStudent}
+        onCollectFee={(std) => {
+          setReturnToStudentProfileId(std.id);
+          setSelectedStudentForProfile(null);
+          setStudentForFeeCollection(std);
+          setIsCollectFeeModalOpen(true);
+        }}
+      />
+
+      {/* Collect / Record Fee Payment Modal */}
+      <CollectFeeModal
+        isOpen={isCollectFeeModalOpen}
+        onClose={() => {
+          setIsCollectFeeModalOpen(false);
+          setStudentForFeeCollection(null);
+          if (returnToStudentProfileId) {
+            const targetId = returnToStudentProfileId;
+            setReturnToStudentProfileId(null);
+            const currentStd = activeLibrary?.students.find((s) => s.id === targetId);
+            if (currentStd) {
+              setSelectedStudentForProfile(currentStd);
+            }
+          }
+        }}
+        students={activeLibrary?.students || []}
+        preselectedStudent={studentForFeeCollection}
+        onRecordPayment={handleRecordFeePayment}
+      />
+
+      {/* Direct Assign Seat to Student Modal */}
+      <AssignSeatModal
+        isOpen={!!selectedSeatForAssignment}
+        onClose={() => setSelectedSeatForAssignment(null)}
+        seat={selectedSeatForAssignment}
+        students={students}
+        onAssign={async (studentId, seatNumber) => {
+          await handleAssignSeat(studentId, seatNumber);
+        }}
+        onEnrollNewStudent={(seatNumber) => {
+          setPreselectedSeatNumberForNewStudent(seatNumber);
+          setIsStudentModalOpen(true);
+        }}
+      />
+
+      {/* Mobile Bottom Navigation Bar (Thumb-Friendly, Fixed at bottom, hidden on desktop) */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 px-2 py-1.5 flex justify-around items-center shadow-lg">
+        {[
+          { id: 'home', label: 'Dashboard', icon: LayoutDashboard },
+          { id: 'seats', label: 'Seats', icon: Armchair },
+          { id: 'attendance', label: 'Attendance', icon: CheckCircle2 },
+          { id: 'students', label: 'Students', icon: Users },
+          { id: 'transactions', label: 'Ledger', icon: IndianRupee },
+          { id: 'more', label: 'More', icon: MoreHorizontal },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`flex flex-col items-center justify-center flex-1 py-1 rounded-lg ${
+                isActive ? 'text-indigo-600 font-semibold' : 'text-slate-500 font-normal hover:text-slate-800'
+              }`}
+            >
+              <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5px]' : 'stroke-[1.8px]'}`} />
+              <span className="text-[10px] mt-0.5">{tab.label}</span>
+            </button>
+          );
+        })}
+        {isSuperAdmin && (
+          <button
+            type="button"
+            onClick={() => setIsAdminPortalView(true)}
+            className="flex flex-col items-center justify-center flex-1 py-1 rounded-lg text-amber-600 font-bold hover:text-amber-700"
+          >
+            <ShieldCheck className="w-5 h-5 stroke-[2.2px] text-amber-500" />
+            <span className="text-[10px] mt-0.5">Admin</span>
+          </button>
+        )}
+      </nav>
+    </div>
+  );
+}

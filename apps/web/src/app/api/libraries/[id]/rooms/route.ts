@@ -1,0 +1,145 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@library/database';
+import crypto from 'crypto';
+
+export async function POST(
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: libraryId } = await context.params;
+    const body = await req.json();
+    const { roomName, rowNames, seatsPerRow, startNumber } = body;
+
+    const finalRoomName = roomName?.trim() || 'Ground Floor - Silent Hall';
+    const validRows = Array.isArray(rowNames) && rowNames.length > 0 ? rowNames : ['Row A', 'Row B'];
+    const countPerRow = Math.max(0, seatsPerRow || 0);
+
+    const roomId = crypto.randomUUID();
+    const createdRoom = await prisma.room.create({
+      data: {
+        id: roomId,
+        libraryId,
+        name: finalRoomName,
+      },
+    });
+
+    const createdSeats: any[] = [];
+    let currentNum = Math.max(1, startNumber || 1);
+
+    for (let rIdx = 0; rIdx < validRows.length; rIdx++) {
+      const rName = validRows[rIdx];
+      const rowId = crypto.randomUUID();
+
+      await prisma.row.create({
+        data: {
+          id: rowId,
+          libraryId,
+          roomId: createdRoom.id,
+          name: rName,
+        },
+      });
+
+      if (countPerRow > 0) {
+        const rowMatch = rName.match(/([A-Za-z0-9]+)$/);
+        const prefix = rowMatch ? `${rowMatch[1].toUpperCase()}-` : `R${rIdx + 1}-`;
+
+        for (let i = 0; i < countPerRow; i++) {
+          const num = currentNum < 10 ? `0${currentNum}` : `${currentNum}`;
+          const seatId = crypto.randomUUID();
+          const seatNumber = `${num}`;
+          currentNum++;
+
+          await prisma.seat.create({
+            data: {
+              id: seatId,
+              libraryId,
+              rowId,
+              seatNumber,
+              status: 'AVAILABLE',
+            },
+          });
+
+          createdSeats.push({
+            id: seatId,
+            seatNumber,
+            rowName: rName,
+            status: 'AVAILABLE',
+            studentName: null,
+            roomId: createdRoom.id,
+          });
+        }
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      room: {
+        id: createdRoom.id,
+        name: createdRoom.name,
+        rows: validRows,
+      },
+      seats: createdSeats,
+    });
+  } catch (error: any) {
+    console.error('API POST /api/libraries/[id]/rooms error:', error);
+    return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
+  }
+}
+
+export async function PUT(
+  req: NextRequest
+) {
+  try {
+    const body = await req.json();
+    const { roomId, newName } = body;
+
+    if (!roomId || !newName?.trim()) {
+      return NextResponse.json({ error: 'roomId and newName are required' }, { status: 400 });
+    }
+
+    const updated = await prisma.room.update({
+      where: { id: roomId },
+      data: { name: newName.trim() },
+    });
+
+    return NextResponse.json({ success: true, room: updated });
+  } catch (error: any) {
+    console.error('API PUT /api/libraries/[id]/rooms error:', error);
+    return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  req: NextRequest
+) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const roomId = searchParams.get('roomId');
+
+    if (!roomId) {
+      return NextResponse.json({ error: 'roomId query parameter is required' }, { status: 400 });
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      include: { rows: { include: { seats: true } } },
+    });
+
+    if (room) {
+      const seatIds = room.rows.flatMap((r) => r.seats.map((s) => s.id));
+      if (seatIds.length > 0) {
+        await prisma.seatAssignment.deleteMany({ where: { seatId: { in: seatIds } } });
+        await prisma.attendanceLog.deleteMany({ where: { seatId: { in: seatIds } } });
+        await prisma.seat.deleteMany({ where: { id: { in: seatIds } } });
+      }
+      await prisma.row.deleteMany({ where: { roomId: room.id } });
+      await prisma.room.delete({ where: { id: room.id } });
+    }
+
+    return NextResponse.json({ success: true, deletedRoomId: roomId });
+  } catch (error: any) {
+    console.error('API DELETE /api/libraries/[id]/rooms error:', error);
+    return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
+  }
+}
