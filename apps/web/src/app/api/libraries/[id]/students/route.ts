@@ -58,9 +58,7 @@ export async function POST(
     const initialAmount = feeAmount ? Number(feeAmount) : 0;
     const months = Math.max(1, durationMonths || 1);
     const startDate = new Date();
-    const expectedEndDate = initialAmount > 0
-      ? new Date(startDate.getTime() + months * 30 * 86400000)
-      : startDate;
+    const expectedEndDate = new Date(startDate.getTime() + months * 30 * 86400000);
 
     const membership = await prisma.membership.create({
       data: {
@@ -69,15 +67,15 @@ export async function POST(
         studentId: student.id,
         startDate,
         expectedEndDate,
-        status: initialAmount > 0 ? 'ACTIVE' : 'EXPIRED',
-        feeAmount: initialAmount,
+        status: 'ACTIVE',
+        feeAmount: initialAmount > 0 ? initialAmount : 1000,
         shift: (shift || 'FULL_DAY') as any,
       },
     });
 
-    // Only assign and occupy seat if student has paid fees
+    // Assign and occupy seat if seatNumber provided
     let finalAssignedSeatNumber: string | null = null;
-    if (seatNumber && initialAmount > 0) {
+    if (seatNumber) {
       const seat = await prisma.seat.findFirst({
         where: { libraryId, seatNumber },
       });
@@ -154,7 +152,7 @@ export async function POST(
         kycType: student.kycDocType,
         shift: membership.shift,
         seatNumber: finalAssignedSeatNumber,
-        status: initialAmount > 0 ? 'ACTIVE' : 'EXPIRED',
+        status: !finalAssignedSeatNumber ? 'INACTIVE' : 'ACTIVE',
         membershipEndsInDays: initialAmount > 0 ? months * 30 : 0,
         monthlyFee: initialAmount,
         transactions: formattedTx ? [formattedTx] : [],

@@ -9,7 +9,7 @@ export async function POST(
   try {
     const { id: libraryId } = await context.params;
     const body = await req.json();
-    const { studentId, seatId, seatNumber } = body;
+    const { studentId, seatId, seatNumber, shift, reserveSeat } = body;
 
     if (!studentId) {
       return NextResponse.json({ error: 'studentId is required' }, { status: 400 });
@@ -24,16 +24,17 @@ export async function POST(
       return NextResponse.json({ error: 'Student not found in this library' }, { status: 404 });
     }
 
-    // 2. Get active membership for student
+    // 2. Get active membership for student or update existing
     let membership = await prisma.membership.findFirst({
-      where: { studentId: student.id, libraryId, status: 'ACTIVE' },
+      where: { studentId: student.id, libraryId },
       orderBy: { createdAt: 'desc' },
     });
 
+    const now = new Date();
+    const end = new Date();
+    end.setMonth(end.getMonth() + 1);
+
     if (!membership) {
-      const now = new Date();
-      const end = new Date();
-      end.setMonth(end.getMonth() + 1);
       membership = await prisma.membership.create({
         data: {
           id: crypto.randomUUID(),
@@ -43,7 +44,17 @@ export async function POST(
           expectedEndDate: end,
           status: 'ACTIVE',
           feeAmount: 1000,
-          shift: 'FULL_DAY',
+          shift: (shift || 'FULL_DAY') as any,
+        },
+      });
+    } else {
+      const isPastOrExpired = !membership.expectedEndDate || new Date(membership.expectedEndDate).getTime() <= now.getTime();
+      membership = await prisma.membership.update({
+        where: { id: membership.id },
+        data: {
+          status: 'ACTIVE',
+          shift: (shift || membership.shift) as any,
+          expectedEndDate: isPastOrExpired ? end : membership.expectedEndDate,
         },
       });
     }
@@ -96,10 +107,11 @@ export async function POST(
         });
       }
 
-      // Update target seat to OCCUPIED
+      // Update target seat to RESERVED or OCCUPIED
+      const newStatus = reserveSeat ? 'RESERVED' : 'OCCUPIED';
       await prisma.seat.update({
         where: { id: targetSeat.id },
-        data: { status: 'OCCUPIED' },
+        data: { status: newStatus as any },
       });
 
       // Create new active SeatAssignment
@@ -110,7 +122,7 @@ export async function POST(
           seatId: targetSeat.id,
           studentId: student.id,
           membershipId: membership.id,
-          shift: membership.shift,
+          shift: (shift || membership.shift) as any,
           startDate: new Date(),
           status: 'ACTIVE',
         },
@@ -123,7 +135,8 @@ export async function POST(
         studentName: student.fullName,
         seatId: targetSeat.id,
         seatNumber: targetSeat.seatNumber,
-        shift: membership.shift,
+        status: newStatus,
+        shift: shift || membership.shift,
       });
     }
 

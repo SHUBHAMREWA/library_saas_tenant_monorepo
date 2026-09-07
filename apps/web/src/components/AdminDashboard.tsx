@@ -25,7 +25,15 @@ import {
   Calendar,
   Clock,
   Percent,
+  Bell,
+  Send,
+  Megaphone,
+  MapPin,
+  Eye,
+  ChevronRight,
+  DoorOpen,
 } from 'lucide-react';
+import { AdminSkeleton } from './Skeleton';
 
 interface AdminPlanItem {
   id: string;
@@ -133,13 +141,44 @@ interface AuditLogEntry {
   createdAt: string;
 }
 
+interface FloorPlanSeat {
+  id: string;
+  seatNumber: string;
+  status: string;
+  studentName: string | null;
+}
+
+interface FloorPlanRow {
+  id: string;
+  name: string;
+  seats: FloorPlanSeat[];
+}
+
+interface FloorPlanRoom {
+  id: string;
+  name: string;
+  rows: FloorPlanRow[];
+}
+
+interface FloorPlanLibrary {
+  id: string;
+  name: string;
+  slug: string;
+  address?: string | null;
+  isActive: boolean;
+  owner: { id: string; fullName: string; email: string; phone?: string };
+  totalSeats: number;
+  totalStudents: number;
+  rooms: FloorPlanRoom[];
+}
+
 interface AdminDashboardProps {
   currentUser: { fullName: string; email: string; phone: string; role: string };
   onSwitchToLibraryView?: (libraryId?: string) => void;
 }
 
 export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'plans' | 'coupons' | 'users' | 'audit' | 'payments'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'plans' | 'coupons' | 'users' | 'audit' | 'payments' | 'broadcast'>('overview');
   const [payments, setPayments] = useState<AdminPaymentItem[]>([]);
   const [adminPaymentFilter, setAdminPaymentFilter] = useState<'ALL' | 'SUCCESS' | 'PENDING' | 'FAILED'>('ALL');
   const [metrics, setMetrics] = useState<PlatformMetrics | null>(null);
@@ -148,6 +187,14 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
   const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  
+  // Push Broadcast States
+  const [broadcastTitle, setBroadcastTitle] = useState('');
+  const [broadcastBody, setBroadcastBody] = useState('');
+  const [broadcastTarget, setBroadcastTarget] = useState<'ALL' | 'LIBRARY'>('ALL');
+  const [broadcastLibraryId, setBroadcastLibraryId] = useState('');
+  const [broadcastUrl, setBroadcastUrl] = useState('/');
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
   
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -186,6 +233,74 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
   const [selectedLibForToggle, setSelectedLibForToggle] = useState<AdminLibrary | null>(null);
   const [isTogglingLib, setIsTogglingLib] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Floor Plan Inspect Modal
+  const [inspectLibrary, setInspectLibrary] = useState<FloorPlanLibrary | null>(null);
+  const [inspectLoading, setInspectLoading] = useState(false);
+  const [inspectRoomId, setInspectRoomId] = useState<string | null>(null);
+
+  const openInspectModal = async (libraryId: string) => {
+    setInspectLibrary(null);
+    setInspectRoomId(null);
+    setInspectLoading(true);
+    try {
+      const res = await fetch(`/api/libraries/${libraryId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.library) {
+          setInspectLibrary(data.library);
+          if (data.library.rooms?.length > 0) {
+            setInspectRoomId(data.library.rooms[0].id);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load floor plan:', err);
+    } finally {
+      setInspectLoading(false);
+    }
+  };
+
+  const handleSendBroadcast = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!broadcastTitle.trim() || !broadcastBody.trim()) {
+      setStatusMessage({ type: 'error', text: 'Title and message body are required' });
+      return;
+    }
+
+    setIsBroadcasting(true);
+    setStatusMessage(null);
+    try {
+      const res = await fetch('/api/admin/notifications/broadcast', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-email': currentUser.email,
+        },
+        body: JSON.stringify({
+          adminEmail: currentUser.email,
+          title: broadcastTitle,
+          body: broadcastBody,
+          target: broadcastTarget,
+          targetLibraryId: broadcastTarget === 'LIBRARY' ? broadcastLibraryId : undefined,
+          url: broadcastUrl || '/',
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStatusMessage({ type: 'success', text: data.message || 'Push notification broadcast delivered!' });
+        setBroadcastTitle('');
+        setBroadcastBody('');
+      } else {
+        setStatusMessage({ type: 'error', text: data.error || 'Failed to dispatch broadcast' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ type: 'error', text: err.message || 'Failed to dispatch broadcast' });
+    } finally {
+      setIsBroadcasting(false);
+    }
+  };
 
   const fetchAllData = async () => {
     setIsLoading(true);
@@ -459,6 +574,10 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
     return matchesSearch;
   });
 
+  if (isLoading && !metrics) {
+    return <AdminSkeleton />;
+  }
+
   return (
     <div className="space-y-6 pb-20">
       {/* Super Admin Top Banner */}
@@ -650,6 +769,17 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
           Payments Ledger ({payments.length})
         </button>
         <button
+          onClick={() => setActiveTab('broadcast')}
+          className={`px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+            activeTab === 'broadcast'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Bell className="w-4 h-4" />
+          <span>Push Broadcast</span>
+        </button>
+        <button
           onClick={() => setActiveTab('audit')}
           className={`px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-colors ${
             activeTab === 'audit'
@@ -785,15 +915,13 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
                         </td>
                         <td className="px-5 py-4 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            {onSwitchToLibraryView && (
-                              <button
-                                onClick={() => onSwitchToLibraryView(lib.id)}
-                                title="Inspect library floor plan"
-                                className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                              >
-                                <ExternalLink className="w-4 h-4" />
-                              </button>
-                            )}
+                            <button
+                              onClick={() => openInspectModal(lib.id)}
+                              title="Inspect library floor plan"
+                              className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
                             <button
                               onClick={() => setSelectedLibForToggle(lib)}
                               className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors border ${
@@ -1080,11 +1208,121 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
         </div>
       )}
 
+      {/* TAB: PUSH BROADCAST */}
+      {activeTab === 'broadcast' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+            <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+              <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+                <Megaphone className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Dispatch Push Broadcast</h2>
+                <p className="text-xs text-slate-500">
+                  Send manual push notifications directly to users' devices through the PWA Service Worker.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSendBroadcast} className="mt-5 space-y-4 max-w-2xl">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Notification Title
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. 📢 Important Notice: System Maintenance Tonight"
+                  value={broadcastTitle}
+                  onChange={(e) => setBroadcastTitle(e.target.value)}
+                  className="w-full px-3.5 py-2.5 text-sm font-semibold text-slate-900 placeholder:text-slate-400 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Notification Message Body
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="e.g. We are performing regular server optimizations between 11 PM and 12 AM. Please finalize any pending student fee entries."
+                  value={broadcastBody}
+                  onChange={(e) => setBroadcastBody(e.target.value)}
+                  className="w-full px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Target Audience
+                  </label>
+                  <select
+                    value={broadcastTarget}
+                    onChange={(e) => setBroadcastTarget(e.target.value as any)}
+                    className="w-full px-3.5 py-2.5 text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs cursor-pointer"
+                  >
+                    <option value="ALL">All Library Owners (Global)</option>
+                    <option value="LIBRARY">Specific Library Branch</option>
+                  </select>
+                </div>
+
+                {broadcastTarget === 'LIBRARY' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Select Library Branch
+                    </label>
+                    <select
+                      value={broadcastLibraryId}
+                      onChange={(e) => setBroadcastLibraryId(e.target.value)}
+                      required={broadcastTarget === 'LIBRARY'}
+                      className="w-full px-3.5 py-2.5 text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs cursor-pointer"
+                    >
+                      <option value="">Select a library...</option>
+                      {libraries.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.name} ({l.owner.fullName})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Click Action URL (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. /"
+                    value={broadcastUrl}
+                    onChange={(e) => setBroadcastUrl(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3">
+                <button
+                  type="submit"
+                  disabled={isBroadcasting}
+                  className="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-sm disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                >
+                  <Send className={`w-4 h-4 ${isBroadcasting ? 'animate-spin' : ''}`} />
+                  <span>{isBroadcasting ? 'Dispatching Push...' : 'Send Push Notification Broadcast'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: CREATE COUPON */}
       {isCreateCouponOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white text-slate-900 rounded-2xl w-full max-w-md p-6 shadow-2xl border border-slate-200 [color-scheme:light]">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] rounded-2xl w-full max-w-md p-6 shadow-2xl border border-slate-200 dark:border-[#262626]">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#262626]">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Tag className="w-5 h-5 text-indigo-600" />
                 Create Platform Coupon
@@ -1170,8 +1408,8 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
       {/* MODAL: EDIT PLAN */}
       {isEditPlanModalOpen && planToEdit && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white text-slate-900 rounded-2xl w-full max-w-lg p-6 shadow-2xl border border-slate-200 [color-scheme:light] max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] rounded-2xl w-full max-w-lg p-6 shadow-2xl border border-slate-200 dark:border-[#262626] max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#262626]">
               <div className="flex items-center gap-2">
                 <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
                   <Edit3 className="w-5 h-5" />
@@ -1332,8 +1570,8 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
       {/* MODAL: CREATE PLAN */}
       {isCreatePlanModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white text-slate-900 rounded-2xl w-full max-w-lg p-6 shadow-2xl border border-slate-200 [color-scheme:light] max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] rounded-2xl w-full max-w-lg p-6 shadow-2xl border border-slate-200 dark:border-[#262626] max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#262626]">
               <div className="flex items-center gap-2">
                 <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
                   <Plus className="w-5 h-5" />
@@ -1481,7 +1719,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
       {/* MODAL: CONFIRM SUSPEND/ACTIVATE LIBRARY */}
       {selectedLibForToggle && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white text-slate-900 rounded-2xl w-full max-w-sm p-6 shadow-2xl border border-slate-200 [color-scheme:light]">
+          <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] rounded-2xl w-full max-w-sm p-6 shadow-2xl border border-slate-200 dark:border-[#262626]">
             <div className="flex items-center gap-3 text-amber-600 mb-3">
               <AlertTriangle className="w-6 h-6 shrink-0" />
               <h3 className="text-base font-bold text-slate-900">
@@ -1524,6 +1762,171 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
                 {isTogglingLib ? 'Updating...' : selectedLibForToggle.isActive ? 'Suspend Library' : 'Activate Library'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Floor Plan Inspect Modal ───────────────────────────────── */}
+      {(inspectLoading || inspectLibrary) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50 rounded-t-2xl">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center">
+                  <DoorOpen className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-800">
+                    {inspectLibrary ? inspectLibrary.name : 'Loading floor plan…'}
+                  </h2>
+                  {inspectLibrary && (
+                    <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                      <MapPin className="w-3 h-3" />
+                      {inspectLibrary.address || inspectLibrary.slug}
+                      <span className="mx-1">·</span>
+                      Owner: {inspectLibrary.owner.fullName}
+                      <span className="mx-1">·</span>
+                      {inspectLibrary.totalSeats} seats · {inspectLibrary.totalStudents} students
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => { setInspectLibrary(null); setInspectLoading(false); }}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {inspectLoading && (
+              <div className="flex-1 flex items-center justify-center py-20">
+                <div className="flex flex-col items-center gap-3 text-slate-400">
+                  <RefreshCw className="w-8 h-8 animate-spin" />
+                  <span className="text-sm">Loading floor plan…</span>
+                </div>
+              </div>
+            )}
+
+            {inspectLibrary && !inspectLoading && (
+              <div className="flex flex-1 overflow-hidden">
+                {/* Sidebar – room list */}
+                <div className="w-52 shrink-0 border-r border-slate-100 bg-slate-50 overflow-y-auto p-3 flex flex-col gap-1">
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-2 pb-1">Rooms</p>
+                  {inspectLibrary.rooms.length === 0 && (
+                    <p className="text-xs text-slate-400 px-2 py-3">No rooms configured yet.</p>
+                  )}
+                  {inspectLibrary.rooms.map((room) => {
+                    const totalSeats = room.rows.reduce((s, r) => s + r.seats.length, 0);
+                    const occupiedSeats = room.rows.reduce(
+                      (s, r) => s + r.seats.filter((st) => st.studentName).length,
+                      0
+                    );
+                    return (
+                      <button
+                        key={room.id}
+                        onClick={() => setInspectRoomId(room.id)}
+                        className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-medium transition-all flex items-center justify-between gap-2 ${
+                          inspectRoomId === room.id
+                            ? 'bg-indigo-600 text-white shadow'
+                            : 'text-slate-700 hover:bg-white hover:shadow-sm'
+                        }`}
+                      >
+                        <span className="truncate">{room.name}</span>
+                        <span className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                          inspectRoomId === room.id ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-500'
+                        }`}>
+                          {occupiedSeats}/{totalSeats}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Main – seat grid */}
+                <div className="flex-1 overflow-y-auto p-6">
+                  {(() => {
+                    const room = inspectLibrary.rooms.find((r) => r.id === inspectRoomId);
+                    if (!room) return (
+                      <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+                        Select a room to view its seat layout.
+                      </div>
+                    );
+
+                    const allSeats = room.rows.flatMap((r) => r.seats);
+                    const occupied = allSeats.filter((s) => s.studentName).length;
+                    const available = allSeats.filter((s) => !s.studentName && s.status === 'AVAILABLE').length;
+
+                    return (
+                      <div>
+                        {/* Room stats */}
+                        <div className="flex items-center gap-4 mb-5">
+                          <h3 className="text-sm font-bold text-slate-800">{room.name}</h3>
+                          <div className="flex items-center gap-3 text-xs">
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-3 h-3 rounded-sm bg-emerald-500 inline-block"></span>
+                              <span className="text-slate-600">Occupied ({occupied})</span>
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-3 h-3 rounded-sm bg-slate-200 inline-block"></span>
+                              <span className="text-slate-600">Available ({available})</span>
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-3 h-3 rounded-sm bg-amber-400 inline-block"></span>
+                              <span className="text-slate-600">Maintenance ({allSeats.filter(s => s.status === 'MAINTENANCE').length})</span>
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Rows */}
+                        <div className="space-y-5">
+                          {room.rows.map((row) => (
+                            <div key={row.id}>
+                              <div className="flex items-center gap-2 mb-2">
+                                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{row.name}</span>
+                                <span className="text-[10px] text-slate-400">({row.seats.length} seats)</span>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {row.seats.map((seat) => {
+                                  const isOccupied = Boolean(seat.studentName);
+                                  const isMaint = seat.status === 'MAINTENANCE';
+                                  return (
+                                    <div
+                                      key={seat.id}
+                                      title={isOccupied ? `${seat.seatNumber} – ${seat.studentName}` : `${seat.seatNumber} – Available`}
+                                      className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center text-[10px] font-bold border transition-all cursor-default ${
+                                        isMaint
+                                          ? 'bg-amber-50 border-amber-300 text-amber-700'
+                                          : isOccupied
+                                          ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                                          : 'bg-slate-50 border-slate-200 text-slate-400'
+                                      }`}
+                                    >
+                                      <span>{seat.seatNumber}</span>
+                                      {isOccupied && (
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-0.5"></span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                                {row.seats.length === 0 && (
+                                  <span className="text-xs text-slate-400 italic">No seats in this row</span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                          {room.rows.length === 0 && (
+                            <p className="text-slate-400 text-sm text-center py-10">This room has no rows or seats yet.</p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

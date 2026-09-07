@@ -112,39 +112,39 @@ export const BatchSeatModal: React.FC<BatchSeatModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white text-slate-900 w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 shadow-xl space-y-4 animate-in slide-in-from-bottom duration-200">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+    <div className="fixed inset-0 z-50 bg-black/60 dark:bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 shadow-xl space-y-4 animate-in slide-in-from-bottom duration-200 border border-slate-100 dark:border-[#262626]">
+        <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#262626] pb-3">
           <div className="flex items-center gap-2">
-            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+            <div className="p-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-lg">
               <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 text-base">Batch Generate Seats</h3>
-              <p className="text-xs text-slate-500">Rapid sequence generator for rows</p>
+              <h3 className="font-bold text-slate-900 dark:text-white text-base">Batch Generate Seats</h3>
+              <p className="text-xs text-slate-500 dark:text-neutral-400">Rapid sequence generator for rows</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 cursor-pointer"
+            className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-[#1c1c1e] text-slate-400 dark:text-neutral-400 hover:text-slate-600 dark:hover:text-neutral-200 cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {targetRoomName && (
-          <div className="bg-indigo-50/70 border border-indigo-100 rounded-xl px-3 py-2 text-xs text-indigo-900 flex items-center justify-between">
+          <div className="bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-800/50 rounded-xl px-3 py-2 text-xs text-indigo-900 dark:text-indigo-300 flex items-center justify-between">
             <span>Adding to Room: <strong>{targetRoomName}</strong></span>
           </div>
         )}
 
         {/* Overlap / Collision Warning with Auto-Fix */}
         {overlappingSeats.length > 0 && (
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1.5 animate-in fade-in duration-150">
+          <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-xl text-xs text-amber-900 dark:text-amber-300 space-y-1.5 animate-in fade-in duration-150">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 font-bold">
-                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
                 <span>Seats Already Exist!</span>
               </div>
               <button
@@ -155,7 +155,7 @@ export const BatchSeatModal: React.FC<BatchSeatModalProps> = ({
                 Auto Fix: Start at #{getNextStartNumber(selectedRow, prefix)}
               </button>
             </div>
-            <p className="text-[11px] text-amber-700 leading-relaxed">
+            <p className="text-[11px] text-amber-700 dark:text-amber-400/90 leading-relaxed">
               {overlappingSeats.slice(0, 5).join(', ')}
               {overlappingSeats.length > 5 ? ` and ${overlappingSeats.length - 5} more` : ''} already exist in this row. Click Auto Fix to avoid collisions.
             </p>
@@ -164,17 +164,17 @@ export const BatchSeatModal: React.FC<BatchSeatModalProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
               Target Row
             </label>
             {availableRows && availableRows.length > 0 ? (
               <select
                 value={selectedRow}
                 onChange={(e) => handleRowChange(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 bg-white"
+                className="w-full px-3 py-2 border border-slate-200 dark:border-[#262626] rounded-xl text-sm font-semibold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-[#1c1c1e]"
               >
                 {availableRows.map((r) => (
-                  <option key={r} value={r}>
+                  <option key={r} value={r} className="dark:bg-[#1c1c1e] dark:text-neutral-100">
                     {r}
                   </option>
                 ))}
@@ -185,13 +185,13 @@ export const BatchSeatModal: React.FC<BatchSeatModalProps> = ({
                 value={selectedRow}
                 onChange={(e) => handleRowChange(e.target.value)}
                 placeholder="e.g. Row A"
-                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 bg-white"
+                className="w-full px-3 py-2 border border-slate-200 dark:border-[#262626] rounded-xl text-sm font-semibold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-[#1c1c1e]"
               />
             )}
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
               Seat Prefix
             </label>
             <input
@@ -199,13 +199,13 @@ export const BatchSeatModal: React.FC<BatchSeatModalProps> = ({
               value={prefix}
               onChange={(e) => handlePrefixChange(e.target.value)}
               placeholder="e.g. A-, B-, Seat-"
-              className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-3 py-2 border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#1c1c1e] rounded-xl text-sm font-semibold text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
                 Start Number
               </label>
               <input
@@ -213,12 +213,12 @@ export const BatchSeatModal: React.FC<BatchSeatModalProps> = ({
                 min={1}
                 value={startNumber}
                 onChange={(e) => setStartNumber(e.target.value === '' ? '' : parseInt(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3 py-2 border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#1c1c1e] rounded-xl text-sm font-semibold text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
                 Total Seats to Generate
               </label>
               <input
@@ -227,14 +227,14 @@ export const BatchSeatModal: React.FC<BatchSeatModalProps> = ({
                 max={150}
                 value={count}
                 onChange={(e) => setCount(e.target.value === '' ? '' : parseInt(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3 py-2 border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#1c1c1e] rounded-xl text-sm font-semibold text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
               />
             </div>
           </div>
 
           {/* Sequence Preview Box */}
-          <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-xs text-slate-600">
-            <span className="font-semibold text-slate-900 block mb-0.5">Sequence Preview:</span>
+          <div className="bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] p-3 rounded-xl text-xs text-slate-600 dark:text-neutral-400">
+            <span className="font-semibold text-slate-900 dark:text-white block mb-0.5">Sequence Preview:</span>
             {previewFirst} → {previewLast} ({numCount} seats total)
           </div>
 

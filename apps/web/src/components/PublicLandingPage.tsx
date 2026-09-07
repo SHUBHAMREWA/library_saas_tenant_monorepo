@@ -21,9 +21,10 @@ import {
 
 interface PublicLandingPageProps {
   onOpenAuth: () => void;
+  onLaunchDemo: () => void;
 }
 
-export function PublicLandingPage({ onOpenAuth }: PublicLandingPageProps) {
+export function PublicLandingPage({ onOpenAuth, onLaunchDemo }: PublicLandingPageProps) {
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col selection:bg-indigo-500 selection:text-white">
       {/* Top Navigation Bar */}
@@ -46,16 +47,17 @@ export function PublicLandingPage({ onOpenAuth }: PublicLandingPageProps) {
           <button
             type="button"
             onClick={onOpenAuth}
-            className="px-4 py-2 text-xs font-bold text-slate-300 hover:text-white transition-colors"
+            className="px-4 py-2 text-xs font-bold text-slate-300 hover:text-white transition-colors cursor-pointer"
           >
             Sign In
           </button>
           <button
             type="button"
-            onClick={onOpenAuth}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-600/30 active:scale-95 transition-all flex items-center gap-1.5"
+            onClick={onLaunchDemo}
+            className="px-4 py-2 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-600/30 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
           >
-            <span>Sign In / Start Free</span>
+            <Sparkles className="w-3.5 h-3.5 text-amber-200 fill-amber-200" />
+            <span>1-Click Demo (Without Login)</span>
           </button>
         </div>
       </header>
@@ -90,7 +92,7 @@ export function PublicLandingPage({ onOpenAuth }: PublicLandingPageProps) {
           <button
             type="button"
             onClick={onOpenAuth}
-            className="w-full sm:w-auto flex-1 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm rounded-2xl shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2 active:scale-95 transition-all"
+            className="w-full sm:w-auto flex-1 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm rounded-2xl shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer"
           >
             <span>Start Free (Google / OTP)</span>
             <ArrowRight className="w-4 h-4" />
@@ -98,10 +100,10 @@ export function PublicLandingPage({ onOpenAuth }: PublicLandingPageProps) {
 
           <button
             type="button"
-            onClick={onOpenAuth}
-            className="w-full sm:w-auto px-6 py-3.5 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-slate-700 font-semibold text-sm rounded-2xl transition-all flex items-center justify-center gap-1.5"
+            onClick={onLaunchDemo}
+            className="w-full sm:w-auto px-6 py-3.5 bg-slate-800/90 hover:bg-slate-700/90 text-amber-300 border border-amber-500/40 font-bold text-sm rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-500/10 active:scale-95 cursor-pointer"
           >
-            <Sparkles className="w-4 h-4 text-amber-300" />
+            <Sparkles className="w-4 h-4 text-amber-400" />
             <span>1-Click Demo</span>
           </button>
         </div>

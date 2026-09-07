@@ -133,6 +133,9 @@ export async function GET(req: NextRequest) {
           studentPhone: std.phone,
           seatNumber: activeSeat?.seat?.seatNumber || null,
           amount: Number(t.amount),
+          totalFee: t.totalFee ? Number(t.totalFee) : undefined,
+          remainingFee: t.remainingFee ? Number(t.remainingFee) : undefined,
+          validTo: t.validTo ? t.validTo.toISOString() : undefined,
           paidForMonth: t.paidForMonth,
           paymentDate: t.paymentDate.toISOString(),
           paymentMode: t.paymentMode,
@@ -145,33 +148,37 @@ export async function GET(req: NextRequest) {
         let daysRemaining = 0;
         let isExpired = false;
 
-        if (!hasPaidTx) {
-          daysRemaining = 0;
-          isExpired = true;
-        } else if (activeMembership?.expectedEndDate) {
+        if (activeMembership?.expectedEndDate) {
           const end = new Date(activeMembership.expectedEndDate);
           daysRemaining = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
           isExpired = daysRemaining <= 0;
+        } else if (hasPaidTx && studentTxList[0]?.validTo) {
+          const end = new Date(studentTxList[0].validTo);
+          daysRemaining = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+          isExpired = daysRemaining <= 0;
+        } else if (activeSeat) {
+          daysRemaining = 30;
+          isExpired = false;
         } else {
           daysRemaining = 0;
-          isExpired = true;
+          isExpired = false;
         }
 
-        // Automatic seat cut/release if membership expired or unpaid
+        // Automatic seat cut/release ONLY if membership duration has genuinely expired
         let assignedSeatNumber: string | null = null;
         if (activeSeat?.seat) {
-          if (!isExpired && daysRemaining > 0) {
+          if (!isExpired) {
             assignedSeatNumber = activeSeat.seat.seatNumber;
             const matchingSeat = allSeats.find(
               (s) => s.id === activeSeat.seat.id || s.seatNumber === activeSeat.seat.seatNumber
             );
             if (matchingSeat) {
-              matchingSeat.status = 'OCCUPIED';
+              matchingSeat.status = activeSeat.seat.status === 'RESERVED' ? 'RESERVED' : 'OCCUPIED';
               matchingSeat.studentName = std.fullName;
               matchingSeat.shift = activeSeat.shift || activeMembership?.shift || 'FULL_DAY';
             }
           } else {
-            // Cut seat allotment automatically
+            // Cut seat allotment automatically when duration has genuinely expired
             assignedSeatNumber = null;
             seatsToRelease.push(activeSeat.seat.id);
             assignmentsToRelease.push(activeSeat.id);
@@ -186,16 +193,25 @@ export async function GET(req: NextRequest) {
           }
         }
 
-        const computedMonthlyFee = hasPaidTx
-          ? Number(activeMembership?.feeAmount || studentTxList[0]?.amount || 0)
+        const latestTx = studentTxList[0];
+        const studentTotalFee = latestTx?.totalFee
+          ? Number(latestTx.totalFee)
+          : Number(activeMembership?.feeAmount || 1000);
+
+        const studentRemainingFee = latestTx?.remainingFee
+          ? Number(latestTx.remainingFee)
+          : !hasPaidTx
+          ? studentTotalFee
           : 0;
+
+        const computedMonthlyFee = studentTotalFee;
 
         return {
           id: std.id,
           fullName: std.fullName,
           phone: std.phone,
           seatNumber: assignedSeatNumber,
-          status: (isExpired ? 'EXPIRED' : (activeMembership?.status || 'ACTIVE')) as 'ACTIVE' | 'EXPIRED' | 'PAUSED',
+          status: (!assignedSeatNumber ? 'INACTIVE' : (isExpired ? 'EXPIRED' : (activeMembership?.status || 'ACTIVE'))) as 'ACTIVE' | 'EXPIRED' | 'PAUSED' | 'INACTIVE',
           membershipEndsInDays: daysRemaining,
           shift: activeMembership?.shift || 'FULL_DAY',
           studyPurpose: std.studyPurpose || undefined,

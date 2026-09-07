@@ -461,28 +461,28 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
       </div>
 
       {/* Subscription Payment History Section */}
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden [color-scheme:light]">
-        <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="bg-white dark:bg-[#121212] rounded-3xl border border-slate-200 dark:border-[#262626] shadow-sm overflow-hidden transition-colors">
+        <div className="p-5 border-b border-slate-100 dark:border-[#262626] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-700">
+            <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-[#1e1e1e] flex items-center justify-center text-slate-700 dark:text-[#f5f5f5]">
               <History className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-slate-900">Subscription Payment History</h4>
-              <p className="text-xs text-slate-500">Track all subscription purchases, extensions, initiated & rejected payments</p>
+              <h4 className="text-sm font-bold text-slate-900 dark:text-white">Subscription Payment History</h4>
+              <p className="text-xs text-slate-500 dark:text-[#a8a8a8]">Track all subscription purchases, extensions, initiated & rejected payments</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
             {/* Filter Pills */}
-            <div className="flex items-center bg-slate-100 p-1 rounded-xl text-[11px] font-semibold">
+            <div className="flex items-center bg-slate-100 dark:bg-[#1a1a1a] p-1 rounded-xl text-[11px] font-semibold border dark:border-[#262626]">
               <button
                 type="button"
                 onClick={() => setHistoryFilter('ALL')}
                 className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
                   historyFilter === 'ALL'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-500 hover:text-slate-800'
+                    ? 'bg-white dark:bg-[#262626] text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-500 dark:text-[#a8a8a8] hover:text-slate-800 dark:hover:text-white'
                 }`}
               >
                 All ({paymentsHistory.length})
@@ -492,8 +492,8 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                 onClick={() => setHistoryFilter('SUCCESS')}
                 className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
                   historyFilter === 'SUCCESS'
-                    ? 'bg-white text-emerald-700 shadow-xs font-bold'
-                    : 'text-slate-500 hover:text-emerald-700'
+                    ? 'bg-white dark:bg-[#262626] text-emerald-700 dark:text-emerald-400 shadow-xs font-bold'
+                    : 'text-slate-500 dark:text-[#a8a8a8] hover:text-emerald-700 dark:hover:text-emerald-400'
                 }`}
               >
                 Success ({paymentsHistory.filter((p) => p.status === 'SUCCESS').length})
@@ -503,8 +503,8 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                 onClick={() => setHistoryFilter('PENDING')}
                 className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
                   historyFilter === 'PENDING'
-                    ? 'bg-white text-amber-700 shadow-xs font-bold'
-                    : 'text-slate-500 hover:text-amber-700'
+                    ? 'bg-white dark:bg-[#262626] text-amber-700 dark:text-amber-400 shadow-xs font-bold'
+                    : 'text-slate-500 dark:text-[#a8a8a8] hover:text-amber-700 dark:hover:text-amber-400'
                 }`}
               >
                 Initiated ({paymentsHistory.filter((p) => p.status === 'PENDING').length})
@@ -514,8 +514,8 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                 onClick={() => setHistoryFilter('FAILED')}
                 className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
                   historyFilter === 'FAILED'
-                    ? 'bg-white text-rose-700 shadow-xs font-bold'
-                    : 'text-slate-500 hover:text-rose-700'
+                    ? 'bg-white dark:bg-[#262626] text-rose-700 dark:text-rose-400 shadow-xs font-bold'
+                    : 'text-slate-500 dark:text-[#a8a8a8] hover:text-rose-700 dark:hover:text-rose-400'
                 }`}
               >
                 Rejected ({paymentsHistory.filter((p) => p.status === 'FAILED').length})
@@ -525,7 +525,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
             <button
               type="button"
               onClick={fetchSubscriptionData}
-              className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 p-1.5 rounded-xl hover:bg-indigo-50 cursor-pointer transition-colors"
+              className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 p-1.5 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-950/50 cursor-pointer transition-colors"
               title="Refresh payment records"
             >
               Refresh
@@ -534,23 +534,23 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
         </div>
 
         {isLoadingHistory ? (
-          <div className="p-8 text-center text-xs text-slate-400">Loading payment history...</div>
+          <div className="p-8 text-center text-xs text-slate-400 dark:text-[#737373]">Loading payment history...</div>
         ) : paymentsHistory.length === 0 ? (
           <div className="p-8 text-center space-y-2">
-            <Receipt className="w-10 h-10 text-slate-300 mx-auto" />
-            <p className="text-xs font-semibold text-slate-700">No subscription payments yet</p>
-            <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
+            <Receipt className="w-10 h-10 text-slate-300 dark:text-[#737373] mx-auto" />
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">No subscription payments yet</p>
+            <p className="text-[11px] text-slate-400 dark:text-[#737373] max-w-xs mx-auto">
               When you purchase or extend your plan, your transactions, validity extension records, and digital receipts will appear here.
             </p>
           </div>
         ) : paymentsHistory.filter((p) => historyFilter === 'ALL' || p.status === historyFilter).length === 0 ? (
-          <div className="p-8 text-center text-xs text-slate-500">
+          <div className="p-8 text-center text-xs text-slate-500 dark:text-[#a8a8a8]">
             No {historyFilter === 'PENDING' ? 'initiated' : historyFilter === 'FAILED' ? 'rejected / failed' : 'successful'} payments recorded.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
+              <thead className="bg-slate-50 dark:bg-[#181818] border-b border-slate-200 dark:border-[#262626] text-slate-500 dark:text-[#a8a8a8] font-semibold uppercase tracking-wider">
                 <tr>
                   <th className="px-5 py-3">Date & Time</th>
                   <th className="px-4 py-3">Plan</th>
@@ -560,20 +560,20 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                   <th className="px-5 py-3 text-right">Status & Details</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-slate-100 dark:divide-[#262626] text-slate-700 dark:text-slate-300">
                 {paymentsHistory
                   .filter((item) => historyFilter === 'ALL' || item.status === historyFilter)
                   .map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                    <tr key={item.id} className="hover:bg-slate-50/70 dark:hover:bg-[#181818] transition-colors">
                       <td className="px-5 py-3.5 whitespace-nowrap">
-                        <div className="font-medium text-slate-900">
+                        <div className="font-medium text-slate-900 dark:text-white">
                           {new Date(item.createdAt).toLocaleDateString('en-IN', {
                             day: 'numeric',
                             month: 'short',
                             year: 'numeric',
                           })}
                         </div>
-                        <div className="text-[10px] text-slate-400 font-mono">
+                        <div className="text-[10px] text-slate-400 dark:text-[#737373] font-mono">
                           {new Date(item.createdAt).toLocaleTimeString('en-IN', {
                             hour: '2-digit',
                             minute: '2-digit',
@@ -581,42 +581,42 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                         </div>
                       </td>
                       <td className="px-4 py-3.5 whitespace-nowrap">
-                        <span className="font-semibold text-slate-900 block">{item.planName}</span>
-                        <span className="text-[10px] text-indigo-600 font-mono">{item.planCode}</span>
+                        <span className="font-semibold text-slate-900 dark:text-white block">{item.planName}</span>
+                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono">{item.planCode}</span>
                       </td>
                       <td className="px-4 py-3.5 whitespace-nowrap">
                         {item.status === 'SUCCESS' ? (
-                          <span className="inline-flex items-center gap-1 font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-lg text-[11px]">
+                          <span className="inline-flex items-center gap-1 font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-800 px-2 py-0.5 rounded-lg text-[11px]">
                             +{item.durationMonths} Month{item.durationMonths > 1 ? 's' : ''}
                           </span>
                         ) : (
-                          <span className="text-slate-400 text-[11px] italic">Not applied</span>
+                          <span className="text-slate-400 dark:text-[#737373] text-[11px] italic">Not applied</span>
                         )}
                       </td>
-                      <td className="px-4 py-3.5 whitespace-nowrap font-bold text-slate-900">
+                      <td className="px-4 py-3.5 whitespace-nowrap font-bold text-slate-900 dark:text-white">
                         ₹{item.amount.toLocaleString('en-IN')}
                       </td>
                       <td className="px-4 py-3.5 whitespace-nowrap">
-                        <span className="font-mono text-[11px] text-slate-600 block">{item.paymentId}</span>
+                        <span className="font-mono text-[11px] text-slate-600 dark:text-slate-300 block">{item.paymentId}</span>
                         {item.orderId && (
-                          <span className="text-[10px] text-slate-400 font-mono block">Order: {item.orderId}</span>
+                          <span className="text-[10px] text-slate-400 dark:text-[#737373] font-mono block">Order: {item.orderId}</span>
                         )}
                       </td>
                       <td className="px-5 py-3.5 whitespace-nowrap text-right">
                         {item.status === 'SUCCESS' ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                             <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                             SUCCESS
                           </span>
                         ) : item.status === 'FAILED' ? (
                           <div className="flex flex-col items-end gap-0.5">
-                            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
                               <XCircle className="w-3 h-3 text-rose-600" />
                               REJECTED / FAILED
                             </span>
                             {item.failureReason && (
                               <span
-                                className="text-[10px] text-rose-600 max-w-[180px] truncate text-right font-medium"
+                                className="text-[10px] text-rose-600 dark:text-rose-400 max-w-[180px] truncate text-right font-medium"
                                 title={item.failureReason}
                               >
                                 {item.failureReason}
@@ -625,11 +625,11 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                           </div>
                         ) : (
                           <div className="flex flex-col items-end gap-0.5">
-                            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                               <Clock className="w-3 h-3 text-amber-600" />
                               INITIATED
                             </span>
-                            <span className="text-[10px] text-amber-600 font-medium">Pending checkout</span>
+                            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">Pending checkout</span>
                           </div>
                         )}
                       </td>
@@ -643,17 +643,17 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
 
       {/* Upgrade Plan Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white text-slate-900 w-full max-w-lg rounded-3xl p-6 shadow-2xl space-y-5 border border-slate-200 [color-scheme:light] max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-white w-full max-w-lg rounded-3xl p-6 shadow-2xl space-y-5 border border-slate-200 dark:border-[#262626] max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#262626] pb-3">
               <div>
-                <h3 className="font-extrabold text-slate-900 text-lg">Select SaaS Subscription Plan</h3>
-                <p className="text-xs text-slate-500">All plans include 100% full platform features</p>
+                <h3 className="font-extrabold text-slate-900 dark:text-white text-lg">Select SaaS Subscription Plan</h3>
+                <p className="text-xs text-slate-500 dark:text-[#a8a8a8]">All plans include 100% full platform features</p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 cursor-pointer"
+                className="text-slate-400 dark:text-[#737373] hover:text-slate-600 dark:hover:text-white p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-[#262626] cursor-pointer"
               >
                 ✕
               </button>
@@ -661,7 +661,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
 
             {/* Plans List */}
             <div className="space-y-2.5">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-[#737373]">
                 Choose Duration Plan
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -677,8 +677,8 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                       }}
                       className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all flex flex-col justify-between relative ${
                         isSelected
-                          ? 'border-indigo-600 bg-indigo-50/50 shadow-sm ring-2 ring-indigo-600/20'
-                          : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                          ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 shadow-sm ring-2 ring-indigo-600/20'
+                          : 'border-slate-200 dark:border-[#262626] hover:border-slate-300 dark:hover:border-[#363636] hover:bg-slate-50 dark:hover:bg-[#181818] bg-white dark:bg-[#181818]'
                       }`}
                     >
                       {p.badge && (
@@ -688,19 +688,19 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                       )}
 
                       <div>
-                        <div className="font-black text-slate-900 text-sm">{p.name}</div>
-                        <div className="text-[11px] font-bold text-indigo-700 mt-0.5">
+                        <div className="font-black text-slate-900 dark:text-white text-sm">{p.name}</div>
+                        <div className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 mt-0.5">
                           {p.durationMonths} {p.durationMonths === 1 ? 'Month' : p.durationMonths === 12 ? 'Year' : 'Months'}
                         </div>
-                        <p className="text-[10px] text-slate-500 mt-1 leading-tight">
+                        <p className="text-[10px] text-slate-500 dark:text-[#a8a8a8] mt-1 leading-tight">
                           {p.description || 'Full features included'}
                         </p>
                       </div>
 
-                      <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-baseline gap-1.5">
-                        <span className="text-base font-black text-slate-900">₹{p.price}</span>
+                      <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-[#262626] flex items-baseline gap-1.5">
+                        <span className="text-base font-black text-slate-900 dark:text-white">₹{p.price}</span>
                         {p.originalPrice && p.originalPrice > p.price && (
-                          <span className="text-[11px] text-slate-400 line-through">₹{p.originalPrice}</span>
+                          <span className="text-[11px] text-slate-400 dark:text-[#737373] line-through">₹{p.originalPrice}</span>
                         )}
                       </div>
                     </div>
@@ -710,22 +710,22 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
             </div>
 
             {/* Feature Guarantee Callout */}
-            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-1.5">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+            <div className="p-3.5 bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-[#262626] rounded-2xl space-y-1.5">
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-white">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>All Features Included in Every Plan:</span>
               </div>
-              <p className="text-[11px] text-slate-500 pl-6 leading-relaxed">
+              <p className="text-[11px] text-slate-500 dark:text-[#a8a8a8] pl-6 leading-relaxed">
                 Unlimited Student Admissions • Room & Seat Allotment • Fee Collections & Digital Receipts • Complete Fee Ledger & Reports • WhatsApp & SMS Dues Alerts
               </p>
             </div>
 
             {/* Stacking Notice Banner */}
-            <div className="p-3 bg-indigo-50/70 border border-indigo-200/60 rounded-2xl flex items-start gap-2.5 text-xs text-indigo-900">
-              <Sparkles className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+            <div className="p-3 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-800/60 rounded-2xl flex items-start gap-2.5 text-xs text-indigo-900 dark:text-indigo-200">
+              <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
               <div>
                 <strong className="font-bold">Validity Extension Guarantee:</strong>
-                <p className="text-[11px] text-indigo-700 mt-0.5">
+                <p className="text-[11px] text-indigo-700 dark:text-indigo-300 mt-0.5">
                   Paying for {activeSelectedPlan.name} will automatically add{' '}
                   <strong>+{activeSelectedPlan.durationMonths} month(s)</strong> onto your existing expiry date!
                 </p>
@@ -734,30 +734,30 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
 
             {/* Coupon Code Input */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-[#737373]">
                 Coupon Code (Optional)
               </label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
-                  <Tag className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Tag className="w-4 h-4 text-slate-400 dark:text-[#737373] absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={coupon}
                     onChange={(e) => setCoupon(e.target.value.toUpperCase())}
                     placeholder="e.g. WELCOME50, LIBRARY20"
-                    className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 font-mono uppercase bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                    className="w-full pl-9 pr-3 py-2.5 border border-slate-300 dark:border-[#262626] rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-[#737373] font-mono uppercase bg-white dark:bg-[#1a1a1a] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
                   />
                 </div>
                 <button
                   type="button"
                   onClick={handleApplyCoupon}
-                  className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+                  className="bg-slate-900 dark:bg-white text-white dark:text-black hover:bg-slate-800 dark:hover:bg-slate-200 px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-colors"
                 >
                   Apply
                 </button>
               </div>
               {couponFeedback && (
-                <p className={`text-[11px] font-semibold flex items-center gap-1 mt-1 ${couponFeedback.type === 'success' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                <p className={`text-[11px] font-semibold flex items-center gap-1 mt-1 ${couponFeedback.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                   {couponFeedback.type === 'success' ? <Check className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
                   {couponFeedback.message}
                 </p>
@@ -765,35 +765,35 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
             </div>
 
             {/* Price Summary */}
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs space-y-1.5">
-              <div className="flex justify-between text-slate-600">
+            <div className="bg-slate-50 dark:bg-[#1a1a1a] p-4 rounded-2xl border border-slate-200 dark:border-[#262626] text-xs space-y-1.5">
+              <div className="flex justify-between text-slate-600 dark:text-[#a8a8a8]">
                 <span>Selected Plan</span>
-                <span className="font-semibold text-slate-900">{activeSelectedPlan.name} ({activeSelectedPlan.durationMonths} Mo)</span>
+                <span className="font-semibold text-slate-900 dark:text-white">{activeSelectedPlan.name} ({activeSelectedPlan.durationMonths} Mo)</span>
               </div>
-              <div className="flex justify-between text-slate-600">
+              <div className="flex justify-between text-slate-600 dark:text-[#a8a8a8]">
                 <span>Plan Price</span>
-                <span>₹{baseTotal}</span>
+                <span className="text-slate-900 dark:text-white">₹{baseTotal}</span>
               </div>
               {discount !== null && (
-                <div className="flex justify-between text-emerald-600 font-semibold">
+                <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-semibold">
                   <span>Coupon Discount</span>
                   <span>-₹{discount}</span>
                 </div>
               )}
-              <div className="flex justify-between text-slate-900 font-black border-t border-slate-200 pt-2 text-sm">
+              <div className="flex justify-between text-slate-900 dark:text-white font-black border-t border-slate-200 dark:border-[#262626] pt-2 text-sm">
                 <span>Total Payable</span>
-                <span className="text-base text-indigo-700">₹{finalPrice}</span>
+                <span className="text-base text-indigo-700 dark:text-indigo-400">₹{finalPrice}</span>
               </div>
             </div>
 
             {/* Test Mode Helper Banner */}
-            <div className="p-3 bg-amber-50/80 rounded-2xl border border-amber-200 text-xs text-amber-900 space-y-1">
-              <div className="flex items-center gap-1.5 font-bold text-amber-800 text-[11px]">
+            <div className="p-3 bg-amber-50/80 dark:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200 space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-300 text-[11px]">
                 <Sparkles className="w-3.5 h-3.5 text-amber-600" />
                 <span>Test Mode Simulation Guide</span>
               </div>
-              <p className="text-[11px] text-amber-700 leading-snug">
-                For test success, choose <strong>Netbanking</strong> (SBI / HDFC) or <strong>Cards</strong> (Indian RuPay: <code className="bg-amber-100 font-mono px-1 py-0.5 rounded text-amber-900 font-bold">6527 6589 0000 1005</code>, CVV: 123).
+              <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-snug">
+                For test success, choose <strong>Netbanking</strong> (SBI / HDFC) or <strong>Cards</strong> (Indian RuPay: <code className="bg-amber-100 dark:bg-amber-900/60 font-mono px-1 py-0.5 rounded text-amber-900 dark:text-amber-200 font-bold">6527 6589 0000 1005</code>, CVV: 123).
               </p>
             </div>
 
@@ -807,7 +807,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
               <span>{isSubmitting ? 'Opening Razorpay Gateway...' : `Pay ₹${finalPrice.toLocaleString('en-IN')} & Activate Plan`}</span>
             </button>
 
-            <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 font-medium pt-1">
+            <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 dark:text-[#737373] font-medium pt-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
               <span>100% Secured by Razorpay • UPI, Cards & NetBanking</span>
             </div>

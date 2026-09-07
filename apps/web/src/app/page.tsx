@@ -29,30 +29,139 @@ import {
   IndianRupee,
   ReceiptText,
   Crown,
+  Sun,
+  Moon,
+  FlaskConical,
 } from 'lucide-react';
 import type { SeatStatus } from '@library/types';
 import dynamic from 'next/dynamic';
-import { SeatGrid, VisualSeatItem } from '../components/SeatGrid';
-import { BatchSeatModal } from '../components/BatchSeatModal';
-import { StudentList, StudentItem, StudentFeeRecord } from '../components/StudentList';
-import { StudentModal } from '../components/StudentModal';
-import { SubscriptionCard } from '../components/SubscriptionCard';
-import { KanbanBoard } from '../components/KanbanBoard';
-import { AuthModal } from '../components/AuthModal';
-import { CreateLibraryModal } from '../components/CreateLibraryModal';
-import { RoomRowModal } from '../components/RoomRowModal';
-import { AddRowModal } from '../components/AddRowModal';
-import { EditRoomModal } from '../components/EditRoomModal';
-import { StudentProfileModal } from '../components/StudentProfileModal';
-import { AssignSeatModal } from '../components/AssignSeatModal';
-import { QuickCheckHero } from '../components/QuickCheckHero';
-import { PublicLandingPage } from '../components/PublicLandingPage';
-import { AdminDashboard } from '../components/AdminDashboard';
-import { TransactionsView } from '../components/TransactionsView';
-import { CollectFeeModal } from '../components/CollectFeeModal';
+import { useTheme } from '../components/ThemeProvider';
+import type { VisualSeatItem } from '../components/SeatGrid';
+import type { StudentItem, StudentFeeRecord, StudentFilterTab } from '../components/StudentList';
 import { DesktopSidebar } from '../components/DesktopSidebar';
-import { DashboardChart } from '../components/DashboardChart';
-import { SubscriptionRequiredModal } from '../components/SubscriptionRequiredModal';
+import { QuickCheckHero } from '../components/QuickCheckHero';
+import {
+  DashboardSkeleton,
+  DashboardChartSkeleton,
+  SeatGridSkeleton,
+  StudentListSkeleton,
+  TransactionsSkeleton,
+  KanbanSkeleton,
+  SubscriptionSkeleton,
+  AdminSkeleton,
+} from '../components/Skeleton';
+
+// Dynamically imported heavy views with skeleton fallbacks
+const DashboardChart = dynamic(
+  () => import('../components/DashboardChart').then((m) => m.DashboardChart),
+  { loading: () => <DashboardChartSkeleton /> }
+);
+
+const SeatGrid = dynamic(
+  () => import('../components/SeatGrid').then((m) => m.SeatGrid),
+  { loading: () => <SeatGridSkeleton /> }
+);
+
+const StudentList = dynamic(
+  () => import('../components/StudentList').then((m) => m.StudentList),
+  { loading: () => <StudentListSkeleton /> }
+);
+
+const KanbanBoard = dynamic(
+  () => import('../components/KanbanBoard').then((m) => m.KanbanBoard),
+  { loading: () => <KanbanSkeleton /> }
+);
+
+const TransactionsView = dynamic(
+  () => import('../components/TransactionsView').then((m) => m.TransactionsView),
+  { loading: () => <TransactionsSkeleton /> }
+);
+
+const SubscriptionCard = dynamic(
+  () => import('../components/SubscriptionCard').then((m) => m.SubscriptionCard),
+  { loading: () => <SubscriptionSkeleton /> }
+);
+
+const AdminDashboard = dynamic(
+  () => import('../components/AdminDashboard').then((m) => m.AdminDashboard),
+  { loading: () => <AdminSkeleton />, ssr: false }
+);
+
+const PublicLandingPage = dynamic(
+  () => import('../components/PublicLandingPage').then((m) => m.PublicLandingPage),
+  { ssr: false }
+);
+
+// Dynamically imported on-demand modals (only loaded when active/triggered)
+const AuthModal = dynamic(
+  () => import('../components/AuthModal').then((m) => m.AuthModal),
+  { ssr: false }
+);
+
+const CreateLibraryModal = dynamic(
+  () => import('../components/CreateLibraryModal').then((m) => m.CreateLibraryModal),
+  { ssr: false }
+);
+
+const EditLibraryModal = dynamic(
+  () => import('../components/EditLibraryModal').then((m) => m.EditLibraryModal),
+  { ssr: false }
+);
+
+const RoomRowModal = dynamic(
+  () => import('../components/RoomRowModal').then((m) => m.RoomRowModal),
+  { ssr: false }
+);
+
+const EditRoomModal = dynamic(
+  () => import('../components/EditRoomModal').then((m) => m.EditRoomModal),
+  { ssr: false }
+);
+
+const AddRowModal = dynamic(
+  () => import('../components/AddRowModal').then((m) => m.AddRowModal),
+  { ssr: false }
+);
+
+const BatchSeatModal = dynamic(
+  () => import('../components/BatchSeatModal').then((m) => m.BatchSeatModal),
+  { ssr: false }
+);
+
+const StudentModal = dynamic(
+  () => import('../components/StudentModal').then((m) => m.StudentModal),
+  { ssr: false }
+);
+
+const StudentProfileModal = dynamic(
+  () => import('../components/StudentProfileModal').then((m) => m.StudentProfileModal),
+  { ssr: false }
+);
+
+const CollectFeeModal = dynamic(
+  () => import('../components/CollectFeeModal').then((m) => m.CollectFeeModal),
+  { ssr: false }
+);
+
+const FeeReceiptModal = dynamic(
+  () => import('../components/FeeReceiptModal').then((m) => m.FeeReceiptModal),
+  { ssr: false }
+);
+
+const AssignSeatModal = dynamic(
+  () => import('../components/AssignSeatModal').then((m) => m.AssignSeatModal),
+  { ssr: false }
+);
+
+const SubscriptionRequiredModal = dynamic(
+  () => import('../components/SubscriptionRequiredModal').then((m) => m.SubscriptionRequiredModal),
+  { ssr: false }
+);
+
+const NotificationCenterModal = dynamic(
+  () => import('../components/NotificationCenterModal').then((m) => m.NotificationCenterModal),
+  { ssr: false }
+);
 
 const PWACompanion = dynamic(
   () => import('../components/PWACompanion').then((m) => m.PWACompanion),
@@ -82,10 +191,12 @@ export interface LibraryBranch {
 }
 
 export default function MobileDashboard() {
+  const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const [isSyncingData, setIsSyncingData] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'seats' | 'students' | 'transactions' | 'more'>('home');
   const [studentSubTab, setStudentSubTab] = useState<'directory' | 'pipeline'>('directory');
-  const [studentFilterTab, setStudentFilterTab] = useState<'ALL' | 'EXPIRING_5_DAYS' | 'FEE_DUE' | 'ACTIVE'>('ALL');
+  const [studentFilterTab, setStudentFilterTab] = useState<StudentFilterTab>('ALL');
   const [isCollectFeeModalOpen, setIsCollectFeeModalOpen] = useState(false);
   const [studentForFeeCollection, setStudentForFeeCollection] = useState<StudentItem | null>(null);
   const [returnToStudentProfileId, setReturnToStudentProfileId] = useState<string | null>(null);
@@ -113,6 +224,15 @@ export default function MobileDashboard() {
           currentUser.email.toLowerCase().trim() === 'kushwahashubham5932@gmail.com' ||
           currentUser.email.toLowerCase().trim() === 'admin@libraryhub.com')
     );
+  const isTestMode = Boolean(
+    currentUser && (
+      currentUser.email?.toLowerCase().trim() === 'rahul.owner@seelibrary.io' ||
+      currentUser.email?.toLowerCase().trim().endsWith('@seelibrary.io') ||
+      currentUser.email?.toLowerCase().includes('demo') ||
+      currentUser.email?.toLowerCase().includes('test') ||
+      (currentUser as any).isTestMode
+    )
+  );
   const [isAdminPortalView, setIsAdminPortalView] = useState(false);
 
   useEffect(() => {
@@ -133,6 +253,7 @@ export default function MobileDashboard() {
   // Modal States
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
+  const [isEditLibraryModalOpen, setIsEditLibraryModalOpen] = useState(false);
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
   const [isAddRowModalOpen, setIsAddRowModalOpen] = useState(false);
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
@@ -140,8 +261,11 @@ export default function MobileDashboard() {
   const [isSubscriptionRequiredModalOpen, setIsSubscriptionRequiredModalOpen] = useState(false);
   const [subscriptionGateAction, setSubscriptionGateAction] = useState<string>('Enroll Students');
   const [selectedStudentForProfile, setSelectedStudentForProfile] = useState<StudentItem | null>(null);
+  const [selectedReceiptTx, setSelectedReceiptTx] = useState<StudentFeeRecord | null>(null);
   const [selectedSeatForAssignment, setSelectedSeatForAssignment] = useState<VisualSeatItem | null>(null);
   const [preselectedSeatNumberForNewStudent, setPreselectedSeatNumberForNewStudent] = useState<string | null>(null);
+  const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
 
   // Selected Room for Room-First Hierarchy
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
@@ -150,6 +274,7 @@ export default function MobileDashboard() {
 
   // Sync and fetch libraries from PostgreSQL
   const loadUserLibrariesFromDb = async (userEmail: string, localFallbackLibs?: LibraryBranch[]) => {
+    setIsSyncingData(true);
     try {
       // 1. Sync User in DB and get canonical role
       const authRes = await fetch('/api/auth/sync', {
@@ -201,6 +326,8 @@ export default function MobileDashboard() {
       }
     } catch (err) {
       console.warn('Database sync encountered an issue, using local cache:', err);
+    } finally {
+      setIsSyncingData(false);
     }
   };
 
@@ -262,6 +389,16 @@ export default function MobileDashboard() {
     loadUserLibrariesFromDb(effectiveUser.email, libraries);
   };
 
+  const handleLaunchDemo = () => {
+    handleUserLogin({
+      fullName: 'Rahul Sharma',
+      email: 'rahul.owner@seelibrary.io',
+      phone: '9876543210',
+      role: 'OWNER',
+      avatar: 'https://ui-avatars.com/api/?name=Rahul+Sharma&background=4f46e5&color=fff',
+    });
+  };
+
   const handleUserLogout = () => {
     setCurrentUser(null);
     setLibraries([]);
@@ -277,6 +414,27 @@ export default function MobileDashboard() {
 
   // Find active library
   const activeLibrary = libraries.find((l) => l.id === activeLibraryId) || libraries[0] || null;
+
+  // Fetch unread push notifications count
+  const fetchUnreadNotifications = async () => {
+    if (!currentUser?.email) return;
+    try {
+      const params = new URLSearchParams();
+      if (activeLibrary?.id) params.append('libraryId', activeLibrary.id);
+      params.append('userEmail', currentUser.email);
+      const res = await fetch(`/api/notifications?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setUnreadNotificationCount(data.unreadCount || 0);
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchUnreadNotifications();
+    const interval = setInterval(fetchUnreadNotifications, 45000);
+    return () => clearInterval(interval);
+  }, [currentUser?.email, activeLibrary?.id]);
 
   // Subscription Guard Helper: Checks if active library has valid subscription or user is super admin
   const hasActiveSubscription = Boolean(
@@ -363,7 +521,7 @@ export default function MobileDashboard() {
   const occupiedCount = seats.filter((s) => s.status === 'OCCUPIED').length;
   const availableCount = seats.filter((s) => s.status === 'AVAILABLE').length;
   const occupancyPercentage = totalSeats > 0 ? Math.round((occupiedCount / totalSeats) * 100) : 0;
-  const expiringSoonCount = students.filter((s) => s.membershipEndsInDays <= 5 && s.status === 'ACTIVE').length;
+  const expiringSoonCount = students.filter((s) => Boolean(s.seatNumber) && s.membershipEndsInDays <= 5 && s.status === 'ACTIVE').length;
 
   // Mutators for active library
   const updateActiveLibrary = (updater: (prevLib: LibraryBranch) => LibraryBranch) => {
@@ -446,6 +604,37 @@ export default function MobileDashboard() {
     } catch {}
     setIsBranchDropdownOpen(false);
     setIsLibraryModalOpen(false);
+  };
+
+  const handleEditLibrary = async (data: { name: string; contactPhone: string; address?: string }) => {
+    if (!activeLibrary) return;
+
+    // Optimistically update active library in local state & localStorage
+    updateActiveLibrary((prevLib) => ({
+      ...prevLib,
+      name: data.name,
+      contactPhone: data.contactPhone,
+      address: data.address,
+    }));
+
+    // Persist to database via API
+    try {
+      const res = await fetch(`/api/libraries/${activeLibrary.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: data.name,
+          contactPhone: data.contactPhone,
+          address: data.address,
+        }),
+      });
+
+      if (!res.ok) {
+        console.warn('Backend library update returned non-OK status');
+      }
+    } catch (e) {
+      console.error('Database update library error:', e);
+    }
   };
 
   const handleStatusChange = async (seatId: string, newStatus: SeatStatus) => {
@@ -865,9 +1054,9 @@ export default function MobileDashboard() {
       phone: data.phone,
       studyPurpose: data.studyPurpose,
       shift: data.shift,
-      seatNumber: fallbackAmount > 0 ? chosenSeatNumber : null,
-      status: fallbackAmount > 0 ? 'ACTIVE' : 'EXPIRED',
-      membershipEndsInDays: fallbackAmount > 0 ? (data.durationMonths || 1) * 30 : 0,
+      seatNumber: chosenSeatNumber || null,
+      status: chosenSeatNumber ? 'ACTIVE' : 'INACTIVE',
+      membershipEndsInDays: chosenSeatNumber && fallbackAmount > 0 ? (data.durationMonths || 1) * 30 : 0,
       photoUrl: data.photoUrl || undefined,
       kycPhotoUrl: data.kycPhotoUrl || undefined,
       kycDocId: data.kycDocId || undefined,
@@ -892,7 +1081,12 @@ export default function MobileDashboard() {
     setPreselectedSeatNumberForNewStudent(null);
   };
 
-  const handleAssignSeat = async (studentId: string, seatNumber: string | null) => {
+  const handleAssignSeat = async (
+    studentId: string,
+    seatNumber: string | null,
+    shift?: string,
+    isReserved?: boolean
+  ) => {
     if (!activeLibrary) return;
     const student = activeLibrary.students.find((s) => s.id === studentId);
     const oldSeatNumber = student?.seatNumber;
@@ -900,20 +1094,28 @@ export default function MobileDashboard() {
     // 1. Optimistic UI update
     updateActiveLibrary((lib) => {
       const updatedStudents = lib.students.map((std) =>
-        std.id === studentId ? { ...std, seatNumber } : std
+        std.id === studentId
+          ? {
+              ...std,
+              seatNumber,
+              shift: shift || std.shift,
+              status: (seatNumber ? (std.status === 'INACTIVE' ? 'ACTIVE' : std.status) : 'INACTIVE') as any,
+            }
+          : std
       );
 
       const updatedSeats = lib.seats.map((seat) => {
         // Free old seat if previously occupied by this student
         if (oldSeatNumber && seat.seatNumber === oldSeatNumber) {
-          return { ...seat, status: 'AVAILABLE' as const, studentName: null };
+          return { ...seat, status: 'AVAILABLE' as const, studentName: null, shift: undefined };
         }
-        // Occupy new seat
+        // Occupy or reserve new seat
         if (seatNumber && seat.seatNumber === seatNumber) {
           return {
             ...seat,
-            status: 'OCCUPIED' as const,
+            status: isReserved ? ('RESERVED' as const) : ('OCCUPIED' as const),
             studentName: student?.fullName || 'Student',
+            shift: shift || student?.shift || 'FULL_DAY',
           };
         }
         return seat;
@@ -924,16 +1126,27 @@ export default function MobileDashboard() {
 
     // Update active modal student state
     setSelectedStudentForProfile((prev) =>
-      prev && prev.id === studentId ? { ...prev, seatNumber } : prev
+      prev && prev.id === studentId
+        ? {
+            ...prev,
+            seatNumber,
+            shift: shift || prev.shift,
+            status: (seatNumber ? (prev.status === 'INACTIVE' ? 'ACTIVE' : prev.status) : 'INACTIVE') as any,
+          }
+        : prev
     );
 
     // 2. Sync with database
     try {
-      await fetch(`/api/libraries/${activeLibrary.id}/seats/assign`, {
+      const res = await fetch(`/api/libraries/${activeLibrary.id}/seats/assign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId, seatNumber }),
+        body: JSON.stringify({ studentId, seatNumber, shift, reserveSeat: isReserved }),
       });
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error('Failed to sync seat assignment with DB:', errText);
+      }
     } catch (e) {
       console.error('Failed to sync seat assignment with DB:', e);
     }
@@ -1019,6 +1232,10 @@ export default function MobileDashboard() {
   const handleRecordFeePayment = async (paymentData: {
     studentId: string;
     amount: number;
+    totalFee?: number;
+    remainingFee?: number;
+    validFrom?: string;
+    validTo?: string;
     paidForMonth: string;
     paymentMode: string;
     paymentDate: string;
@@ -1031,6 +1248,7 @@ export default function MobileDashboard() {
     const receiptNumber = `REC-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
     const student = activeLibrary.students.find((s) => s.id === paymentData.studentId);
 
+    const isPartial = paymentData.remainingFee !== undefined && paymentData.remainingFee > 0;
     const newTx: StudentFeeRecord = {
       id: `tx-${Date.now()}`,
       studentId: paymentData.studentId,
@@ -1038,10 +1256,14 @@ export default function MobileDashboard() {
       studentPhone: student?.phone || '',
       seatNumber: student?.seatNumber || null,
       amount: paymentData.amount,
+      totalFee: paymentData.totalFee ?? paymentData.amount,
+      remainingFee: paymentData.remainingFee ?? 0,
+      validFrom: paymentData.validFrom,
+      validTo: paymentData.validTo,
       paidForMonth: paymentData.paidForMonth,
       paymentDate: paymentData.paymentDate,
       paymentMode: paymentData.paymentMode,
-      status: 'PAID',
+      status: isPartial ? 'PARTIAL' : 'PAID',
       receiptNumber,
       notes: paymentData.notes,
     };
@@ -1054,7 +1276,8 @@ export default function MobileDashboard() {
           return {
             ...s,
             shift: paymentData.shift || s.shift,
-            monthlyFee: paymentData.amount,
+            monthlyFee: paymentData.totalFee ?? paymentData.amount,
+            remainingFee: paymentData.remainingFee ?? 0,
             status: 'ACTIVE' as const,
             membershipEndsInDays:
               paymentData.extendDays > 0
@@ -1096,7 +1319,8 @@ export default function MobileDashboard() {
         return {
           ...prev,
           shift: paymentData.shift || prev.shift,
-          monthlyFee: paymentData.amount,
+          monthlyFee: paymentData.totalFee ?? paymentData.amount,
+          remainingFee: paymentData.remainingFee ?? 0,
           status: 'ACTIVE' as const,
           membershipEndsInDays:
             paymentData.extendDays > 0
@@ -1120,22 +1344,33 @@ export default function MobileDashboard() {
     } catch (e) {
       console.error('Failed to save fee transaction in DB:', e);
     }
+    return newTx;
   };
+
+  // 0. SKELETON LOADING STATE (During SSR hydration or initial DB network sync)
+  if (!mounted || (currentUser && isSyncingData && libraries.length === 0)) {
+    return <DashboardSkeleton />;
+  }
 
   // 1. PUBLIC LANDING PAGE (When visitor is NOT logged in)
   if (mounted && !currentUser) {
     return (
       <>
         <PWACompanion />
-        <PublicLandingPage onOpenAuth={() => setIsAuthModalOpen(true)} />
-
-        <AuthModal
-          isOpen={isAuthModalOpen}
-          onClose={() => setIsAuthModalOpen(false)}
-          currentUser={currentUser}
-          onLoginSuccess={handleUserLogin}
-          onLogout={handleUserLogout}
+        <PublicLandingPage
+          onOpenAuth={() => setIsAuthModalOpen(true)}
+          onLaunchDemo={handleLaunchDemo}
         />
+
+        {isAuthModalOpen && (
+          <AuthModal
+            isOpen={isAuthModalOpen}
+            onClose={() => setIsAuthModalOpen(false)}
+            currentUser={currentUser}
+            onLoginSuccess={handleUserLogin}
+            onLogout={handleUserLogout}
+          />
+        )}
       </>
     );
   }
@@ -1210,11 +1445,13 @@ export default function MobileDashboard() {
           />
         </main>
 
-        <CreateLibraryModal
-          isOpen={isLibraryModalOpen}
-          onClose={() => setIsLibraryModalOpen(false)}
-          onCreated={handleCreateLibrary}
-        />
+        {isLibraryModalOpen && (
+          <CreateLibraryModal
+            isOpen={isLibraryModalOpen}
+            onClose={() => setIsLibraryModalOpen(false)}
+            onCreated={handleCreateLibrary}
+          />
+        )}
       </div>
     );
   }
@@ -1347,18 +1584,20 @@ export default function MobileDashboard() {
           </div>
         </main>
 
-        <CreateLibraryModal
-          isOpen={isLibraryModalOpen}
-          onClose={() => setIsLibraryModalOpen(false)}
-          onCreated={handleCreateLibrary}
-        />
+        {isLibraryModalOpen && (
+          <CreateLibraryModal
+            isOpen={isLibraryModalOpen}
+            onClose={() => setIsLibraryModalOpen(false)}
+            onCreated={handleCreateLibrary}
+          />
+        )}
       </div>
     );
   }
 
   // 3. AUTHENTICATED DASHBOARD (With created libraries)
   return (
-    <div className="flex flex-col min-h-screen pb-20 md:pb-8 select-none bg-slate-50 md:pl-64">
+    <div className="flex flex-col min-h-screen pb-20 md:pb-8 select-none bg-slate-50 dark:bg-black text-slate-900 dark:text-[#f5f5f5] md:pl-64 transition-colors">
       <PWACompanion />
 
       {/* Desktop Sidebar (visible on md: screens and above) */}
@@ -1374,27 +1613,30 @@ export default function MobileDashboard() {
           } catch {}
         }}
         onOpenCreateLibrary={() => setIsLibraryModalOpen(true)}
+        onOpenEditLibrary={() => setIsEditLibraryModalOpen(true)}
         currentUser={currentUser}
         onLogout={handleUserLogout}
         isSuperAdmin={isSuperAdmin}
         hasActiveSubscription={hasActiveSubscription}
         onOpenAdminPortal={() => setIsAdminPortalView(true)}
+        onOpenNotifications={() => setIsNotificationCenterOpen(true)}
+        unreadNotificationCount={unreadNotificationCount}
         onOpenAddStudent={() => requireSubscription('Enroll Students', () => setIsStudentModalOpen(true))}
         onOpenCollectFee={() => requireSubscription('Collect Fees', () => setIsCollectFeeModalOpen(true))}
       />
 
       {/* Mobile Top Navigation Header (Mobile only - hidden on desktop where sidebar is present) */}
-      <header className="md:hidden sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-xs">
+      <header className="md:hidden sticky top-0 z-30 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-slate-200 dark:border-[#262626] px-4 py-3 flex items-center justify-between shadow-xs transition-colors">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-800 text-white flex items-center justify-center font-black text-sm shadow-sm tracking-tight">
             sL
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <h1 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
-                see<span className="text-indigo-600">Library</span>
+              <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-[#f5f5f5] tracking-tight">
+                see<span className="text-indigo-600 dark:text-indigo-400">Library</span>
               </h1>
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700">
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 border border-indigo-100/60 dark:border-indigo-900/50">
                 SaaS
               </span>
             </div>
@@ -1405,17 +1647,17 @@ export default function MobileDashboard() {
                 <button
                   type="button"
                   onClick={() => setIsBranchDropdownOpen((prev) => !prev)}
-                  className="flex items-center gap-1 text-[11px] text-slate-700 font-bold hover:text-indigo-600 transition-colors"
+                  className="flex items-center gap-1 text-[11px] text-slate-700 dark:text-neutral-300 font-bold hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                 >
                   <span className="truncate max-w-[130px] sm:max-w-[200px]">
                     {activeLibrary.name}
                   </span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 dark:text-neutral-500" />
                 </button>
 
                 {isBranchDropdownOpen && (
-                  <div className="absolute top-full left-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-1 animate-in fade-in zoom-in-95 duration-150">
-                    <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-slate-400 border-b border-slate-100">
+                  <div className="absolute top-full left-0 mt-1.5 w-64 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-xl shadow-xl z-50 p-1 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-slate-400 dark:text-neutral-500 border-b border-slate-100 dark:border-[#262626]">
                       Select Library Branch ({libraries.length})
                     </div>
 
@@ -1433,24 +1675,37 @@ export default function MobileDashboard() {
                           }}
                           className={`w-full px-3 py-2 text-left rounded-lg text-xs font-semibold flex items-center justify-between transition-colors ${
                             lib.id === activeLibrary.id
-                              ? 'bg-indigo-50 text-indigo-700'
-                              : 'text-slate-700 hover:bg-slate-50'
+                              ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300'
+                              : 'text-slate-700 dark:text-neutral-300 hover:bg-slate-50 dark:hover:bg-[#1c1c1e]'
                           }`}
                         >
                           <span className="truncate">{lib.name}</span>
-                          {lib.id === activeLibrary.id && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                          {lib.id === activeLibrary.id && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
                         </button>
                       ))}
                     </div>
 
-                    <div className="border-t border-slate-100 pt-1">
+                    <div className="border-t border-slate-100 dark:border-[#262626] pt-1 space-y-0.5">
+                      {activeLibrary && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsBranchDropdownOpen(false);
+                            setIsEditLibraryModalOpen(true);
+                          }}
+                          className="w-full px-3 py-2 text-left rounded-lg text-xs font-semibold text-slate-700 dark:text-neutral-300 hover:bg-slate-50 dark:hover:bg-[#1c1c1e] flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <Pencil className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
+                          <span>Edit Active Branch</span>
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => {
                           setIsBranchDropdownOpen(false);
                           setIsLibraryModalOpen(true);
                         }}
-                        className="w-full px-3 py-2 text-left rounded-lg text-xs font-bold text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5 transition-colors"
+                        className="w-full px-3 py-2 text-left rounded-lg text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 flex items-center gap-1.5 transition-colors"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>Create Another Library</span>
@@ -1464,6 +1719,12 @@ export default function MobileDashboard() {
         </div>
 
         <div className="flex items-center gap-2">
+          {isTestMode && (
+            <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              <span>Test Mode</span>
+            </span>
+          )}
           {isSuperAdmin && (
             <button
               type="button"
@@ -1475,15 +1736,36 @@ export default function MobileDashboard() {
             </button>
           )}
 
+          {/* Theme Switcher Toggle (Mobile) */}
           <button
             type="button"
-            className="p-2 rounded-full text-slate-600 hover:bg-slate-100 relative"
+            onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+            className="p-2 rounded-xl text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] transition-colors cursor-pointer"
+            aria-label="Toggle theme"
+            title={resolvedTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {resolvedTheme === 'dark' ? (
+              <Sun className="w-5 h-5 text-amber-400" />
+            ) : (
+              <Moon className="w-5 h-5" />
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsNotificationCenterOpen(true)}
+            className="p-2 rounded-full text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] relative transition-colors cursor-pointer"
             aria-label="Notifications"
+            title="Open Notification Center"
           >
             <Bell className="w-5 h-5" />
-            {expiringSoonCount > 0 && (
+            {unreadNotificationCount > 0 ? (
+              <span className="absolute top-1 right-1 px-1.5 py-0.2 bg-rose-500 text-white text-[9px] font-black rounded-full shadow-xs">
+                {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+              </span>
+            ) : expiringSoonCount > 0 ? (
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-500 rounded-full" />
-            )}
+            ) : null}
           </button>
 
           {currentUser && (
@@ -1491,7 +1773,7 @@ export default function MobileDashboard() {
               <button
                 type="button"
                 onClick={() => setIsAuthModalOpen(true)}
-                className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-semibold text-slate-700 transition-colors"
+                className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-100 dark:bg-[#1c1c1e] hover:bg-slate-200 dark:hover:bg-[#262626] rounded-xl text-xs font-semibold text-slate-700 dark:text-neutral-200 transition-colors"
                 title="Click to view profile or sign out"
               >
                 <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center overflow-hidden">
@@ -1507,7 +1789,7 @@ export default function MobileDashboard() {
               <button
                 type="button"
                 onClick={handleUserLogout}
-                className="px-2.5 py-1.5 text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors flex items-center gap-1"
+                className="px-2.5 py-1.5 text-xs font-bold text-rose-600 dark:text-rose-400 hover:text-rose-700 bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-900/40 border border-rose-200 dark:border-rose-900/50 rounded-xl transition-colors flex items-center gap-1"
                 title="Sign out of seeLibrary"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -1519,9 +1801,9 @@ export default function MobileDashboard() {
       </header>
 
       {/* Desktop Top Bar (Clean breadcrumb / title + notifications on desktop) */}
-      <header className="hidden md:flex sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-slate-200 px-6 py-3 items-center justify-between shadow-2xs">
+      <header className="hidden md:flex sticky top-0 z-20 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-slate-200 dark:border-[#262626] px-6 py-3 items-center justify-between shadow-2xs transition-colors">
         <div className="flex items-center gap-3">
-          <h2 className="text-base font-bold text-slate-900 capitalize">
+          <h2 className="text-base font-bold text-slate-900 dark:text-[#f5f5f5] capitalize">
             {activeTab === 'home'
               ? 'Dashboard Overview'
               : activeTab === 'seats'
@@ -1533,17 +1815,39 @@ export default function MobileDashboard() {
               : 'Branch Settings'}
           </h2>
           {activeLibrary && (
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 flex items-center gap-1">
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/50 flex items-center gap-1">
               <Building2 className="w-3 h-3" />
               {activeLibrary.name}
+            </span>
+          )}
+          {isTestMode && (
+            <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1.5 shadow-2xs">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              <FlaskConical className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
+              <span>Test Mode</span>
             </span>
           )}
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Desktop Theme Switcher Toggle */}
           <button
             type="button"
-            className="p-2 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 relative transition-colors cursor-pointer"
+            onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+            className="p-2 rounded-xl text-slate-500 dark:text-neutral-400 hover:text-slate-700 dark:hover:text-[#f5f5f5] hover:bg-slate-100 dark:hover:bg-[#1c1c1e] relative transition-colors cursor-pointer"
+            aria-label="Toggle theme"
+            title={resolvedTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {resolvedTheme === 'dark' ? (
+              <Sun className="w-4 h-4 text-amber-400" />
+            ) : (
+              <Moon className="w-4 h-4" />
+            )}
+          </button>
+
+          <button
+            type="button"
+            className="p-2 rounded-xl text-slate-500 dark:text-neutral-400 hover:text-slate-700 dark:hover:text-[#f5f5f5] hover:bg-slate-100 dark:hover:bg-[#1c1c1e] relative transition-colors cursor-pointer"
             aria-label="Notifications"
           >
             <Bell className="w-4 h-4" />
@@ -1551,8 +1855,8 @@ export default function MobileDashboard() {
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-500 rounded-full" />
             )}
           </button>
-          <div className="h-4 w-[1px] bg-slate-200" />
-          <div className="text-xs text-slate-500 font-medium">
+          <div className="h-4 w-[1px] bg-slate-200 dark:bg-[#262626]" />
+          <div className="text-xs text-slate-500 dark:text-neutral-400 font-medium">
             {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
           </div>
         </div>
@@ -1563,8 +1867,8 @@ export default function MobileDashboard() {
         {/* Tab 1: Home Dashboard */}
         {activeTab === 'home' && (
           <>
-            {/* If zero seats and zero students, render the setup guide */}
-            {totalSeats === 0 && students.length === 0 && (
+            {/* Only show setup guide if no library has been created or selected yet */}
+            {!activeLibrary && (
               <QuickCheckHero
                 onOpenAuth={() => setIsAuthModalOpen(true)}
                 onOpenCreateLibrary={() => setIsLibraryModalOpen(true)}
@@ -1572,7 +1876,7 @@ export default function MobileDashboard() {
                 onOpenGenerateSeats={() => setIsBatchModalOpen(true)}
                 onOpenAddStudent={() => requireSubscription('Enroll Students', () => setIsStudentModalOpen(true))}
                 isLoggedIn={!!currentUser}
-                libraryName={activeLibrary ? activeLibrary.name : 'Your Library'}
+                libraryName="Your Library"
               />
             )}
 
@@ -1586,22 +1890,22 @@ export default function MobileDashboard() {
 
             {/* Quick Glance Metrics (computed from real state) */}
             <section className="grid grid-cols-2 gap-3">
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-                <span className="text-xs text-slate-500 font-medium">Active Students</span>
-                <div className="text-2xl font-bold text-slate-900 mt-1">
+              <div className="bg-white dark:bg-[#121212] p-4 rounded-xl border border-slate-200 dark:border-[#262626] shadow-xs transition-colors">
+                <span className="text-xs text-slate-500 dark:text-neutral-400 font-medium">Active Students</span>
+                <div className="text-2xl font-bold text-slate-900 dark:text-[#f5f5f5] mt-1">
                   {students.filter((s) => s.status === 'ACTIVE').length}
                 </div>
-                <div className="text-[11px] text-emerald-600 font-medium mt-1 flex items-center gap-1">
+                <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium mt-1 flex items-center gap-1">
                   <span>●</span> {occupiedCount} occupied seats
                 </div>
               </div>
 
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-                <span className="text-xs text-slate-500 font-medium">Available Seats</span>
-                <div className="text-2xl font-bold text-indigo-600 mt-1">
-                  {availableCount} <span className="text-xs font-normal text-slate-400">/ {totalSeats}</span>
+              <div className="bg-white dark:bg-[#121212] p-4 rounded-xl border border-slate-200 dark:border-[#262626] shadow-xs transition-colors">
+                <span className="text-xs text-slate-500 dark:text-neutral-400 font-medium">Available Seats</span>
+                <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 mt-1">
+                  {availableCount} <span className="text-xs font-normal text-slate-400 dark:text-neutral-500">/ {totalSeats}</span>
                 </div>
-                <div className="text-[11px] text-slate-500 font-medium mt-1">
+                <div className="text-[11px] text-slate-500 dark:text-neutral-400 font-medium mt-1">
                   {occupancyPercentage}% occupancy rate
                 </div>
               </div>
@@ -1615,22 +1919,22 @@ export default function MobileDashboard() {
                   setStudentSubTab('directory');
                   setActiveTab('students');
                 }}
-                className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center justify-between cursor-pointer hover:bg-amber-100/80 transition-all shadow-2xs group"
+                className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-xl p-3 flex items-center justify-between cursor-pointer hover:bg-amber-100/80 dark:hover:bg-amber-950/40 transition-all shadow-2xs group"
               >
                 <div className="flex items-center gap-2.5">
-                  <div className="p-2 bg-amber-100 rounded-lg text-amber-700">
+                  <div className="p-2 bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded-lg">
                     <Clock className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-semibold text-amber-900 group-hover:text-amber-950">
+                    <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-200 group-hover:text-amber-950 dark:group-hover:text-amber-100">
                       {expiringSoonCount} Membership{expiringSoonCount > 1 ? 's' : ''} Ending Soon
                     </h4>
-                    <p className="text-xs text-amber-700">Expiring within the next 5 days — click to view & collect fees</p>
+                    <p className="text-xs text-amber-700 dark:text-amber-300/80">Expiring within the next 5 days — click to view & collect fees</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 text-xs font-bold text-amber-800 bg-amber-200/60 group-hover:bg-amber-200 px-2.5 py-1.5 rounded-lg transition-colors">
+                <div className="flex items-center gap-1 text-xs font-bold text-amber-800 dark:text-amber-200 bg-amber-200/60 dark:bg-amber-900/40 group-hover:bg-amber-200 dark:group-hover:bg-amber-900/60 px-2.5 py-1.5 rounded-lg transition-colors">
                   <span>View Due</span>
-                  <ChevronRight className="w-4 h-4 text-amber-600" />
+                  <ChevronRight className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                 </div>
               </section>
             )}
@@ -1647,50 +1951,50 @@ export default function MobileDashboard() {
               <button
                 type="button"
                 onClick={() => setIsRoomModalOpen(true)}
-                className="flex-1 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 border border-slate-200 font-medium py-2.5 px-3 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-xs"
+                className="flex-1 bg-white dark:bg-[#121212] hover:bg-slate-50 dark:hover:bg-[#1c1c1e] active:bg-slate-100 dark:active:bg-[#262626] text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] font-medium py-2.5 px-3 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-xs transition-colors"
               >
-                <Building2 className="w-4 h-4" /> Add Room/Rows
+                <Building2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> Add Room/Rows
               </button>
               <button
                 type="button"
                 onClick={() => setIsBatchModalOpen(true)}
-                className="flex-1 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 border border-slate-200 font-medium py-2.5 px-3 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-xs"
+                className="flex-1 bg-white dark:bg-[#121212] hover:bg-slate-50 dark:hover:bg-[#1c1c1e] active:bg-slate-100 dark:active:bg-[#262626] text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] font-medium py-2.5 px-3 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-xs transition-colors"
               >
-                <Layers className="w-4 h-4" /> Batch Seats
+                <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> Batch Seats
               </button>
             </section>
 
             {/* Room-First Visual Section */}
             {!currentSelectedRoom ? (
               /* State A: Show Rooms First */
-              <section className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-4">
+              <section className="bg-white dark:bg-[#121212] rounded-xl border border-slate-200 dark:border-[#262626] p-4 shadow-xs space-y-4 transition-colors">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                      <Building2 className="w-4 h-4 text-indigo-600" />
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-[#f5f5f5] flex items-center gap-1.5">
+                      <Building2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                       Study Rooms & Halls
                     </h3>
-                    <p className="text-[11px] text-slate-500">
+                    <p className="text-[11px] text-slate-500 dark:text-neutral-400">
                       Click a room to view rows and seat arrangement
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => setIsRoomModalOpen(true)}
-                    className="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
+                    className="text-xs bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
                   >
                     <Plus className="w-3.5 h-3.5" /> Add Room & Rows
                   </button>
                 </div>
 
                 {displayRooms.length === 0 ? (
-                  <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 space-y-3">
-                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto">
+                  <div className="p-8 text-center bg-slate-50 dark:bg-[#161616] rounded-xl border border-dashed border-slate-200 dark:border-[#262626] space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto">
                       <Building2 className="w-6 h-6" />
                     </div>
                     <div>
-                      <h4 className="font-bold text-slate-800 text-sm">No Study Rooms Created Yet</h4>
-                      <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
+                      <h4 className="font-bold text-slate-800 dark:text-neutral-200 text-sm">No Study Rooms Created Yet</h4>
+                      <p className="text-xs text-slate-500 dark:text-neutral-400 max-w-sm mx-auto mt-1">
                         Add your study halls and rows (e.g. Ground Floor, Silent Hall, AC Section) to start managing seats.
                       </p>
                     </div>
@@ -1720,15 +2024,15 @@ export default function MobileDashboard() {
                               setSelectedRoomId(rm.id);
                             }
                           }}
-                          className="relative group text-left p-4 rounded-xl border border-slate-200 hover:border-indigo-500 hover:shadow-md bg-white hover:bg-indigo-50/10 transition-all cursor-pointer flex flex-col justify-between"
+                          className="relative group text-left p-4 rounded-xl border border-slate-200 dark:border-[#262626] hover:border-indigo-500 dark:hover:border-indigo-500 hover:shadow-md bg-white dark:bg-[#161616] hover:bg-indigo-50/10 dark:hover:bg-indigo-950/20 transition-all cursor-pointer flex flex-col justify-between"
                         >
                           <div className="space-y-2">
                             <div className="flex items-center justify-between">
-                              <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                              <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
                                 <Building2 className="w-4 h-4" />
                               </div>
                               <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100/60">
+                                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-100/60 dark:border-indigo-900/50">
                                   {rmSeats.length} {rmSeats.length === 1 ? 'Seat' : 'Seats'}
                                 </span>
                                 <div className="relative">
@@ -1738,7 +2042,7 @@ export default function MobileDashboard() {
                                       e.stopPropagation();
                                       setActiveRoomMenuId(activeRoomMenuId === rm.id ? null : rm.id);
                                     }}
-                                    className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                                    className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-[#262626] text-slate-400 dark:text-neutral-500 hover:text-slate-700 dark:hover:text-neutral-200 transition-colors cursor-pointer"
                                     title="Room Options"
                                   >
                                     <MoreVertical className="w-4 h-4" />
@@ -1748,7 +2052,7 @@ export default function MobileDashboard() {
                                   {activeRoomMenuId === rm.id && (
                                     <div
                                       onClick={(e) => e.stopPropagation()}
-                                      className="absolute right-0 top-full mt-1 w-36 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-30 animate-in fade-in zoom-in-95 duration-100"
+                                      className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl shadow-lg py-1 z-30 animate-in fade-in zoom-in-95 duration-100"
                                     >
                                       <button
                                         type="button"
@@ -1756,9 +2060,9 @@ export default function MobileDashboard() {
                                           setActiveRoomMenuId(null);
                                           setEditingRoom(rm);
                                         }}
-                                        className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors cursor-pointer"
+                                        className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 dark:text-neutral-200 hover:bg-slate-50 dark:hover:bg-[#262626] flex items-center gap-2 transition-colors cursor-pointer"
                                       >
-                                        <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                                        <Pencil className="w-3.5 h-3.5 text-slate-400 dark:text-neutral-500" />
                                         <span>Edit Name</span>
                                       </button>
                                       <button
@@ -1766,7 +2070,7 @@ export default function MobileDashboard() {
                                         onClick={() => {
                                           handleDeleteRoom(rm.id);
                                         }}
-                                        className="w-full px-3 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2 transition-colors cursor-pointer"
+                                        className="w-full px-3 py-2 text-left text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center gap-2 transition-colors cursor-pointer"
                                       >
                                         <Trash2 className="w-3.5 h-3.5 text-rose-500" />
                                         <span>Delete Room</span>
@@ -1778,34 +2082,34 @@ export default function MobileDashboard() {
                             </div>
 
                             <div>
-                              <h4 className="font-bold text-slate-900 group-hover:text-indigo-600 text-base transition-colors">
+                              <h4 className="font-bold text-slate-900 dark:text-[#f5f5f5] group-hover:text-indigo-600 dark:group-hover:text-indigo-400 text-base transition-colors">
                                 {rm.name}
                               </h4>
-                              <p className="text-[11px] text-slate-500 mt-0.5">
+                              <p className="text-[11px] text-slate-500 dark:text-neutral-400 mt-0.5">
                                 {rmSeats.length} Total Seats
                               </p>
                             </div>
                           </div>
 
-                          <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
+                          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-[#262626] space-y-2">
                             <div className="flex items-center justify-between text-xs">
-                              <span className="font-bold text-slate-800">
+                              <span className="font-bold text-slate-800 dark:text-neutral-200">
                                 {rmSeats.length} Seats
                               </span>
-                              <span className="text-[11px] text-slate-500 font-medium">
+                              <span className="text-[11px] text-slate-500 dark:text-neutral-400 font-medium">
                                 {rmOccupied} Occupied ({rmRate}%)
                               </span>
                             </div>
 
                             {/* Mini progress bar */}
-                            <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="w-full h-1.5 bg-slate-100 dark:bg-[#262626] rounded-full overflow-hidden">
                               <div
-                                className="h-full bg-indigo-600 rounded-full transition-all"
+                                className="h-full bg-indigo-600 dark:bg-indigo-500 rounded-full transition-all"
                                 style={{ width: `${rmRate}%` }}
                               />
                             </div>
 
-                            <div className="pt-1 flex items-center justify-between text-xs font-bold text-indigo-600 group-hover:translate-x-0.5 transition-transform">
+                            <div className="pt-1 flex items-center justify-between text-xs font-bold text-indigo-600 dark:text-indigo-400 group-hover:translate-x-0.5 transition-transform">
                               <span>Open Room & Seats</span>
                               <ArrowRight className="w-3.5 h-3.5" />
                             </div>
@@ -1818,9 +2122,9 @@ export default function MobileDashboard() {
                     <button
                       type="button"
                       onClick={() => setIsRoomModalOpen(true)}
-                      className="p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-indigo-400 bg-slate-50/50 hover:bg-indigo-50/30 text-slate-500 hover:text-indigo-600 flex flex-col items-center justify-center min-h-[140px] text-center gap-2 transition-all cursor-pointer"
+                      className="p-4 rounded-xl border-2 border-dashed border-slate-200 dark:border-[#262626] hover:border-indigo-400 dark:hover:border-indigo-500 bg-slate-50/50 dark:bg-[#161616]/50 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 text-slate-500 dark:text-neutral-400 hover:text-indigo-600 dark:hover:text-indigo-400 flex flex-col items-center justify-center min-h-[140px] text-center gap-2 transition-all cursor-pointer"
                     >
-                      <div className="p-2 rounded-full bg-white border border-slate-200 text-slate-400 shadow-2xs">
+                      <div className="p-2 rounded-full bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] text-slate-400 dark:text-neutral-400 shadow-2xs">
                         <Plus className="w-4 h-4" />
                       </div>
                       <span className="text-xs font-bold">Add Another Room</span>
@@ -1830,26 +2134,26 @@ export default function MobileDashboard() {
               </section>
             ) : (
               /* State B: Inside Specific Room View */
-              <section className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <section className="bg-white dark:bg-[#121212] rounded-xl border border-slate-200 dark:border-[#262626] p-4 shadow-xs space-y-4 transition-colors">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-[#262626] pb-3">
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
                       onClick={() => setSelectedRoomId(null)}
-                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                      className="px-2.5 py-1.5 bg-slate-100 dark:bg-[#1c1c1e] hover:bg-slate-200 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 font-bold rounded-lg text-xs flex items-center gap-1 transition-colors cursor-pointer"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" /> All Rooms
                     </button>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="text-base font-bold text-slate-900">
+                        <h3 className="text-base font-bold text-slate-900 dark:text-[#f5f5f5]">
                           {currentSelectedRoom.name}
                         </h3>
-                        <span className="text-[10px] px-2 py-0.5 bg-indigo-50 text-indigo-700 font-semibold rounded-full border border-indigo-100">
+                        <span className="text-[10px] px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-semibold rounded-full border border-indigo-100 dark:border-indigo-900/50">
                           {currentSelectedRoom.rows.join(', ')}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-500">
+                      <p className="text-[11px] text-slate-500 dark:text-neutral-400">
                         {currentRoomOccupied} occupied of {currentRoomSeats.length} seats
                       </p>
                     </div>
@@ -1859,14 +2163,14 @@ export default function MobileDashboard() {
                     <button
                       type="button"
                       onClick={() => setEditingRoom(currentSelectedRoom)}
-                      className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                      className="text-xs bg-slate-100 dark:bg-[#1c1c1e] hover:bg-slate-200 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
                     >
-                      <Pencil className="w-3.5 h-3.5 text-slate-500" /> Edit Name
+                      <Pencil className="w-3.5 h-3.5 text-slate-500 dark:text-neutral-400" /> Edit Name
                     </button>
                     <button
                       type="button"
                       onClick={() => handleDeleteRoom(currentSelectedRoom.id)}
-                      className="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                      className="text-xs bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-900/40 text-rose-700 dark:text-rose-400 font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5 text-rose-500" /> Delete Room
                     </button>
@@ -1880,7 +2184,7 @@ export default function MobileDashboard() {
                     <button
                       type="button"
                       onClick={() => setIsBatchModalOpen(true)}
-                      className="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                      className="text-xs bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" /> Batch Seats
                     </button>
@@ -1909,11 +2213,11 @@ export default function MobileDashboard() {
 
         {/* Tab 2: Seats Grid Full View */}
         {activeTab === 'seats' && (
-          <section className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3">
+          <section className="bg-white dark:bg-[#121212] rounded-xl border border-slate-200 dark:border-[#262626] p-4 shadow-xs space-y-3 transition-colors">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
               <div>
-                <h3 className="text-base font-bold text-slate-900">Seat Inventory</h3>
-                <p className="text-xs text-slate-500">
+                <h3 className="text-base font-bold text-slate-900 dark:text-[#f5f5f5]">Seat Inventory</h3>
+                <p className="text-xs text-slate-500 dark:text-neutral-400">
                   {currentSelectedRoom ? (
                     <>Showing <b>{currentSelectedRoom.name}</b> ({currentRoomSeats.length} seats)</>
                   ) : (
@@ -1925,9 +2229,9 @@ export default function MobileDashboard() {
                 <button
                   type="button"
                   onClick={() => setIsRoomModalOpen(true)}
-                  className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-xs transition-colors"
+                  className="bg-white dark:bg-[#1c1c1e] hover:bg-slate-50 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-xs transition-colors"
                 >
-                  <Building2 className="w-3.5 h-3.5" /> Add Room/Row
+                  <Building2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Add Room/Row
                 </button>
                 <button
                   type="button"
@@ -1948,12 +2252,12 @@ export default function MobileDashboard() {
                   className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 shrink-0 transition-colors ${
                     !selectedRoomId
                       ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      : 'bg-slate-100 dark:bg-[#1c1c1e] hover:bg-slate-200 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200'
                   }`}
                 >
                   <span>All Rooms</span>
                   <span className={`text-[10px] px-1.5 py-0.2 rounded-md ${
-                    !selectedRoomId ? 'bg-indigo-500 text-white' : 'bg-slate-200 text-slate-700'
+                    !selectedRoomId ? 'bg-indigo-500 text-white' : 'bg-slate-200 dark:bg-[#262626] text-slate-700 dark:text-neutral-300'
                   }`}>
                     {seats.length}
                   </span>
@@ -1970,13 +2274,13 @@ export default function MobileDashboard() {
                       className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 shrink-0 transition-colors ${
                         isSelected
                           ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-100'
+                          : 'bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-900 dark:text-indigo-200 border border-indigo-100 dark:border-indigo-900/50'
                       }`}
                     >
-                      <Building2 className={`w-3.5 h-3.5 ${isSelected ? 'text-white' : 'text-indigo-600'}`} />
+                      <Building2 className={`w-3.5 h-3.5 ${isSelected ? 'text-white' : 'text-indigo-600 dark:text-indigo-400'}`} />
                       <span>{rm.name}</span>
                       <span className={`text-[10px] px-1.5 py-0.2 rounded-md ${
-                        isSelected ? 'bg-indigo-500 text-white' : 'bg-indigo-200 text-indigo-800'
+                        isSelected ? 'bg-indigo-500 text-white' : 'bg-indigo-200 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200'
                       }`}>
                         {count} {count === 1 ? 'seat' : 'seats'}
                       </span>
@@ -2009,25 +2313,25 @@ export default function MobileDashboard() {
           <section className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
               <div>
-                <h3 className="text-base font-bold text-slate-900">
+                <h3 className="text-base font-bold text-slate-900 dark:text-[#f5f5f5]">
                   {studentSubTab === 'directory' ? 'Student Directory' : 'Admission & Lead Pipeline'}
                 </h3>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-500 dark:text-neutral-400">
                   {studentSubTab === 'directory'
-                    ? `${students.length} total enrolled students`
+                    ? `${students.filter((s) => Boolean(s.seatNumber)).length} active • ${students.filter((s) => !s.seatNumber).length} inactive (no seat)`
                     : 'Touch-optimized stage workflow from inquiry to active enrollment'}
                 </p>
               </div>
 
               {/* View Switcher: Directory vs Pipeline */}
-              <div className="inline-flex bg-slate-200/80 p-1 rounded-xl shadow-inner self-start">
+              <div className="inline-flex bg-slate-200/80 dark:bg-[#1c1c1e] p-1 rounded-xl shadow-inner self-start border border-transparent dark:border-[#262626]">
                 <button
                   type="button"
                   onClick={() => setStudentSubTab('directory')}
                   className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
                     studentSubTab === 'directory'
-                      ? 'bg-white text-indigo-700 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-white dark:bg-[#262626] text-indigo-700 dark:text-indigo-400 shadow-xs'
+                      : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
                   }`}
                 >
                   Directory
@@ -2037,8 +2341,8 @@ export default function MobileDashboard() {
                   onClick={() => setStudentSubTab('pipeline')}
                   className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
                     studentSubTab === 'pipeline'
-                      ? 'bg-white text-indigo-700 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-white dark:bg-[#262626] text-indigo-700 dark:text-indigo-400 shadow-xs'
+                      : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
                   }`}
                 >
                   Leads Kanban
@@ -2046,7 +2350,7 @@ export default function MobileDashboard() {
                 <button
                   type="button"
                   onClick={() => setActiveTab('transactions')}
-                  className="px-3 py-1.5 text-xs font-bold rounded-lg transition-all text-emerald-700 hover:text-emerald-900 flex items-center gap-1 cursor-pointer"
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg transition-all text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 flex items-center gap-1 cursor-pointer"
                   title="View all fee transactions"
                 >
                   <IndianRupee className="w-3.5 h-3.5" />
@@ -2059,6 +2363,8 @@ export default function MobileDashboard() {
               <StudentList
                 students={students}
                 initialFilterTab={studentFilterTab}
+                libraryName={activeLibrary?.name}
+                libraryPhone={activeLibrary?.contactPhone}
                 onAddStudent={() => {
                   requireSubscription('Enroll Students', () => {
                     setPreselectedSeatNumberForNewStudent(null);
@@ -2080,18 +2386,15 @@ export default function MobileDashboard() {
         {activeTab === 'transactions' && activeLibrary && (
           <section className="space-y-4">
             {!hasActiveSubscription ? (
-              <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-12 text-center space-y-4 max-w-lg mx-auto shadow-sm [color-scheme:light]">
-                <div className="w-16 h-16 rounded-3xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 mx-auto shadow-inner">
+              <div className="bg-white dark:bg-[#121212] rounded-3xl border border-slate-200 dark:border-[#262626] p-8 sm:p-12 text-center space-y-4 max-w-lg mx-auto shadow-sm transition-colors">
+                <div className="w-16 h-16 rounded-3xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mx-auto shadow-inner">
                   <Crown className="w-8 h-8" />
                 </div>
                 <div>
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
-                    Pro SaaS Feature
-                  </span>
-                  <h3 className="text-xl font-black text-slate-900 mt-2.5">
-                    Fee Ledger & History is Locked
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                    Fee History Locked
                   </h3>
-                  <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+                  <p className="text-xs text-slate-500 dark:text-[#a8a8a8] mt-1 max-w-sm mx-auto">
                     Subscribe to seeLibrary to unlock real-time student fee collections, monthly dues ledger, payment receipts, and revenue analytics.
                   </p>
                 </div>
@@ -2112,6 +2415,9 @@ export default function MobileDashboard() {
             ) : (
               <TransactionsView
                 transactions={activeLibrary.feeTransactions || []}
+                libraryName={activeLibrary.name}
+                libraryPhone={activeLibrary.contactPhone}
+                onViewReceipt={(tx) => setSelectedReceiptTx(tx)}
                 onOpenCollectFee={() => {
                   requireSubscription('Collect Fees', () => {
                     setStudentForFeeCollection(null);
@@ -2135,41 +2441,53 @@ export default function MobileDashboard() {
           <section className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-base font-bold text-slate-900">Branch & SaaS Subscription</h3>
-                <p className="text-xs text-slate-500">Manage branch details, plan, and notifications</p>
+                <h3 className="text-base font-bold text-slate-900 dark:text-[#f5f5f5]">Branch & SaaS Subscription</h3>
+                <p className="text-xs text-slate-500 dark:text-neutral-400">Manage branch details, plan, and notifications</p>
               </div>
             </div>
 
             {/* Branch Details Card */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+            <div className="bg-white dark:bg-[#121212] rounded-2xl border border-slate-200 dark:border-[#262626] p-4 shadow-xs space-y-3 transition-colors">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
                     <Building2 className="w-5 h-5" />
                   </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900">{activeLibrary.name}</h4>
-                    <p className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
-                      <Phone className="w-3 h-3 text-slate-400" />
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-[#f5f5f5] truncate">{activeLibrary.name}</h4>
+                    <p className="text-xs text-slate-500 dark:text-neutral-400 flex items-center gap-1.5 mt-0.5 flex-wrap">
+                      <Phone className="w-3 h-3 text-slate-400 dark:text-neutral-500 shrink-0" />
                       <span>{activeLibrary.contactPhone}</span>
                       {activeLibrary.address && (
                         <>
                           <span>•</span>
-                          <MapPin className="w-3 h-3 text-slate-400" />
-                          <span>{activeLibrary.address}</span>
+                          <MapPin className="w-3 h-3 text-slate-400 dark:text-neutral-500 shrink-0" />
+                          <span className="truncate max-w-[200px] sm:max-w-xs">{activeLibrary.address}</span>
                         </>
                       )}
                     </p>
                   </div>
                 </div>
 
-                <span className={`px-2.5 py-1 text-xs font-bold rounded-lg border ${
-                  hasActiveSubscription
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : 'bg-amber-50 text-amber-700 border-amber-200'
-                }`}>
-                  {activeLibrary.subscription?.planName || (hasActiveSubscription ? 'Active SaaS Plan' : 'Free Starter (Design Only)')}
-                </span>
+                <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditLibraryModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200/80 dark:border-indigo-800/60 rounded-xl transition-all active:scale-95 cursor-pointer shadow-2xs"
+                    title="Edit library name and contact number"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    <span>Edit Details</span>
+                  </button>
+
+                  <span className={`px-2.5 py-1 text-xs font-bold rounded-lg border ${
+                    hasActiveSubscription
+                      ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50'
+                      : 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/50'
+                  }`}>
+                    {activeLibrary.subscription?.planName || (hasActiveSubscription ? 'Active SaaS Plan' : 'Free Starter (Design Only)')}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -2189,52 +2507,40 @@ export default function MobileDashboard() {
             />
 
             {/* PWA Offline & Push Notification Hub */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
+            <div className="bg-white dark:bg-[#121212] rounded-2xl border border-slate-200 dark:border-[#262626] p-4 shadow-sm space-y-3 transition-colors">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
                   <Bell className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-slate-900">Mobile Push & Offline PWA</h4>
-                  <p className="text-xs text-slate-500">Service Worker caching & instant push alerts</p>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-[#f5f5f5]">Mobile Push & Offline PWA</h4>
+                  <p className="text-xs text-slate-500 dark:text-neutral-400">Service Worker caching & instant push alerts</p>
                 </div>
               </div>
 
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="p-3 bg-slate-50 dark:bg-[#1c1c1e] rounded-xl border border-slate-100 dark:border-[#262626] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                  <p className="text-xs font-semibold text-slate-800">Direct Push Notifications</p>
-                  <p className="text-[11px] text-slate-500">
-                    Receive immediate notifications on check-in anomalies and pending dues.
+                  <p className="text-xs font-semibold text-slate-800 dark:text-neutral-200">Direct Push Notifications</p>
+                  <p className="text-[11px] text-slate-500 dark:text-neutral-400">
+                    Allow/disallow background push alerts, test service worker push, and view student expiry alerts.
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={async () => {
-                    if ('Notification' in window) {
-                      const res = await Notification.requestPermission();
-                      if (res === 'granted' && 'serviceWorker' in navigator) {
-                        const reg = await navigator.serviceWorker.ready;
-                        reg.showNotification('seeLibrary Alert', {
-                          body: 'Push notifications are now active on your device!',
-                          icon: '/icons/icon-192x192.png',
-                        });
-                      }
-                    } else {
-                      alert('Notifications are not supported in this environment.');
-                    }
-                  }}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs active:scale-95 transition-all self-start sm:self-auto"
+                  onClick={() => setIsNotificationCenterOpen(true)}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 transition-all self-start sm:self-auto flex items-center gap-1.5 cursor-pointer shrink-0"
                 >
-                  Test Push Alert
+                  <Bell className="w-3.5 h-3.5" />
+                  <span>Notification Center</span>
                 </button>
               </div>
             </div>
 
             {/* Sign Out Card */}
-            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-between">
+            <div className="p-4 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/50 rounded-2xl flex items-center justify-between transition-colors">
               <div>
-                <p className="text-xs font-bold text-rose-900">Sign Out of Account</p>
-                <p className="text-[11px] text-rose-700">Currently signed in as {currentUser?.email}</p>
+                <p className="text-xs font-bold text-rose-900 dark:text-rose-200">Sign Out of Account</p>
+                <p className="text-[11px] text-rose-700 dark:text-rose-300/80">Currently signed in as {currentUser?.email}</p>
               </div>
               <button
                 type="button"
@@ -2250,138 +2556,208 @@ export default function MobileDashboard() {
       </main>
 
       {/* User Login & Authentication Modal */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        currentUser={currentUser}
-        onLoginSuccess={handleUserLogin}
-        onLogout={handleUserLogout}
-      />
+      {isAuthModalOpen && (
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          currentUser={currentUser}
+          onLoginSuccess={handleUserLogin}
+          onLogout={handleUserLogout}
+        />
+      )}
 
       {/* Create / Switch Library Branch Modal */}
-      <CreateLibraryModal
-        isOpen={isLibraryModalOpen}
-        onClose={() => setIsLibraryModalOpen(false)}
-        onCreated={handleCreateLibrary}
-      />
+      {isLibraryModalOpen && (
+        <CreateLibraryModal
+          isOpen={isLibraryModalOpen}
+          onClose={() => setIsLibraryModalOpen(false)}
+          onCreated={handleCreateLibrary}
+        />
+      )}
+
+      {/* Edit Library Details Modal */}
+      {isEditLibraryModalOpen && activeLibrary && (
+        <EditLibraryModal
+          isOpen={isEditLibraryModalOpen}
+          onClose={() => setIsEditLibraryModalOpen(false)}
+          library={activeLibrary}
+          onSave={handleEditLibrary}
+        />
+      )}
 
       {/* Room & Row Configuration Modal */}
-      <RoomRowModal
-        isOpen={isRoomModalOpen}
-        onClose={() => setIsRoomModalOpen(false)}
-        onCreated={handleRoomCreated}
-      />
+      {isRoomModalOpen && (
+        <RoomRowModal
+          isOpen={isRoomModalOpen}
+          onClose={() => setIsRoomModalOpen(false)}
+          onCreated={handleRoomCreated}
+        />
+      )}
 
       {/* Edit Room Name Modal */}
-      <EditRoomModal
-        isOpen={!!editingRoom}
-        currentRoom={editingRoom}
-        onClose={() => setEditingRoom(null)}
-        onSave={handleSaveRoomName}
-      />
+      {editingRoom && (
+        <EditRoomModal
+          isOpen={!!editingRoom}
+          currentRoom={editingRoom}
+          onClose={() => setEditingRoom(null)}
+          onSave={handleSaveRoomName}
+        />
+      )}
 
       {/* Add Row & Seats to Current Room Modal */}
-      <AddRowModal
-        isOpen={isAddRowModalOpen}
-        onClose={() => setIsAddRowModalOpen(false)}
-        roomName={currentSelectedRoom?.name || 'Current Room'}
-        existingRows={currentSelectedRoom?.rows || []}
-        existingSeats={currentRoomSeats}
-        onAddRows={handleAddRowsToRoom}
-      />
+      {isAddRowModalOpen && (
+        <AddRowModal
+          isOpen={isAddRowModalOpen}
+          onClose={() => setIsAddRowModalOpen(false)}
+          roomName={currentSelectedRoom?.name || 'Current Room'}
+          existingRows={currentSelectedRoom?.rows || []}
+          existingSeats={currentRoomSeats}
+          onAddRows={handleAddRowsToRoom}
+        />
+      )}
 
       {/* Batch Seat Modal */}
-      <BatchSeatModal
-        isOpen={isBatchModalOpen}
-        onClose={() => setIsBatchModalOpen(false)}
-        targetRoomName={currentSelectedRoom?.name}
-        availableRows={currentSelectedRoom?.rows || []}
-        existingSeats={activeLibrary?.seats || []}
-        onGenerate={handleBatchGenerate}
-      />
+      {isBatchModalOpen && (
+        <BatchSeatModal
+          isOpen={isBatchModalOpen}
+          onClose={() => setIsBatchModalOpen(false)}
+          targetRoomName={currentSelectedRoom?.name}
+          availableRows={currentSelectedRoom?.rows || []}
+          existingSeats={activeLibrary?.seats || []}
+          onGenerate={handleBatchGenerate}
+        />
+      )}
 
       {/* 3-Step Student Registration Wizard */}
-      <StudentModal
-        isOpen={isStudentModalOpen}
-        onClose={() => {
-          setIsStudentModalOpen(false);
-          setPreselectedSeatNumberForNewStudent(null);
-        }}
-        availableSeats={seats.filter((s) => s.status === 'AVAILABLE')}
-        preselectedSeatNumber={preselectedSeatNumberForNewStudent}
-        onStudentCreated={handleStudentCreated}
-      />
+      {isStudentModalOpen && (
+        <StudentModal
+          isOpen={isStudentModalOpen}
+          onClose={() => {
+            setIsStudentModalOpen(false);
+            setPreselectedSeatNumberForNewStudent(null);
+          }}
+          availableSeats={seats.filter((s) => s.status === 'AVAILABLE')}
+          preselectedSeatNumber={preselectedSeatNumberForNewStudent}
+          onStudentCreated={handleStudentCreated}
+        />
+      )}
 
       {/* Student Profile Modal with Direct Seat Allocation, Editing & Deleting */}
-      <StudentProfileModal
-        isOpen={!!selectedStudentForProfile}
-        onClose={() => setSelectedStudentForProfile(null)}
-        student={selectedStudentForProfile}
-        initialTab={profileInitialTab}
-        availableSeats={seats.filter((s) => s.status === 'AVAILABLE')}
-        onAssignSeat={handleAssignSeat}
-        onUpdateStudent={handleUpdateStudent}
-        onDeleteStudent={handleDeleteStudent}
-        onCollectFee={(std) => {
-          requireSubscription('Collect Fees', () => {
-            setReturnToStudentProfileId(std.id);
-            setSelectedStudentForProfile(null);
-            setStudentForFeeCollection(std);
-            setIsCollectFeeModalOpen(true);
-          });
-        }}
-      />
+      {selectedStudentForProfile && (
+        <StudentProfileModal
+          isOpen={!!selectedStudentForProfile}
+          onClose={() => setSelectedStudentForProfile(null)}
+          student={selectedStudentForProfile}
+          initialTab={profileInitialTab}
+          availableSeats={seats.filter((s) => s.status === 'AVAILABLE')}
+          onAssignSeat={handleAssignSeat}
+          onUpdateStudent={handleUpdateStudent}
+          onDeleteStudent={handleDeleteStudent}
+          libraryName={activeLibrary?.name || 'seeLibrary Study Center'}
+          libraryPhone={activeLibrary?.contactPhone}
+          onViewReceipt={(tx) => setSelectedReceiptTx(tx)}
+          onCollectFee={(std) => {
+            requireSubscription('Collect Fees', () => {
+              setReturnToStudentProfileId(std.id);
+              setSelectedStudentForProfile(null);
+              setStudentForFeeCollection(std);
+              setIsCollectFeeModalOpen(true);
+            });
+          }}
+        />
+      )}
 
       {/* Collect / Record Fee Payment Modal */}
-      <CollectFeeModal
-        isOpen={isCollectFeeModalOpen}
-        onClose={() => {
-          setIsCollectFeeModalOpen(false);
-          setStudentForFeeCollection(null);
-          if (returnToStudentProfileId) {
-            const targetId = returnToStudentProfileId;
-            setReturnToStudentProfileId(null);
-            const currentStd = activeLibrary?.students.find((s) => s.id === targetId);
-            if (currentStd) {
-              setProfileInitialTab('feeHistory');
-              setSelectedStudentForProfile(currentStd);
+      {isCollectFeeModalOpen && (
+        <CollectFeeModal
+          isOpen={isCollectFeeModalOpen}
+          libraryName={activeLibrary?.name || 'seeLibrary Study Center'}
+          libraryPhone={activeLibrary?.contactPhone}
+          onClose={() => {
+            setIsCollectFeeModalOpen(false);
+            setStudentForFeeCollection(null);
+            if (returnToStudentProfileId) {
+              const targetId = returnToStudentProfileId;
+              setReturnToStudentProfileId(null);
+              const currentStd = activeLibrary?.students.find((s) => s.id === targetId);
+              if (currentStd) {
+                setProfileInitialTab('feeHistory');
+                setSelectedStudentForProfile(currentStd);
+              }
             }
-          }
-        }}
-        students={activeLibrary?.students || []}
-        preselectedStudent={studentForFeeCollection}
-        onRecordPayment={handleRecordFeePayment}
-      />
+          }}
+          students={activeLibrary?.students || []}
+          preselectedStudent={studentForFeeCollection}
+          onRecordPayment={handleRecordFeePayment}
+        />
+      )}
+
+      {/* Official Digital Fee Receipt Modal */}
+      {selectedReceiptTx && (
+        <FeeReceiptModal
+          isOpen={!!selectedReceiptTx}
+          onClose={() => setSelectedReceiptTx(null)}
+          transaction={selectedReceiptTx}
+          libraryName={activeLibrary?.name || 'seeLibrary Study Center'}
+          libraryAddress={activeLibrary?.address}
+          libraryPhone={activeLibrary?.contactPhone}
+        />
+      )}
 
       {/* Direct Assign Seat to Student Modal */}
-      <AssignSeatModal
-        isOpen={!!selectedSeatForAssignment}
-        onClose={() => setSelectedSeatForAssignment(null)}
-        seat={selectedSeatForAssignment}
-        students={students}
-        onAssign={async (studentId, seatNumber) => {
-          await handleAssignSeat(studentId, seatNumber);
-        }}
-        onEnrollNewStudent={(seatNumber) => {
-          requireSubscription('Enroll Students', () => {
-            setPreselectedSeatNumberForNewStudent(seatNumber);
-            setIsStudentModalOpen(true);
-          });
-        }}
-      />
+      {selectedSeatForAssignment && (
+        <AssignSeatModal
+          isOpen={!!selectedSeatForAssignment}
+          onClose={() => setSelectedSeatForAssignment(null)}
+          seat={selectedSeatForAssignment}
+          students={students}
+          onAssign={async (studentId, seatNumber, shift, isReserved) => {
+            await handleAssignSeat(studentId, seatNumber, shift, isReserved);
+          }}
+          onEnrollNewStudent={(seatNumber) => {
+            requireSubscription('Enroll Students', () => {
+              setPreselectedSeatNumberForNewStudent(seatNumber);
+              setIsStudentModalOpen(true);
+            });
+          }}
+        />
+      )}
 
       {/* Subscription Required Upgrade Modal */}
-      <SubscriptionRequiredModal
-        isOpen={isSubscriptionRequiredModalOpen}
-        onClose={() => setIsSubscriptionRequiredModalOpen(false)}
-        onUpgradeClick={() => {
-          setActiveTab('more');
-        }}
-        actionTitle={subscriptionGateAction}
-      />
+      {isSubscriptionRequiredModalOpen && (
+        <SubscriptionRequiredModal
+          isOpen={isSubscriptionRequiredModalOpen}
+          onClose={() => setIsSubscriptionRequiredModalOpen(false)}
+          onUpgradeClick={() => {
+            setActiveTab('more');
+          }}
+          actionTitle={subscriptionGateAction}
+        />
+      )}
+
+      {/* PWA Service Worker Notification Center Modal */}
+      {isNotificationCenterOpen && (
+        <NotificationCenterModal
+          isOpen={isNotificationCenterOpen}
+          onClose={() => {
+            setIsNotificationCenterOpen(false);
+            fetchUnreadNotifications();
+          }}
+          userEmail={currentUser?.email}
+          libraryId={activeLibrary?.id}
+          libraryName={activeLibrary?.name}
+          onSelectStudent={(studentId) => {
+            const std = activeLibrary?.students.find((s) => s.id === studentId);
+            if (std) {
+              setProfileInitialTab('feeHistory');
+              setSelectedStudentForProfile(std);
+            }
+          }}
+        />
+      )}
 
       {/* Mobile Bottom Navigation Bar (Thumb-Friendly, Fixed at bottom, hidden on desktop) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 px-2 py-1.5 flex justify-around items-center shadow-lg">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-black/95 backdrop-blur-md border-t border-slate-200 dark:border-[#262626] px-2 py-1.5 flex justify-around items-center shadow-lg transition-colors">
         {[
           { id: 'home', label: 'Dashboard', icon: LayoutDashboard },
           { id: 'seats', label: 'Seats', icon: Armchair },
@@ -2396,8 +2772,10 @@ export default function MobileDashboard() {
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex flex-col items-center justify-center flex-1 py-1 rounded-lg ${
-                isActive ? 'text-indigo-600 font-semibold' : 'text-slate-500 font-normal hover:text-slate-800'
+              className={`flex flex-col items-center justify-center flex-1 py-1 rounded-lg transition-colors ${
+                isActive
+                  ? 'text-indigo-600 dark:text-indigo-400 font-semibold'
+                  : 'text-slate-500 dark:text-neutral-400 font-normal hover:text-slate-800 dark:hover:text-neutral-200'
               }`}
             >
               <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5px]' : 'stroke-[1.8px]'}`} />
@@ -2409,9 +2787,9 @@ export default function MobileDashboard() {
           <button
             type="button"
             onClick={() => setIsAdminPortalView(true)}
-            className="flex flex-col items-center justify-center flex-1 py-1 rounded-lg text-amber-600 font-bold hover:text-amber-700"
+            className="flex flex-col items-center justify-center flex-1 py-1 rounded-lg text-amber-600 dark:text-amber-400 font-bold hover:text-amber-700 dark:hover:text-amber-300 transition-colors"
           >
-            <ShieldCheck className="w-5 h-5 stroke-[2.2px] text-amber-500" />
+            <ShieldCheck className="w-5 h-5 stroke-[2.2px] text-amber-500 dark:text-amber-400" />
             <span className="text-[10px] mt-0.5">Admin</span>
           </button>
         )}

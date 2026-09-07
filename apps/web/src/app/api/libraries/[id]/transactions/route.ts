@@ -55,6 +55,10 @@ export async function GET(
       studentPhone: t.student?.phone || '',
       seatNumber: t.student?.seatAssignments?.[0]?.seat?.seatNumber || null,
       amount: Number(t.amount),
+      totalFee: t.totalFee ? Number(t.totalFee) : Number(t.amount),
+      remainingFee: t.remainingFee ? Number(t.remainingFee) : 0,
+      validFrom: t.validFrom ? t.validFrom.toISOString() : undefined,
+      validTo: t.validTo ? t.validTo.toISOString() : undefined,
       paidForMonth: t.paidForMonth,
       paymentDate: t.paymentDate.toISOString(),
       paymentMode: t.paymentMode,
@@ -80,6 +84,10 @@ export async function POST(
     const {
       studentId,
       amount,
+      totalFee,
+      remainingFee,
+      validFrom,
+      validTo,
       paidForMonth,
       paymentMode,
       paymentDate,
@@ -151,10 +159,14 @@ export async function POST(
         studentId: student.id,
         membershipId: activeMembership?.id || null,
         amount: Number(amount),
+        totalFee: totalFee !== undefined ? Number(totalFee) : Number(amount),
+        remainingFee: remainingFee !== undefined ? Number(remainingFee) : 0,
+        validFrom: validFrom ? new Date(validFrom) : null,
+        validTo: validTo ? new Date(validTo) : null,
         paidForMonth: paidForMonth.trim(),
         paymentDate: parsedPaymentDate,
         paymentMode: paymentMode || 'UPI',
-        status: 'PAID',
+        status: (remainingFee !== undefined && Number(remainingFee) > 0) ? 'PARTIAL' : 'PAID',
         receiptNumber,
         notes: notes?.trim() || null,
       },
@@ -165,25 +177,28 @@ export async function POST(
     // Extend membership validity if requested & update membership fee amount + shift
     if (activeMembership) {
       const daysToAdd = extendDays !== undefined ? Number(extendDays) : 30;
-      let newEndDate = activeMembership.expectedEndDate;
-      if (daysToAdd > 0) {
+      let newEndDate = validTo ? new Date(validTo) : activeMembership.expectedEndDate;
+      if (!validTo && daysToAdd > 0) {
         const currentEnd = new Date(activeMembership.expectedEndDate);
         const now = new Date();
         const baseDate = currentEnd > now ? currentEnd : now;
         newEndDate = new Date(baseDate);
         newEndDate.setDate(newEndDate.getDate() + daysToAdd);
+      }
 
+      if (newEndDate) {
+        const now = new Date();
         newDaysRemaining = Math.max(
           0,
-          Math.ceil((newEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+          Math.ceil((new Date(newEndDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
         );
       }
 
       await prisma.membership.update({
         where: { id: activeMembership.id },
         data: {
-          ...(daysToAdd > 0 ? { expectedEndDate: newEndDate } : {}),
-          feeAmount: Number(amount),
+          ...(newEndDate ? { expectedEndDate: newEndDate } : {}),
+          feeAmount: totalFee !== undefined ? Number(totalFee) : Number(amount),
           ...(shift ? { shift: shift as any } : {}),
           status: 'ACTIVE',
         },
@@ -207,6 +222,10 @@ export async function POST(
         studentPhone: student.phone,
         seatNumber: student.seatAssignments[0]?.seat?.seatNumber || null,
         amount: Number(transaction.amount),
+        totalFee: transaction.totalFee ? Number(transaction.totalFee) : Number(transaction.amount),
+        remainingFee: transaction.remainingFee ? Number(transaction.remainingFee) : 0,
+        validFrom: transaction.validFrom ? transaction.validFrom.toISOString() : undefined,
+        validTo: transaction.validTo ? transaction.validTo.toISOString() : undefined,
         paidForMonth: transaction.paidForMonth,
         paymentDate: transaction.paymentDate.toISOString(),
         paymentMode: transaction.paymentMode,
@@ -216,7 +235,8 @@ export async function POST(
       },
       updatedStudent: {
         id: student.id,
-        monthlyFee: Number(amount),
+        monthlyFee: totalFee !== undefined ? Number(totalFee) : Number(amount),
+        remainingFee: remainingFee !== undefined ? Number(remainingFee) : 0,
         membershipEndsInDays: newDaysRemaining,
         shift: shift || activeMembership?.shift || 'FULL_DAY',
       },

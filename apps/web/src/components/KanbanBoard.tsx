@@ -38,32 +38,32 @@ const STAGE_CONFIG: Record<
 > = {
   INQUIRY: {
     label: 'Inquiries',
-    badgeColor: 'bg-amber-100 text-amber-800 border-amber-200',
-    headerBg: 'bg-amber-50 border-amber-200 text-amber-900',
+    badgeColor: 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+    headerBg: 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200',
     icon: Sparkles,
   },
   AWAITING_KYC: {
     label: 'Awaiting KYC',
-    badgeColor: 'bg-blue-100 text-blue-800 border-blue-200',
-    headerBg: 'bg-blue-50 border-blue-200 text-blue-900',
+    badgeColor: 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+    headerBg: 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800/60 text-blue-900 dark:text-blue-200',
     icon: FileCheck,
   },
   FEE_DUE: {
     label: 'Fee Due',
-    badgeColor: 'bg-rose-100 text-rose-800 border-rose-200',
-    headerBg: 'bg-rose-50 border-rose-200 text-rose-900',
+    badgeColor: 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800',
+    headerBg: 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/60 text-rose-900 dark:text-rose-200',
     icon: AlertCircle,
   },
   ACTIVE: {
     label: 'Active Students',
-    badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    headerBg: 'bg-emerald-50 border-emerald-200 text-emerald-900',
+    badgeColor: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
+    headerBg: 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-200',
     icon: CheckCircle2,
   },
   ALUMNI: {
     label: 'Alumni / Archived',
-    badgeColor: 'bg-purple-100 text-purple-800 border-purple-200',
-    headerBg: 'bg-purple-50 border-purple-200 text-purple-900',
+    badgeColor: 'bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 border-purple-200 dark:border-purple-800',
+    headerBg: 'bg-purple-50 dark:bg-purple-950/40 border-purple-200 dark:border-purple-800/60 text-purple-900 dark:text-purple-200',
     icon: Clock,
   },
 };
@@ -160,11 +160,11 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
   });
 
   return (
-    <div className="space-y-4 text-slate-900">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+    <div className="space-y-4 text-slate-900 dark:text-white transition-colors">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-[#121212] p-3.5 rounded-xl border border-slate-200 dark:border-[#262626] shadow-sm">
         <div className="flex items-center gap-2 flex-wrap">
-          <Filter className="w-4 h-4 text-slate-400" />
-          <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
+          <Filter className="w-4 h-4 text-slate-400 dark:text-[#737373]" />
+          <span className="text-xs font-semibold text-slate-600 dark:text-[#a8a8a8] uppercase tracking-wider">
             Shift Filter:
           </span>
           <div className="flex gap-1">
@@ -173,10 +173,10 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
                 key={shift}
                 type="button"
                 onClick={() => setSelectedShiftFilter(shift)}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
                   selectedShiftFilter === shift
                     ? 'bg-indigo-600 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    : 'bg-slate-100 dark:bg-[#1e1e1e] text-slate-600 dark:text-[#a8a8a8] hover:bg-slate-200 dark:hover:bg-[#262626] dark:hover:text-white'
                 }`}
               >
                 {shift}
@@ -186,14 +186,14 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
         </div>
 
         <div className="flex items-center gap-3 self-end sm:self-auto">
-          <div className="text-xs text-slate-500 font-medium">
-            Total in pipeline: <strong className="text-slate-900 font-bold">{filteredLeads.length}</strong>
+          <div className="text-xs text-slate-500 dark:text-[#a8a8a8] font-medium">
+            Total in pipeline: <strong className="text-slate-900 dark:text-white font-bold">{filteredLeads.length}</strong>
           </div>
 
           <button
             type="button"
             onClick={() => setIsAddModalOpen(true)}
-            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs active:scale-95 transition-all flex items-center gap-1.5"
+            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Add Lead</span>
@@ -211,16 +211,16 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
               key={stage}
               type="button"
               onClick={() => setActiveStageTab(stage)}
-              className={`flex-shrink-0 px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
+              className={`flex-shrink-0 px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
                 isSelected
                   ? 'bg-indigo-600 text-white shadow-md'
-                  : 'bg-white border border-slate-200 text-slate-600'
+                  : 'bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] text-slate-600 dark:text-[#a8a8a8]'
               }`}
             >
               <span>{config.label}</span>
               <span
                 className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                  isSelected ? 'bg-indigo-700 text-white' : 'bg-slate-100 text-slate-700'
+                  isSelected ? 'bg-indigo-700 text-white' : 'bg-slate-100 dark:bg-[#202022] text-slate-700 dark:text-slate-300'
                 }`}
               >
                 {count}
@@ -240,7 +240,7 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
           return (
             <div
               key={stage}
-              className={`flex flex-col bg-slate-100/80 rounded-2xl p-2.5 border border-slate-200/80 min-h-[320px] ${
+              className={`flex flex-col bg-slate-100/80 dark:bg-[#141414] rounded-2xl p-2.5 border border-slate-200/80 dark:border-[#262626] min-h-[320px] ${
                 isMobileVisible ? 'flex' : 'hidden sm:flex'
               }`}
             >
@@ -251,20 +251,20 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
                   <IconComponent className="w-4 h-4" />
                   <h4 className="text-xs font-bold">{config.label}</h4>
                 </div>
-                <span className="text-xs font-extrabold px-2 py-0.5 rounded-full bg-white/80 shadow-xs">
+                <span className="text-xs font-extrabold px-2 py-0.5 rounded-full bg-white/80 dark:bg-black/60 shadow-xs">
                   {stageLeads.length}
                 </span>
               </div>
 
               <div className="space-y-2.5 overflow-y-auto max-h-[calc(100vh-320px)] pr-0.5 flex-1">
                 {stageLeads.length === 0 ? (
-                  <div className="text-center py-10 px-2 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center">
-                    <p className="text-xs text-slate-400 font-medium">No records in this stage</p>
+                  <div className="text-center py-10 px-2 border-2 border-dashed border-slate-200 dark:border-[#262626] rounded-xl flex flex-col items-center justify-center">
+                    <p className="text-xs text-slate-400 dark:text-[#737373] font-medium">No records in this stage</p>
                     {stage === 'INQUIRY' && (
                       <button
                         type="button"
                         onClick={() => setIsAddModalOpen(true)}
-                        className="mt-2 text-[11px] text-indigo-600 font-bold hover:underline flex items-center gap-1"
+                        className="mt-2 text-[11px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
                       >
                         <Plus className="w-3 h-3" /> Add Inquiry
                       </button>
@@ -279,20 +279,20 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
                     return (
                       <div
                         key={lead.id}
-                        className="bg-white rounded-xl p-3 shadow-sm border border-slate-200 hover:shadow-md transition-shadow"
+                        className="bg-white dark:bg-[#1c1c1e] rounded-xl p-3 shadow-sm border border-slate-200 dark:border-[#262626] hover:shadow-md transition-shadow"
                       >
                         <div className="flex items-start justify-between gap-1 mb-1">
-                          <h5 className="text-sm font-bold text-slate-900 leading-tight">
+                          <h5 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">
                             {lead.fullName}
                           </h5>
                           <div className="flex items-center gap-1">
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700">
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">
                               {lead.shift}
                             </span>
                             <button
                               type="button"
                               onClick={() => handleDeleteLead(lead.id)}
-                              className="text-slate-300 hover:text-rose-600 p-0.5 rounded transition-colors"
+                              className="text-slate-300 dark:text-[#737373] hover:text-rose-600 dark:hover:text-rose-400 p-0.5 rounded transition-colors cursor-pointer"
                               title="Delete lead"
                             >
                               <Trash2 className="w-3 h-3" />
@@ -300,19 +300,19 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
                           </div>
                         </div>
 
-                        <p className="text-xs text-slate-600 mb-2">{lead.studyPurpose}</p>
+                        <p className="text-xs text-slate-600 dark:text-[#a8a8a8] mb-2">{lead.studyPurpose}</p>
 
                         {lead.amountDue && lead.amountDue > 0 && (
-                          <div className="mb-2 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-rose-50 text-rose-700 text-xs font-bold">
+                          <div className="mb-2 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 text-xs font-bold">
                             <span>₹{lead.amountDue} Due</span>
                           </div>
                         )}
 
-                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-1">
+                        <div className="pt-2 border-t border-slate-100 dark:border-[#262626] flex items-center justify-between gap-1">
                           <div className="flex items-center gap-1">
                             <a
                               href={`tel:${lead.phone}`}
-                              className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-100 active:scale-95 transition-transform"
+                              className="w-8 h-8 rounded-lg bg-slate-50 dark:bg-[#121212] border border-slate-200 dark:border-[#363636] flex items-center justify-center text-slate-600 dark:text-[#f5f5f5] hover:bg-slate-100 dark:hover:bg-[#262626] active:scale-95 transition-transform"
                               title="Call Lead"
                             >
                               <Phone className="w-3.5 h-3.5" />
@@ -321,7 +321,7 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
                               href={`https://wa.me/91${lead.phone}`}
                               target="_blank"
                               rel="noreferrer"
-                              className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 hover:bg-emerald-100 active:scale-95 transition-transform"
+                              className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 active:scale-95 transition-transform"
                               title="WhatsApp Message"
                             >
                               <MessageSquare className="w-3.5 h-3.5" />
@@ -333,7 +333,7 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
                               <button
                                 type="button"
                                 onClick={() => moveStage(lead.id, 'backward')}
-                                className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-100 active:scale-95"
+                                className="w-8 h-8 rounded-lg bg-slate-50 dark:bg-[#121212] border border-slate-200 dark:border-[#363636] flex items-center justify-center text-slate-600 dark:text-[#f5f5f5] hover:bg-slate-100 dark:hover:bg-[#262626] active:scale-95 cursor-pointer"
                                 title="Move Back"
                               >
                                 <ArrowLeft className="w-3.5 h-3.5" />
@@ -343,7 +343,7 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
                               <button
                                 type="button"
                                 onClick={() => moveStage(lead.id, 'forward')}
-                                className="h-8 px-2.5 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center gap-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 active:scale-95 transition-all"
+                                className="h-8 px-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 active:scale-95 transition-all cursor-pointer"
                                 title="Advance Stage"
                               >
                                 <span>Next</span>
@@ -363,13 +363,13 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
       </div>
 
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white text-slate-900 w-full max-w-md rounded-2xl shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
+          <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-100 dark:border-[#262626] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="bg-gradient-to-r from-indigo-600 to-indigo-800 p-5 text-white relative">
               <button
                 type="button"
                 onClick={() => setIsAddModalOpen(false)}
-                className="absolute top-4 right-4 p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                className="absolute top-4 right-4 p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -384,7 +384,7 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
 
             <form onSubmit={handleCreateLead} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Candidate Name *
                 </label>
                 <input
@@ -393,12 +393,12 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
                   value={leadName}
                   onChange={(e) => setLeadName(e.target.value)}
                   placeholder="e.g. Ramesh Kumar"
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600"
+                  className="w-full px-3 py-2.5 bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-[#737373] focus:bg-white dark:focus:bg-[#1a1a1a] focus:outline-hidden focus:ring-2 focus:ring-indigo-600"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Phone Number *
                 </label>
                 <input
@@ -407,12 +407,12 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
                   value={leadPhone}
                   onChange={(e) => setLeadPhone(e.target.value)}
                   placeholder="e.g. 9876543210"
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600"
+                  className="w-full px-3 py-2.5 bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-[#737373] focus:bg-white dark:focus:bg-[#1a1a1a] focus:outline-hidden focus:ring-2 focus:ring-indigo-600"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Target Exam / Study Purpose
                 </label>
                 <input
@@ -420,17 +420,17 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
                   value={leadGoal}
                   onChange={(e) => setLeadGoal(e.target.value)}
                   placeholder="e.g. UPSC Prelims, CA, NEET, SSC"
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600"
+                  className="w-full px-3 py-2.5 bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-[#737373] focus:bg-white dark:focus:bg-[#1a1a1a] focus:outline-hidden focus:ring-2 focus:ring-indigo-600"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Shift</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Shift</label>
                   <select
                     value={leadShift}
                     onChange={(e) => setLeadShift(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600"
+                    className="w-full px-3 py-2.5 bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-white focus:bg-white dark:focus:bg-[#1a1a1a] focus:outline-hidden focus:ring-2 focus:ring-indigo-600"
                   >
                     <option value="Morning">Morning</option>
                     <option value="Evening">Evening</option>
@@ -439,11 +439,11 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Initial Stage</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Initial Stage</label>
                   <select
                     value={leadStage}
                     onChange={(e) => setLeadStage(e.target.value as KanbanStage)}
-                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600"
+                    className="w-full px-3 py-2.5 bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-white focus:bg-white dark:focus:bg-[#1a1a1a] focus:outline-hidden focus:ring-2 focus:ring-indigo-600"
                   >
                     <option value="INQUIRY">Inquiry</option>
                     <option value="AWAITING_KYC">Awaiting KYC</option>
@@ -458,13 +458,13 @@ export function KanbanBoard({ libraryId }: KanbanBoardProps) {
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors"
+                  className="flex-1 py-2.5 bg-slate-100 dark:bg-[#1a1a1a] hover:bg-slate-200 dark:hover:bg-[#262626] text-slate-700 dark:text-slate-300 font-semibold text-xs rounded-xl transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs active:scale-95 transition-all"
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs active:scale-95 transition-all cursor-pointer"
                 >
                   Add to Pipeline
                 </button>

@@ -60,6 +60,144 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    // If DB is empty and user is demo user, auto-seed demo library with 2 halls, 30 seats, and 7 students
+    if (existingDbLibs.length === 0 && cleanEmail === 'rahul.owner@seelibrary.io') {
+      console.log(`Auto-seeding demo library for ${cleanEmail}...`);
+      let proPlan = await prisma.subscriptionPlan.findUnique({ where: { code: 'PRO' } });
+      if (!proPlan) {
+        proPlan = await prisma.subscriptionPlan.create({
+          data: {
+            id: crypto.randomUUID(),
+            code: 'PRO',
+            name: 'Pro Multi-Branch Plan',
+            priceMonthly: 1499,
+            priceYearly: 14999,
+            maxSeats: 250,
+            maxLibraries: 5,
+            isActive: true,
+          },
+        });
+      }
+
+      const library = await prisma.library.create({
+        data: {
+          id: crypto.randomUUID(),
+          ownerId: user.id,
+          name: 'Apex Study Center & Library',
+          slug: `apex-study-center-demo-${Date.now().toString(36)}`,
+          contactPhone: '9876543210',
+          address: 'Plot 42, Knowledge Park III, Near Metro Station, Delhi NCR',
+          isActive: true,
+        },
+      });
+
+      const subStart = new Date();
+      const subEnd = new Date();
+      subEnd.setDate(subEnd.getDate() + 365);
+      await prisma.subscription.create({
+        data: {
+          id: crypto.randomUUID(),
+          libraryId: library.id,
+          userId: user.id,
+          planId: proPlan.id,
+          status: 'ACTIVE',
+          startDate: subStart,
+          endDate: subEnd,
+        },
+      });
+
+      const room1 = await prisma.room.create({
+        data: { id: crypto.randomUUID(), libraryId: library.id, name: 'Ground Floor - Silent Study Hall', isActive: true },
+      });
+      const row1A = await prisma.row.create({ data: { id: crypto.randomUUID(), libraryId: library.id, roomId: room1.id, name: 'Row A' } });
+      const row1B = await prisma.row.create({ data: { id: crypto.randomUUID(), libraryId: library.id, roomId: room1.id, name: 'Row B' } });
+      const row1C = await prisma.row.create({ data: { id: crypto.randomUUID(), libraryId: library.id, roomId: room1.id, name: 'Row C' } });
+
+      const room2 = await prisma.room.create({
+        data: { id: crypto.randomUUID(), libraryId: library.id, name: 'First Floor - Premium AC Hall', isActive: true },
+      });
+      const row2A = await prisma.row.create({ data: { id: crypto.randomUUID(), libraryId: library.id, roomId: room2.id, name: 'Row A' } });
+      const row2B = await prisma.row.create({ data: { id: crypto.randomUUID(), libraryId: library.id, roomId: room2.id, name: 'Row B' } });
+      const row2C = await prisma.row.create({ data: { id: crypto.randomUUID(), libraryId: library.id, roomId: room2.id, name: 'Row C' } });
+
+      const seatMap = new Map<number, any>();
+      const r1Rows = [
+        { row: row1A, seats: [1, 2, 3, 4, 5] },
+        { row: row1B, seats: [6, 7, 8, 9, 10] },
+        { row: row1C, seats: [11, 12, 13, 14, 15] },
+      ];
+      for (const { row, seats } of r1Rows) {
+        for (const num of seats) {
+          const seat = await prisma.seat.create({
+            data: { id: crypto.randomUUID(), libraryId: library.id, rowId: row.id, seatNumber: String(num), status: 'AVAILABLE' },
+          });
+          seatMap.set(num, seat);
+        }
+      }
+
+      const r2Rows = [
+        { row: row2A, seats: [16, 17, 18, 19, 20] },
+        { row: row2B, seats: [21, 22, 23, 24, 25] },
+        { row: row2C, seats: [26, 27, 28, 29, 30] },
+      ];
+      for (const { row, seats } of r2Rows) {
+        for (const num of seats) {
+          const seat = await prisma.seat.create({
+            data: { id: crypto.randomUUID(), libraryId: library.id, rowId: row.id, seatNumber: String(num), status: 'AVAILABLE' },
+          });
+          seatMap.set(num, seat);
+        }
+      }
+
+      const today = new Date();
+      const nextMonth = new Date(today);
+      nextMonth.setDate(nextMonth.getDate() + 25);
+      const expiringSoonDate = new Date(today);
+      expiringSoonDate.setDate(expiringSoonDate.getDate() + 3);
+      const expiredDate = new Date(today);
+      expiredDate.setDate(expiredDate.getDate() - 2);
+
+      const demoStudents = [
+        { fullName: 'Aman Verma', phone: '9811223344', seatNum: 1, shift: 'FULL_DAY' as const, fee: 1200, end: nextMonth, goal: 'UPSC Civil Services Examination', paidMonth: 'September 2026', mode: 'UPI' },
+        { fullName: 'Priya Patel', phone: '9822334455', seatNum: 6, shift: 'MORNING' as const, fee: 800, end: nextMonth, goal: 'NEET PG Preparation', paidMonth: 'September 2026', mode: 'CASH' },
+        { fullName: 'Rohan Sharma', phone: '9833445566', seatNum: 11, shift: 'EVENING' as const, fee: 800, end: nextMonth, goal: 'Chartered Accountancy (CA Final)', paidMonth: 'September 2026', mode: 'UPI' },
+        { fullName: 'Neha Gupta', phone: '9844556677', seatNum: 16, shift: 'FULL_DAY' as const, fee: 1200, end: expiringSoonDate, goal: 'SSC CGL & Banking', paidMonth: 'August 2026', mode: 'UPI' },
+        { fullName: 'Vikas Singh', phone: '9855667788', seatNum: 21, shift: 'MORNING' as const, fee: 500, end: expiredDate, goal: 'GATE Computer Science', paidMonth: 'July 2026', mode: 'CASH' },
+        { fullName: 'Anjali Tiwari', phone: '9866778899', seatNum: 2, shift: 'EVENING' as const, fee: 800, end: nextMonth, goal: 'State Public Service Commission', paidMonth: 'September 2026', mode: 'UPI' },
+        { fullName: 'Deepak Kumar', phone: '9877889900', seatNum: 7, shift: 'FULL_DAY' as const, fee: 1200, end: nextMonth, goal: 'CAT MBA Entrance', paidMonth: 'September 2026', mode: 'UPI' },
+      ];
+
+      for (const sData of demoStudents) {
+        const student = await prisma.student.create({
+          data: { id: crypto.randomUUID(), libraryId: library.id, fullName: sData.fullName, phone: sData.phone, studyPurpose: sData.goal, isActive: true },
+        });
+        const membership = await prisma.membership.create({
+          data: { id: crypto.randomUUID(), libraryId: library.id, studentId: student.id, status: 'ACTIVE', feeAmount: sData.fee, shift: sData.shift, startDate: today, expectedEndDate: sData.end },
+        });
+        const seat = seatMap.get(sData.seatNum);
+        if (seat) {
+          await prisma.seatAssignment.create({
+            data: { id: crypto.randomUUID(), libraryId: library.id, studentId: student.id, seatId: seat.id, membershipId: membership.id, shift: sData.shift, startDate: today, status: 'ACTIVE' },
+          });
+          await prisma.seat.update({ where: { id: seat.id }, data: { status: 'OCCUPIED' } });
+        }
+        await prisma.studentFeeTransaction.create({
+          data: {
+            id: crypto.randomUUID(),
+            libraryId: library.id,
+            studentId: student.id,
+            membershipId: membership.id,
+            amount: sData.fee,
+            paidForMonth: sData.paidMonth,
+            paymentMode: sData.mode,
+            receiptNumber: `REC-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`,
+            notes: `Demo fee collected for ${sData.paidMonth}`,
+            createdAt: new Date(),
+          },
+        });
+      }
+    }
+
     // If DB is empty, but local storage has libraries, migrate them into DB!
     if (existingDbLibs.length === 0 && Array.isArray(localLibraries) && localLibraries.length > 0) {
       console.log(`Migrating ${localLibraries.length} local libraries to database for ${cleanEmail}...`);
@@ -242,6 +380,10 @@ export async function POST(req: NextRequest) {
           studentPhone: std.phone,
           seatNumber: activeSeat?.seat?.seatNumber || null,
           amount: Number(t.amount),
+          totalFee: t.totalFee ? Number(t.totalFee) : Number(t.amount),
+          remainingFee: t.remainingFee ? Number(t.remainingFee) : 0,
+          validFrom: t.validFrom ? t.validFrom.toISOString() : undefined,
+          validTo: t.validTo ? t.validTo.toISOString() : undefined,
           paidForMonth: t.paidForMonth,
           paymentDate: t.paymentDate.toISOString(),
           paymentMode: t.paymentMode,
@@ -254,33 +396,37 @@ export async function POST(req: NextRequest) {
         let daysRemaining = 0;
         let isExpired = false;
 
-        if (!hasPaidTx) {
-          daysRemaining = 0;
-          isExpired = true;
-        } else if (activeMembership?.expectedEndDate) {
+        if (activeMembership?.expectedEndDate) {
           const end = new Date(activeMembership.expectedEndDate);
           daysRemaining = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
           isExpired = daysRemaining <= 0;
+        } else if (hasPaidTx && studentTxList[0]?.validTo) {
+          const end = new Date(studentTxList[0].validTo);
+          daysRemaining = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+          isExpired = daysRemaining <= 0;
+        } else if (activeSeat) {
+          daysRemaining = 30;
+          isExpired = false;
         } else {
           daysRemaining = 0;
-          isExpired = true;
+          isExpired = false;
         }
 
-        // Automatic seat cut/release if membership expired or unpaid
+        // Automatic seat cut/release ONLY if membership duration has genuinely expired
         let assignedSeatNumber: string | null = null;
         if (activeSeat?.seat) {
-          if (!isExpired && daysRemaining > 0) {
+          if (!isExpired) {
             assignedSeatNumber = activeSeat.seat.seatNumber;
             const matchingSeat = allSeats.find(
               (s) => s.id === activeSeat.seat.id || s.seatNumber === activeSeat.seat.seatNumber
             );
             if (matchingSeat) {
-              matchingSeat.status = 'OCCUPIED';
+              matchingSeat.status = activeSeat.seat.status === 'RESERVED' ? 'RESERVED' : 'OCCUPIED';
               matchingSeat.studentName = std.fullName;
               matchingSeat.shift = activeSeat.shift || activeMembership?.shift || 'FULL_DAY';
             }
           } else {
-            // Cut seat allotment automatically
+            // Cut seat allotment automatically when duration has genuinely expired
             assignedSeatNumber = null;
             seatsToRelease.push(activeSeat.seat.id);
             assignmentsToRelease.push(activeSeat.id);
@@ -295,16 +441,25 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        const computedMonthlyFee = hasPaidTx
-          ? Number(activeMembership?.feeAmount || studentTxList[0]?.amount || 0)
+        const latestTx = studentTxList[0];
+        const studentTotalFee = latestTx?.totalFee
+          ? Number(latestTx.totalFee)
+          : Number(activeMembership?.feeAmount || 1000);
+
+        const studentRemainingFee = latestTx?.remainingFee
+          ? Number(latestTx.remainingFee)
+          : !hasPaidTx
+          ? studentTotalFee
           : 0;
+
+        const computedMonthlyFee = studentTotalFee;
 
         return {
           id: std.id,
           fullName: std.fullName,
           phone: std.phone,
           seatNumber: assignedSeatNumber,
-          status: (isExpired ? 'EXPIRED' : (activeMembership?.status || 'ACTIVE')) as 'ACTIVE' | 'EXPIRED' | 'PAUSED',
+          status: (!assignedSeatNumber ? 'INACTIVE' : (isExpired ? 'EXPIRED' : (activeMembership?.status || 'ACTIVE'))) as 'ACTIVE' | 'EXPIRED' | 'PAUSED' | 'INACTIVE',
           membershipEndsInDays: daysRemaining,
           shift: activeMembership?.shift || 'FULL_DAY',
           studyPurpose: std.studyPurpose || undefined,
@@ -312,7 +467,9 @@ export async function POST(req: NextRequest) {
           kycPhotoUrl: std.kycPhotoUrl || undefined,
           kycDocId: std.kycDocId || undefined,
           kycType: std.kycDocType,
-          monthlyFee: computedMonthlyFee,
+          monthlyFee: studentTotalFee,
+          remainingFee: studentRemainingFee,
+          totalFee: studentTotalFee,
           transactions: studentTxList,
         };
       });
@@ -361,6 +518,10 @@ export async function POST(req: NextRequest) {
         studentPhone: t.student?.phone || '',
         seatNumber: t.student?.seatAssignments?.[0]?.seat?.seatNumber || null,
         amount: Number(t.amount),
+        totalFee: t.totalFee ? Number(t.totalFee) : Number(t.amount),
+        remainingFee: t.remainingFee ? Number(t.remainingFee) : 0,
+        validFrom: t.validFrom ? t.validFrom.toISOString() : undefined,
+        validTo: t.validTo ? t.validTo.toISOString() : undefined,
         paidForMonth: t.paidForMonth,
         paymentDate: t.paymentDate.toISOString(),
         paymentMode: t.paymentMode,

@@ -52,9 +52,9 @@ export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-      <div className="bg-white text-slate-900 w-full max-w-md rounded-2xl shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        <div className="bg-slate-900 p-5 text-white relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
+      <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] w-full max-w-md rounded-2xl shadow-2xl border border-slate-100 dark:border-[#262626] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        <div className="bg-slate-900 dark:bg-[#1c1c1e] p-5 text-white relative">
           <button
             type="button"
             onClick={onClose}
@@ -66,14 +66,14 @@ export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) 
             <Layers className="w-6 h-6 text-indigo-400" />
             <h3 className="text-xl font-bold">Add Room & Rows</h3>
           </div>
-          <p className="text-xs text-slate-300">
+          <p className="text-xs text-slate-300 dark:text-neutral-400">
             Define study halls, rows, and auto-generate seat inventory
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
+            <label className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1">
               Room / Hall Name
             </label>
             <input
@@ -81,17 +81,17 @@ export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) 
               value={roomName}
               onChange={(e) => setRoomName(e.target.value)}
               placeholder="e.g. Ground Floor - Silent Hall"
-              className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-colors"
+              className="w-full px-3 py-2.5 bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:bg-white dark:focus:bg-[#121212] focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-colors"
             />
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-bold text-slate-700">Rows / Aisles in Room</label>
+              <label className="text-xs font-bold text-slate-700 dark:text-neutral-300">Rows / Aisles in Room</label>
               <button
                 type="button"
                 onClick={handleAddRow}
-                className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 cursor-pointer"
+                className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" /> Add Row
               </button>
@@ -110,13 +110,13 @@ export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) 
                       setRowInputs(newRows);
                     }}
                     placeholder={`Row ${String.fromCharCode(65 + idx)}`}
-                    className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-colors"
+                    className="flex-1 px-3 py-2 bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-lg text-xs font-semibold text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:bg-white dark:focus:bg-[#121212] focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-colors"
                   />
                   {rowInputs.length > 1 && (
                     <button
                       type="button"
                       onClick={() => handleRemoveRow(idx)}
-                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                      className="p-2 text-slate-400 dark:text-neutral-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors cursor-pointer"
                       title="Delete row"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -130,7 +130,7 @@ export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) 
           {/* Seats per Row & Starting Number in a 2-Column Grid */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
+              <label className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1">
                 Seats per Row
               </label>
               <input
@@ -140,16 +140,16 @@ export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) 
                 value={seatsPerRow}
                 onChange={(e) => setSeatsPerRow(e.target.value === '' ? '' : parseInt(e.target.value) || 0)}
                 placeholder="10"
-                className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-colors"
+                className="w-full px-3 py-2.5 bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:bg-white dark:focus:bg-[#121212] focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-colors"
               />
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-bold text-slate-700">
+                <label className="text-xs font-bold text-slate-700 dark:text-neutral-300">
                   Starting Seat #
                 </label>
-                <span className="text-[10px] text-indigo-600 font-semibold flex items-center gap-0.5">
+                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold flex items-center gap-0.5">
                   <Hash className="w-2.5 h-2.5" /> Seq
                 </span>
               </div>
@@ -160,15 +160,15 @@ export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) 
                 value={startNumber}
                 onChange={(e) => setStartNumber(e.target.value === '' ? '' : parseInt(e.target.value) || 0)}
                 placeholder="1"
-                className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-colors"
+                className="w-full px-3 py-2.5 bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:bg-white dark:focus:bg-[#121212] focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-colors"
               />
             </div>
           </div>
 
           {/* Sequential Preview Box across rows */}
           {numSeats > 0 && validRows.length > 0 && (
-            <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-xs space-y-1.5 animate-in fade-in duration-150">
-              <span className="font-semibold text-slate-900 block text-[11px]">
+            <div className="bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] p-3 rounded-xl text-xs space-y-1.5 animate-in fade-in duration-150">
+              <span className="font-semibold text-slate-900 dark:text-white block text-[11px]">
                 Seat Sequence Preview (Continuous Numbering):
               </span>
               <div className="space-y-1">
@@ -178,11 +178,11 @@ export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) 
                   const startPadded = rowStart < 10 ? `0${rowStart}` : `${rowStart}`;
                   const endPadded = rowEnd < 10 ? `0${rowEnd}` : `${rowEnd}`;
                   return (
-                    <div key={i} className="flex items-center justify-between text-xs bg-white px-2.5 py-1.5 rounded-lg border border-slate-100">
-                      <span className="font-bold text-slate-800">{r}:</span>
-                      <span className="font-mono text-indigo-600 font-bold">
+                    <div key={i} className="flex items-center justify-between text-xs bg-white dark:bg-[#121212] px-2.5 py-1.5 rounded-lg border border-slate-100 dark:border-[#262626]">
+                      <span className="font-bold text-slate-800 dark:text-neutral-200">{r}:</span>
+                      <span className="font-mono text-indigo-600 dark:text-indigo-400 font-bold">
                         {startPadded} → {endPadded}
-                        <span className="text-[10px] text-slate-400 font-normal ml-1">({numSeats} seats)</span>
+                        <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-normal ml-1">({numSeats} seats)</span>
                       </span>
                     </div>
                   );
@@ -192,14 +192,14 @@ export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) 
           )}
 
           {/* Summary Box */}
-          <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-xs text-indigo-900 flex items-center justify-between">
+          <div className="p-3 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-800/50 rounded-xl text-xs text-indigo-900 dark:text-indigo-300 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Armchair className="w-4 h-4 text-indigo-600 shrink-0" />
+              <Armchair className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span>
                 <strong>{rowInputs.length} rows</strong> • <strong>{totalSeatsToCreate} seats total</strong>
               </span>
             </div>
-            <span className="text-[10px] font-bold text-indigo-600 bg-white px-2 py-0.5 rounded-md border border-indigo-200">
+            <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-300 bg-white dark:bg-[#1c1c1e] px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800/60">
               Starts #{numStart}
             </span>
           </div>

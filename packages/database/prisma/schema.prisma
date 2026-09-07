@@ -99,6 +99,8 @@ model User {
   subscriptions   Subscription[]
   couponUsages    CouponUsage[]
   auditLogs       AuditLog[]      @relation("ActorAuditLogs")
+  pushSubscriptions PushSubscriptionRecord[]
+  notifications     AppNotification[]
 
   @@map("users")
 }
@@ -130,6 +132,8 @@ model Library {
   payments        Payment[]
   feeTransactions StudentFeeTransaction[]
   auditLogs       AuditLog[]
+  pushSubscriptions PushSubscriptionRecord[]
+  notifications     AppNotification[]
 
   @@index([ownerId])
   @@index([slug])
@@ -440,8 +444,12 @@ model StudentFeeTransaction {
   studentId     String      @map("student_id") @db.Uuid
   membershipId  String?     @map("membership_id") @db.Uuid
   amount        Decimal     @db.Decimal(10, 2)
+  totalFee      Decimal?    @map("total_fee") @db.Decimal(10, 2)
+  remainingFee  Decimal?    @map("remaining_fee") @db.Decimal(10, 2)
   paidForMonth  String      @map("paid_for_month") @db.VarChar(32)
   paymentDate   DateTime    @default(now()) @map("payment_date") @db.Timestamptz
+  validFrom     DateTime?   @map("valid_from") @db.Timestamptz
+  validTo       DateTime?   @map("valid_to") @db.Timestamptz
   paymentMode   String      @default("UPI") @map("payment_mode") @db.VarChar(32)
   status        String      @default("PAID") @db.VarChar(32)
   receiptNumber String?     @map("receipt_number") @db.VarChar(64)
@@ -457,4 +465,45 @@ model StudentFeeTransaction {
   @@index([studentId, paidForMonth])
   @@map("student_fee_transactions")
 }
+
+model PushSubscriptionRecord {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  libraryId String?  @map("library_id") @db.Uuid
+  endpoint  String   @unique @db.Text
+  p256dh    String   @db.Text
+  auth      String   @db.Text
+  userAgent String?  @map("user_agent") @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  library Library? @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([libraryId])
+  @@index([isActive])
+  @@map("push_subscriptions")
+}
+
+model AppNotification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  libraryId String?  @map("library_id") @db.Uuid
+  title     String   @db.VarChar(255)
+  body      String   @db.Text
+  type      String   @default("INFO") @db.VarChar(64)
+  isRead    Boolean  @default(false) @map("is_read")
+  data      Json?    @default("{}")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  library Library? @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([libraryId, createdAt(sort: Desc)])
+  @@map("app_notifications")
+}
+
 

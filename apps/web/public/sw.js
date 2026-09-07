@@ -82,24 +82,42 @@ self.addEventListener('fetch', (event) => {
 
 // Web Push Event Handler
 self.addEventListener('push', (event) => {
-  let payload = { title: 'Library Management SaaS', body: 'New alert from your study center' };
+  let payload = {
+    title: 'seeLibrary SaaS',
+    body: 'New alert from your study center',
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-192x192.png',
+    url: '/',
+    tag: 'seelibrary-alert',
+  };
+
   try {
     if (event.data) {
-      payload = event.data.json();
+      const data = event.data.json();
+      payload = { ...payload, ...data };
     }
   } catch (err) {
-    console.error('[SW] Failed to parse push event payload', err);
+    if (event.data) {
+      payload.body = event.data.text();
+    }
   }
 
   const options = {
     body: payload.body,
-    icon: '/icons/icon-192x192.png',
-    badge: '/icons/icon-192x192.png',
-    vibrate: [100, 50, 100],
+    icon: payload.icon || '/icons/icon-192x192.png',
+    badge: payload.badge || '/icons/icon-192x192.png',
+    vibrate: payload.vibrate || [100, 50, 100],
+    tag: payload.tag || 'seelibrary-alert',
+    renotify: true,
     data: {
+      url: payload.url || payload.data?.url || '/',
       dateOfArrival: Date.now(),
       primaryKey: 1,
     },
+    actions: [
+      { action: 'open', title: 'Open seeLibrary' },
+      { action: 'dismiss', title: 'Dismiss' },
+    ],
   };
 
   event.waitUntil(self.registration.showNotification(payload.title, options));
@@ -108,15 +126,27 @@ self.addEventListener('push', (event) => {
 // Notification Click Handler: Open or focus application window
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+
+  if (event.action === 'dismiss') {
+    return;
+  }
+
+  const targetUrl = event.notification.data?.url || '/';
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
-        if (client.url === '/' && 'focus' in client) {
-          return client.focus();
+        if ('focus' in client) {
+          if (client.url.includes(targetUrl) || targetUrl === '/') {
+            return client.focus();
+          }
+          if ('navigate' in client) {
+            return client.navigate(targetUrl).then((c) => c.focus());
+          }
         }
       }
       if (clients.openWindow) {
-        return clients.openWindow('/');
+        return clients.openWindow(targetUrl);
       }
     })
   );
