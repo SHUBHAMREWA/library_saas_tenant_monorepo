@@ -26,6 +26,7 @@ interface CollectFeeModalProps {
     notes?: string;
     extendDays: number;
     shift?: string;
+    isSettlingDue?: boolean;
   }) => Promise<any> | any;
 }
 
@@ -66,6 +67,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
   const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
   const [selectedStudentId, setSelectedStudentId] = useState<string>('');
+  const [paymentType, setPaymentType] = useState<'REMAINING_DUE' | 'NEW_MONTH'>('NEW_MONTH');
   const [totalFee, setTotalFee] = useState<number | ''>(1200);
   const [amount, setAmount] = useState<number | ''>(1200); // Get Fee / Collected
   const [validFrom, setValidFrom] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -89,26 +91,49 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
       setRecordedReceipt(null);
       setCopied(false);
       const activeStudent = preselectedStudent || (students.length > 0 ? students[0] : null);
-      if (activeStudent) {
-        setSelectedStudentId(activeStudent.id);
-        const shiftVal = activeStudent.shift || 'FULL_DAY';
-        setPlanDuration(shiftVal);
-        const fee = getSuggestedFee(shiftVal, activeStudent.monthlyFee);
-        setTotalFee(fee);
-        setAmount(fee);
-      }
       const todayStr = new Date().toISOString().split('T')[0];
       const nextMonth = new Date();
       nextMonth.setDate(nextMonth.getDate() + 30);
       setValidFrom(todayStr);
       setValidTo(nextMonth.toISOString().split('T')[0]);
-      setPaidForMonth(currentMonth);
       setPaymentMode('UPI');
       setPaymentDate(todayStr);
-      setNotes('');
-      setExtendMembership(true);
+
+      if (activeStudent) {
+        setSelectedStudentId(activeStudent.id);
+        const shiftVal = activeStudent.shift || 'FULL_DAY';
+        setPlanDuration(shiftVal);
+
+        const hasDue = Boolean(activeStudent.remainingFee && activeStudent.remainingFee > 0);
+        if (hasDue) {
+          setPaymentType('REMAINING_DUE');
+          const due = activeStudent.remainingFee!;
+          setTotalFee(due);
+          setAmount(due);
+          setExtendMembership(false);
+          const dueTx = (activeStudent.transactions || []).find((t) => t.remainingFee && t.remainingFee > 0);
+          const targetMonth = dueTx?.paidForMonth || currentMonth;
+          setPaidForMonth(targetMonth);
+          setNotes(`Remaining fee clearance for ${targetMonth}`);
+        } else {
+          setPaymentType('NEW_MONTH');
+          const fee = getSuggestedFee(shiftVal, activeStudent.monthlyFee);
+          setTotalFee(fee);
+          setAmount(fee);
+          setExtendMembership(true);
+          setPaidForMonth(currentMonth);
+          setNotes('');
+        }
+      } else {
+        setPaymentType('NEW_MONTH');
+        setTotalFee(1200);
+        setAmount(1200);
+        setPaidForMonth(currentMonth);
+        setExtendMembership(true);
+        setNotes('');
+      }
     }
-  }, [isOpen, preselectedStudent, students]);
+  }, [isOpen, preselectedStudent, students, currentMonth]);
 
   // When student selection changes, auto-update default amount & plan
   const handleStudentChange = (stdId: string) => {
@@ -117,9 +142,26 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
     if (found) {
       const shiftVal = found.shift || 'FULL_DAY';
       setPlanDuration(shiftVal);
-      const fee = getSuggestedFee(shiftVal, found.monthlyFee);
-      setTotalFee(fee);
-      setAmount(fee);
+      const hasDue = Boolean(found.remainingFee && found.remainingFee > 0);
+      if (hasDue) {
+        setPaymentType('REMAINING_DUE');
+        const due = found.remainingFee!;
+        setTotalFee(due);
+        setAmount(due);
+        setExtendMembership(false);
+        const dueTx = (found.transactions || []).find((t) => t.remainingFee && t.remainingFee > 0);
+        const targetMonth = dueTx?.paidForMonth || currentMonth;
+        setPaidForMonth(targetMonth);
+        setNotes(`Remaining fee clearance for ${targetMonth}`);
+      } else {
+        setPaymentType('NEW_MONTH');
+        const fee = getSuggestedFee(shiftVal, found.monthlyFee);
+        setTotalFee(fee);
+        setAmount(fee);
+        setExtendMembership(true);
+        setPaidForMonth(currentMonth);
+        setNotes('');
+      }
     }
   };
 
@@ -127,9 +169,12 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
 
   const currentStudent = students.find((s) => s.id === selectedStudentId) || preselectedStudent;
 
+  const isSettlingDue = paymentType === 'REMAINING_DUE';
   const totalNum = totalFee === '' ? 0 : Number(totalFee);
   const getFeeNum = amount === '' ? 0 : Number(amount);
-  const remainingDue = Math.max(0, totalNum - getFeeNum);
+  const remainingDue = isSettlingDue
+    ? Math.max(0, (currentStudent?.remainingFee || 0) - getFeeNum)
+    : Math.max(0, totalNum - getFeeNum);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -138,21 +183,26 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
       return;
     }
 
+    const finalTotalFee = isSettlingDue
+      ? (currentStudent?.remainingFee || getFeeNum)
+      : (totalNum > 0 ? totalNum : getFeeNum);
+
     setIsLoading(true);
     try {
       const res = await onRecordPayment({
         studentId: selectedStudentId,
-        amount: Number(amount),
-        totalFee: totalNum > 0 ? totalNum : Number(amount),
+        amount: getFeeNum,
+        totalFee: finalTotalFee,
         remainingFee: remainingDue,
         validFrom,
         validTo,
         paidForMonth,
         paymentMode,
         paymentDate: new Date(paymentDate).toISOString(),
-        notes: notes.trim() || undefined,
+        notes: notes.trim() || (isSettlingDue ? `Remaining fee clearance for ${paidForMonth}` : undefined),
         extendDays: extendMembership ? 30 : 0,
         shift: planDuration,
+        isSettlingDue,
       });
 
       const receiptNum = res?.receiptNumber || `REC-${Date.now().toString().slice(-6)}`;
@@ -167,12 +217,13 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         paidForMonth,
         validFrom,
         validTo,
-        totalFee: totalNum > 0 ? totalNum : Number(amount),
-        amount: Number(amount),
+        totalFee: finalTotalFee,
+        amount: getFeeNum,
         remainingFee: remainingDue,
         paymentMode,
         paymentDate: new Date(paymentDate).toISOString(),
-        notes: notes.trim() || undefined,
+        notes: notes.trim() || (isSettlingDue ? `Remaining fee clearance for ${paidForMonth}` : undefined),
+        isSettlingDue,
       });
     } catch (err) {
       console.error('Failed to record fee transaction:', err);
@@ -227,6 +278,12 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                   {recordedReceipt.studentName} {recordedReceipt.seatNumber ? `(Seat ${recordedReceipt.seatNumber})` : ''}
                 </span>
               </div>
+              {recordedReceipt.isSettlingDue && (
+                <div className="flex justify-between items-center py-0.5 px-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 rounded-md">
+                  <span className="text-amber-800 dark:text-amber-300 font-semibold">Payment Type:</span>
+                  <span className="font-bold text-amber-900 dark:text-amber-200">Due Clearance</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-slate-500 dark:text-neutral-400">Month / Period:</span>
                 <span className="font-semibold text-indigo-700 dark:text-indigo-300">
@@ -242,7 +299,9 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                 </div>
               )}
               <div className="flex justify-between border-t border-slate-200/80 dark:border-[#333] pt-2">
-                <span className="text-slate-500 dark:text-neutral-400">Total Rate:</span>
+                <span className="text-slate-500 dark:text-neutral-400">
+                  {recordedReceipt.isSettlingDue ? 'Pending Due Balance:' : 'Total Monthly Fee:'}
+                </span>
                 <span className="font-bold text-slate-900 dark:text-white">
                   ₹{recordedReceipt.totalFee?.toLocaleString('en-IN')}
                 </span>
@@ -262,7 +321,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                 }`}>
                   {recordedReceipt.remainingFee && recordedReceipt.remainingFee > 0
                     ? `₹${recordedReceipt.remainingFee.toLocaleString('en-IN')} (Due)`
-                    : '₹0 (Fully Paid ✅)'}
+                    : '₹0 (Fully Cleared ✅)'}
                 </span>
               </div>
             </div>
@@ -316,8 +375,14 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
               <IndianRupee className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 dark:text-white text-base leading-tight">Record Student Fee</h3>
-              <p className="text-xs text-slate-500 dark:text-neutral-400">Collect and log library monthly membership payment</p>
+              <h3 className="font-bold text-slate-900 dark:text-white text-base leading-tight">
+                {isSettlingDue ? 'Clear Student Due' : 'Record Student Fee'}
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-neutral-400">
+                {isSettlingDue
+                  ? 'Settle or reduce existing remaining fee balance'
+                  : 'Collect and log library monthly membership payment'}
+              </p>
             </div>
           </div>
           <button
@@ -369,112 +434,221 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
               >
                 {students.map((s) => (
                   <option key={s.id} value={s.id} className="dark:bg-[#1c1c1e] dark:text-neutral-100">
-                    {s.fullName} ({s.phone}) {s.seatNumber ? `• Seat ${s.seatNumber}` : ''}
+                    {s.fullName} ({s.phone}) {s.seatNumber ? `• Seat ${s.seatNumber}` : ''} {s.remainingFee && s.remainingFee > 0 ? `• [Due: ₹${s.remainingFee}]` : ''}
                   </option>
                 ))}
               </select>
             )}
           </div>
 
-          {/* Stay Duration / Seat Plan Selector */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-neutral-300 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                <span>Stay Duration / Plan (For this month) *</span>
-              </label>
-              <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
-                {planDuration === 'FOUR_HOURS'
-                  ? '4 Hours'
-                  : planDuration === 'HALF_DAY'
-                  ? 'Half Day'
-                  : 'Full Day'}
-              </span>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                {
-                  id: 'FOUR_HOURS',
-                  title: '4 Hours',
-                  subtitle: '4 Hours / Day',
-                },
-                {
-                  id: 'HALF_DAY',
-                  title: 'Half Day',
-                  subtitle: '6-8 Hours / Day',
-                },
-                {
-                  id: 'FULL_DAY',
-                  title: 'Full Day',
-                  subtitle: '24/7 Unlimited',
-                },
-              ].map((plan) => (
+          {/* DUAL MODE SELECTOR (Only when student has existing remaining fee) */}
+          {Boolean(currentStudent?.remainingFee && currentStudent.remainingFee > 0) && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 dark:bg-[#1a1a1a] rounded-xl border border-slate-200 dark:border-[#2a2a2a]">
                 <button
-                  key={plan.id}
                   type="button"
                   onClick={() => {
-                    setPlanDuration(plan.id);
-                    const fee = getSuggestedFee(plan.id);
-                    setTotalFee(fee);
-                    setAmount(fee);
+                    setPaymentType('REMAINING_DUE');
+                    const due = currentStudent?.remainingFee || 0;
+                    setTotalFee(due);
+                    setAmount(due);
+                    setExtendMembership(false);
+                    const dueTx = (currentStudent?.transactions || []).find((t) => t.remainingFee && t.remainingFee > 0);
+                    const targetMonth = dueTx?.paidForMonth || currentMonth;
+                    setPaidForMonth(targetMonth);
+                    setNotes(`Remaining fee clearance for ${targetMonth}`);
                   }}
-                  className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
-                    planDuration === plan.id
-                      ? 'bg-indigo-50 dark:bg-indigo-950/50 border-indigo-600 dark:border-indigo-500 text-indigo-900 dark:text-indigo-200 ring-1 ring-indigo-600 dark:ring-indigo-500 shadow-2xs font-bold'
-                      : 'bg-white dark:bg-[#1c1c1e] border-slate-200 dark:border-[#262626] text-slate-600 dark:text-neutral-300 hover:bg-slate-50 dark:hover:bg-[#262626]'
+                  className={`py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    paymentType === 'REMAINING_DUE'
+                      ? 'bg-amber-500 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
-                  <div className="text-xs font-bold">{plan.title}</div>
-                  <div className="text-[10px] text-slate-400 dark:text-neutral-500 mt-0.5">{plan.subtitle}</div>
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  <span>Pay Due (₹{currentStudent?.remainingFee})</span>
                 </button>
-              ))}
-            </div>
-          </div>
 
-          {/* Total Fee & Amount Received (Get Fee) in 2 columns */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                Total Fee (₹) *
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-2.5 text-slate-400 dark:text-neutral-500 font-bold text-xs">₹</span>
-                <input
-                  type="number"
-                  required
-                  min="1"
-                  value={totalFee}
-                  onChange={(e) => {
-                    const val = e.target.value === '' ? '' : Number(e.target.value);
-                    setTotalFee(val);
-                    if (amount === totalFee) {
-                      setAmount(val);
-                    }
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentType('NEW_MONTH');
+                    const shiftVal = currentStudent?.shift || 'FULL_DAY';
+                    setPlanDuration(shiftVal);
+                    const fee = getSuggestedFee(shiftVal, currentStudent?.monthlyFee);
+                    setTotalFee(fee);
+                    setAmount(fee);
+                    setExtendMembership(true);
+                    setPaidForMonth(currentMonth);
+                    setNotes('');
                   }}
-                  placeholder="1200"
-                  className="w-full pl-7 pr-3 py-2 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-bold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                />
+                  className={`py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    paymentType === 'NEW_MONTH'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>New Month / Renewal</span>
+                </button>
               </div>
-            </div>
 
+              {paymentType === 'REMAINING_DUE' && (
+                <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="text-[11px] text-amber-800 dark:text-amber-300 leading-tight">
+                    <span className="font-bold">Settling Pending Balance:</span> Student has ₹{currentStudent?.remainingFee} unpaid due from previous payment. Collecting this will clear the due without inflating the total monthly rate in history.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* STAY DURATION / PLAN SELECTOR (Only in NEW_MONTH mode) */}
+          {paymentType === 'NEW_MONTH' ? (
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                Amount Received (Get Fee) *
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-2.5 text-emerald-600 dark:text-emerald-400 font-bold text-xs">₹</span>
-                <input
-                  type="number"
-                  required
-                  min="1"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                  placeholder="1200"
-                  className="w-full pl-7 pr-3 py-2 bg-white dark:bg-[#1c1c1e] border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-bold text-emerald-800 dark:text-emerald-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
-                />
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-700 dark:text-neutral-300 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span>Stay Duration / Plan (For this month) *</span>
+                </label>
+                <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
+                  {planDuration === 'FOUR_HOURS'
+                    ? '4 Hours'
+                    : planDuration === 'HALF_DAY'
+                    ? 'Half Day'
+                    : 'Full Day'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  {
+                    id: 'FOUR_HOURS',
+                    title: '4 Hours',
+                    subtitle: '4 Hours / Day',
+                  },
+                  {
+                    id: 'HALF_DAY',
+                    title: 'Half Day',
+                    subtitle: '6-8 Hours / Day',
+                  },
+                  {
+                    id: 'FULL_DAY',
+                    title: 'Full Day',
+                    subtitle: '24/7 Unlimited',
+                  },
+                ].map((plan) => (
+                  <button
+                    key={plan.id}
+                    type="button"
+                    onClick={() => {
+                      setPlanDuration(plan.id);
+                      const fee = getSuggestedFee(plan.id);
+                      setTotalFee(fee);
+                      setAmount(fee);
+                    }}
+                    className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                      planDuration === plan.id
+                        ? 'bg-indigo-50 dark:bg-indigo-950/50 border-indigo-600 dark:border-indigo-500 text-indigo-900 dark:text-indigo-200 ring-1 ring-indigo-600 dark:ring-indigo-500 shadow-2xs font-bold'
+                        : 'bg-white dark:bg-[#1c1c1e] border-slate-200 dark:border-[#262626] text-slate-600 dark:text-neutral-300 hover:bg-slate-50 dark:hover:bg-[#262626]'
+                    }`}
+                  >
+                    <div className="text-xs font-bold">{plan.title}</div>
+                    <div className="text-[10px] text-slate-400 dark:text-neutral-500 mt-0.5">{plan.subtitle}</div>
+                  </button>
+                ))}
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="p-2.5 bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-[#2a2a2a] rounded-xl flex items-center justify-between text-xs">
+              <span className="text-slate-500 dark:text-neutral-400 font-medium flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                Current Active Plan:
+              </span>
+              <span className="font-bold text-slate-800 dark:text-neutral-200">
+                {planDuration === 'FOUR_HOURS' ? '4 Hours' : planDuration === 'HALF_DAY' ? 'Half Day' : 'Full Day'} (₹{currentStudent?.monthlyFee || 1200}/mo)
+              </span>
+            </div>
+          )}
+
+          {/* FEE INPUTS: Differentiated for REMAINING_DUE vs NEW_MONTH */}
+          {paymentType === 'REMAINING_DUE' ? (
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
+                  Pending Due Amount
+                </label>
+                <div className="px-3 py-2 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700/60 rounded-xl text-xs font-black text-amber-800 dark:text-amber-300 flex items-center justify-between">
+                  <span>₹{currentStudent?.remainingFee}</span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200">
+                    To Clear
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
+                  Amount Received Now *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-emerald-600 dark:text-emerald-400 font-bold text-xs">₹</span>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    max={currentStudent?.remainingFee}
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder={String(currentStudent?.remainingFee || '')}
+                    className="w-full pl-7 pr-3 py-2 bg-white dark:bg-[#1c1c1e] border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-bold text-emerald-800 dark:text-emerald-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
+                  Total Fee (₹) *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-slate-400 dark:text-neutral-500 font-bold text-xs">₹</span>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    value={totalFee}
+                    onChange={(e) => {
+                      const val = e.target.value === '' ? '' : Number(e.target.value);
+                      setTotalFee(val);
+                      if (amount === totalFee) {
+                        setAmount(val);
+                      }
+                    }}
+                    placeholder="1200"
+                    className="w-full pl-7 pr-3 py-2 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-bold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
+                  Amount Received (Get Fee) *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-emerald-600 dark:text-emerald-400 font-bold text-xs">₹</span>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="1200"
+                    className="w-full pl-7 pr-3 py-2 bg-white dark:bg-[#1c1c1e] border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-bold text-emerald-800 dark:text-emerald-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Remaining Due Status Banner */}
           <div
@@ -488,7 +662,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
               {remainingDue > 0 ? (
                 <>
                   <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                  <span>Remaining Fee Balance:</span>
+                  <span>Remaining Due After This:</span>
                 </>
               ) : (
                 <>
@@ -498,7 +672,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
               )}
             </span>
             <span className="font-extrabold">
-              {remainingDue > 0 ? `₹${remainingDue} Remaining Due` : 'Fully Paid (₹0 Due)'}
+              {remainingDue > 0 ? `₹${remainingDue} Remaining Due` : 'Due Cleared (₹0 Due) ✅'}
             </span>
           </div>
 
@@ -605,25 +779,47 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
           </div>
 
           {/* Membership extension checkbox */}
-          <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <div>
-                <span className="text-xs font-bold text-emerald-900 dark:text-emerald-300 block">
-                  Extend Validity (+30 Days)
-                </span>
-                <span className="text-[10px] text-emerald-700 dark:text-emerald-400/90">
-                  Adds 30 days to the student's active membership renewal date.
-                </span>
+          {paymentType === 'REMAINING_DUE' ? (
+            <div className="p-3 bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-slate-400 dark:text-neutral-500 shrink-0" />
+                <div>
+                  <span className="text-xs font-bold text-slate-800 dark:text-neutral-200 block">
+                    Extend Validity (+30 Days)
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-neutral-400">
+                    Unchecked: validity was already granted on initial payment. Check only to add extra 30 days.
+                  </span>
+                </div>
               </div>
+              <input
+                type="checkbox"
+                checked={extendMembership}
+                onChange={(e) => setExtendMembership(e.target.checked)}
+                className="w-4 h-4 text-emerald-600 rounded border-slate-300 dark:border-[#363636] focus:ring-emerald-500 cursor-pointer"
+              />
             </div>
-            <input
-              type="checkbox"
-              checked={extendMembership}
-              onChange={(e) => setExtendMembership(e.target.checked)}
-              className="w-4 h-4 text-emerald-600 rounded border-slate-300 dark:border-[#363636] focus:ring-emerald-500 cursor-pointer"
-            />
-          </div>
+          ) : (
+            <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <div>
+                  <span className="text-xs font-bold text-emerald-900 dark:text-emerald-300 block">
+                    Extend Validity (+30 Days)
+                  </span>
+                  <span className="text-[10px] text-emerald-700 dark:text-emerald-400/90">
+                    Adds 30 days to the student's active membership renewal date.
+                  </span>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={extendMembership}
+                onChange={(e) => setExtendMembership(e.target.checked)}
+                className="w-4 h-4 text-emerald-600 rounded border-slate-300 dark:border-[#363636] focus:ring-emerald-500 cursor-pointer"
+              />
+            </div>
+          )}
 
           {/* Action buttons */}
           <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-[#262626]">

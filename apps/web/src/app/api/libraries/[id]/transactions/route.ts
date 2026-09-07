@@ -94,6 +94,7 @@ export async function POST(
       notes,
       extendDays,
       shift,
+      isSettlingDue,
     } = body;
 
     if (!studentId || amount === undefined || !paidForMonth) {
@@ -177,7 +178,7 @@ export async function POST(
     // Extend membership validity if requested & update membership fee amount + shift
     if (activeMembership) {
       const daysToAdd = extendDays !== undefined ? Number(extendDays) : 30;
-      let newEndDate = validTo ? new Date(validTo) : activeMembership.expectedEndDate;
+      let newEndDate = validTo && daysToAdd > 0 ? new Date(validTo) : activeMembership.expectedEndDate;
       if (!validTo && daysToAdd > 0) {
         const currentEnd = new Date(activeMembership.expectedEndDate);
         const now = new Date();
@@ -197,8 +198,8 @@ export async function POST(
       await prisma.membership.update({
         where: { id: activeMembership.id },
         data: {
-          ...(newEndDate ? { expectedEndDate: newEndDate } : {}),
-          feeAmount: totalFee !== undefined ? Number(totalFee) : Number(amount),
+          ...(daysToAdd > 0 && newEndDate ? { expectedEndDate: newEndDate } : {}),
+          ...(isSettlingDue ? {} : { feeAmount: totalFee !== undefined ? Number(totalFee) : Number(amount) }),
           ...(shift ? { shift: shift as any } : {}),
           status: 'ACTIVE',
         },
@@ -235,7 +236,9 @@ export async function POST(
       },
       updatedStudent: {
         id: student.id,
-        monthlyFee: totalFee !== undefined ? Number(totalFee) : Number(amount),
+        monthlyFee: isSettlingDue
+          ? (activeMembership ? Number(activeMembership.feeAmount) : Number(totalFee || amount))
+          : (totalFee !== undefined ? Number(totalFee) : Number(amount)),
         remainingFee: remainingFee !== undefined ? Number(remainingFee) : 0,
         membershipEndsInDays: newDaysRemaining,
         shift: shift || activeMembership?.shift || 'FULL_DAY',

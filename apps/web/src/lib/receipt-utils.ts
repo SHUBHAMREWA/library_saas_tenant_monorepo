@@ -18,6 +18,7 @@ export interface FeeReceiptData {
   paymentMode: string;
   paymentDate: string;
   notes?: string;
+  isSettlingDue?: boolean;
 }
 
 export interface FeeReminderData {
@@ -58,9 +59,14 @@ export function generateWhatsAppReceiptText(data: FeeReceiptData): string {
     `💳 *Payment Mode:* ${data.paymentMode}`,
     `━━━━━━━━━━━━━━━━━━━━━━━━━`,
     `📋 *FEES BREAKDOWN:*`,
+    data.isSettlingDue
+      ? `• *Payment Type:* Settling Previous Remaining Balance 🎯`
+      : '',
     `• *Month:* ${data.paidForMonth}`,
     data.validFrom && data.validTo ? `• *Validity Period:* ${data.validFrom} to ${data.validTo}` : '',
-    data.totalFee !== undefined && data.totalFee > 0
+    data.isSettlingDue
+      ? `• *Pending Balance Cleared:* ₹${Number(data.amount).toLocaleString('en-IN')}`
+      : data.totalFee !== undefined && data.totalFee > 0
       ? `• *Total Monthly Fee:* ₹${data.totalFee.toLocaleString('en-IN')}`
       : '',
     `• *Amount Received:* ₹${Number(data.amount).toLocaleString('en-IN')}`,

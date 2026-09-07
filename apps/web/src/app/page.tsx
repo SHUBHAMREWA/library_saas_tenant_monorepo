@@ -1242,6 +1242,7 @@ export default function MobileDashboard() {
     notes?: string;
     extendDays: number;
     shift?: string;
+    isSettlingDue?: boolean;
   }) => {
     if (!activeLibrary) return;
 
@@ -1273,10 +1274,14 @@ export default function MobileDashboard() {
       const updatedStudents = lib.students.map((s) => {
         if (s.id === paymentData.studentId) {
           const currentDays = Math.max(0, s.membershipEndsInDays || 0);
+          const preservedMonthlyFee = paymentData.isSettlingDue
+            ? (s.monthlyFee && s.monthlyFee > 0 ? s.monthlyFee : paymentData.totalFee ?? paymentData.amount)
+            : (paymentData.totalFee ?? paymentData.amount);
+
           return {
             ...s,
             shift: paymentData.shift || s.shift,
-            monthlyFee: paymentData.totalFee ?? paymentData.amount,
+            monthlyFee: preservedMonthlyFee,
             remainingFee: paymentData.remainingFee ?? 0,
             status: 'ACTIVE' as const,
             membershipEndsInDays:
@@ -1316,10 +1321,14 @@ export default function MobileDashboard() {
     setSelectedStudentForProfile((prev) => {
       if (prev && prev.id === paymentData.studentId) {
         const currentDays = Math.max(0, prev.membershipEndsInDays || 0);
+        const preservedMonthlyFee = paymentData.isSettlingDue
+          ? (prev.monthlyFee && prev.monthlyFee > 0 ? prev.monthlyFee : paymentData.totalFee ?? paymentData.amount)
+          : (paymentData.totalFee ?? paymentData.amount);
+
         return {
           ...prev,
           shift: paymentData.shift || prev.shift,
-          monthlyFee: paymentData.totalFee ?? paymentData.amount,
+          monthlyFee: preservedMonthlyFee,
           remainingFee: paymentData.remainingFee ?? 0,
           status: 'ACTIVE' as const,
           membershipEndsInDays:

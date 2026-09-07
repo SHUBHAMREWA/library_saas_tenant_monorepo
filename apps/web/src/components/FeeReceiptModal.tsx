@@ -49,6 +49,11 @@ export const FeeReceiptModal: React.FC<FeeReceiptModalProps> = ({
   const totalFee = transaction.totalFee ?? transaction.amount;
   const remainingFee = transaction.remainingFee ?? 0;
   const isFullyPaid = remainingFee <= 0;
+  const isSettlingDue = Boolean(
+    transaction.notes?.toLowerCase().includes('clearance') ||
+    transaction.notes?.toLowerCase().includes('settling') ||
+    transaction.notes?.toLowerCase().includes('due payment')
+  );
 
   const receiptData = {
     libraryName,
@@ -67,6 +72,7 @@ export const FeeReceiptModal: React.FC<FeeReceiptModalProps> = ({
     paymentMode: transaction.paymentMode,
     paymentDate: transaction.paymentDate,
     notes: transaction.notes,
+    isSettlingDue,
   };
 
   const handleSendWhatsApp = () => {
@@ -204,14 +210,14 @@ export const FeeReceiptModal: React.FC<FeeReceiptModalProps> = ({
             <div className="border border-slate-200 dark:border-[#2a2a2a] rounded-xl overflow-hidden text-xs">
               <div className="grid grid-cols-3 bg-slate-100 dark:bg-[#202020] p-2 font-bold text-[11px] text-slate-600 dark:text-neutral-300">
                 <span>Description</span>
-                <span className="text-center">Rate / Total</span>
+                <span className="text-center">{isSettlingDue ? 'Due Amount' : 'Rate / Total'}</span>
                 <span className="text-right">Paid</span>
               </div>
 
               <div className="p-2.5 space-y-1.5 bg-white dark:bg-[#161616]">
                 <div className="grid grid-cols-3 items-center">
                   <div className="text-slate-800 dark:text-neutral-200 font-medium truncate">
-                    Library Membership
+                    {isSettlingDue ? 'Due Balance Settlement' : 'Library Membership'}
                   </div>
                   <div className="text-center font-bold text-slate-900 dark:text-white">
                     ₹{totalFee.toLocaleString('en-IN')}

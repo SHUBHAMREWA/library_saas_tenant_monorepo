@@ -280,11 +280,15 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                   +₹{Number(tx.amount).toLocaleString('en-IN')}
                 </span>
                 <div className="flex items-center gap-1.5">
-                  {Boolean(tx.remainingFee && tx.remainingFee > 0) && (
+                  {Boolean(tx.remainingFee && tx.remainingFee > 0) ? (
                     <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-800">
                       Due: ₹{tx.remainingFee}
                     </span>
-                  )}
+                  ) : tx.notes?.toLowerCase().includes('clearance') || tx.notes?.toLowerCase().includes('settling') ? (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800">
+                      Due Cleared ✅
+                    </span>
+                  ) : null}
                   <span
                     className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                       tx.paymentMode === 'UPI'
@@ -327,6 +331,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                         paymentMode: tx.paymentMode,
                         paymentDate: tx.paymentDate,
                         notes: tx.notes,
+                        isSettlingDue: Boolean(tx.notes?.toLowerCase().includes('clearance') || tx.notes?.toLowerCase().includes('settling')),
                       });
                       openWhatsApp(tx.studentPhone, text);
                     }}
