@@ -9,6 +9,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "db:generate": "pnpm --filter @library/database generate",
     "clean": "turbo run clean && rm -rf node_modules"
   },
   "devDependencies": {
