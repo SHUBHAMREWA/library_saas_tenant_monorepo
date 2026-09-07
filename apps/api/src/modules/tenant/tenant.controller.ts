@@ -54,6 +54,15 @@ export class TenantController {
       next(err);
     }
   }
+
+  async getDashboard(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const summary = tenantService.getDashboardSummary(req.tenant!.libraryId);
+      res.status(200).json({ success: true, data: summary });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const tenantController = new TenantController();

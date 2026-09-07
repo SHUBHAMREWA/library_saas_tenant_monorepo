@@ -93,7 +93,7 @@ export function QuickCheckHero({
           </h2>
           <p className="text-xs sm:text-sm text-indigo-200/90 mt-1 max-w-xl">
             The modern operating system for study libraries, reading rooms, and competitive exam centers.
-            Manage seats, shifts, student KYC, and attendance effortlessly.
+            Manage seats, shifts, student KYC, and fee collections effortlessly.
           </p>
         </div>
 

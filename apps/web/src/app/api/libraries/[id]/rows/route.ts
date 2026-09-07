@@ -203,9 +203,6 @@ export async function DELETE(
       await prisma.seatAssignment.deleteMany({
         where: { seatId: { in: allSeatIds } },
       });
-      await prisma.attendanceLog.deleteMany({
-        where: { seatId: { in: allSeatIds } },
-      });
       await prisma.seat.deleteMany({
         where: { id: { in: allSeatIds } },
       });

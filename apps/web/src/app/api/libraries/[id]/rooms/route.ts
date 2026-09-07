@@ -130,7 +130,6 @@ export async function DELETE(
       const seatIds = room.rows.flatMap((r) => r.seats.map((s) => s.id));
       if (seatIds.length > 0) {
         await prisma.seatAssignment.deleteMany({ where: { seatId: { in: seatIds } } });
-        await prisma.attendanceLog.deleteMany({ where: { seatId: { in: seatIds } } });
         await prisma.seat.deleteMany({ where: { id: { in: seatIds } } });
       }
       await prisma.row.deleteMany({ where: { roomId: room.id } });

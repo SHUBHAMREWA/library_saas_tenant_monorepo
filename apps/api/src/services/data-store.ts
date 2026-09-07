@@ -150,19 +150,6 @@ export interface StoredSeatAssignment {
   createdAt: string;
 }
 
-export interface StoredAttendanceLog {
-  id: string;
-  libraryId: string;
-  studentId: string;
-  seatId?: string | null;
-  attendanceDate: string;
-  checkInTime: string;
-  checkOutTime?: string | null;
-  source: string;
-  sourceDeviceId?: string | null;
-  createdAt: string;
-}
-
 export interface StoredSubscriptionPlan {
   id: string;
   code: string;
@@ -250,7 +237,6 @@ class MemoryDataStore {
   public memberships = new Map<string, StoredMembership>();
   public membershipPauses = new Map<string, StoredMembershipPause>();
   public seatAssignments = new Map<string, StoredSeatAssignment>();
-  public attendanceLogs = new Map<string, StoredAttendanceLog>();
   public subscriptionPlans = new Map<string, StoredSubscriptionPlan>();
   public subscriptions = new Map<string, StoredSubscription>();
   public payments = new Map<string, StoredPayment>();
@@ -809,72 +795,6 @@ class MemoryDataStore {
     return undefined;
   }
 
-  // ===================== Attendance Ops =====================
-  recordCheckIn(
-    libraryId: string,
-    data: {
-      studentId: string;
-      seatId?: string | null;
-      source: string;
-      sourceDeviceId?: string | null;
-    }
-  ): StoredAttendanceLog {
-    const today = new Date().toISOString().split('T')[0];
-    const now = new Date().toISOString();
-
-    // Look for existing daily attendance record
-    for (const log of this.attendanceLogs.values()) {
-      if (log.libraryId === libraryId && log.studentId === data.studentId && log.attendanceDate === today) {
-        // Already checked in today, update checkInTime if needed
-        log.checkInTime = now;
-        if (data.seatId) log.seatId = data.seatId;
-        return log;
-      }
-    }
-
-    const id = randomUUID();
-    const log: StoredAttendanceLog = {
-      id,
-      libraryId,
-      studentId: data.studentId,
-      seatId: data.seatId || null,
-      attendanceDate: today,
-      checkInTime: now,
-      checkOutTime: null,
-      source: data.source,
-      sourceDeviceId: data.sourceDeviceId || null,
-      createdAt: now,
-    };
-    this.attendanceLogs.set(id, log);
-    return log;
-  }
-
-  recordCheckOut(libraryId: string, studentId: string): StoredAttendanceLog | undefined {
-    const today = new Date().toISOString().split('T')[0];
-    const now = new Date().toISOString();
-
-    for (const log of this.attendanceLogs.values()) {
-      if (log.libraryId === libraryId && log.studentId === studentId && log.attendanceDate === today) {
-        log.checkOutTime = now;
-        return log;
-      }
-    }
-    return undefined;
-  }
-
-  getTodayAttendanceLogs(libraryId: string): StoredAttendanceLog[] {
-    const today = new Date().toISOString().split('T')[0];
-    return Array.from(this.attendanceLogs.values()).filter(
-      (l) => l.libraryId === libraryId && l.attendanceDate === today
-    );
-  }
-
-  getStudentAttendanceHistory(libraryId: string, studentId: string): StoredAttendanceLog[] {
-    return Array.from(this.attendanceLogs.values())
-      .filter((l) => l.libraryId === libraryId && l.studentId === studentId)
-      .sort((a, b) => b.attendanceDate.localeCompare(a.attendanceDate));
-  }
-
   // ===================== Subscription & Plan Ops =====================
   initDefaultSubscriptionPlans(): void {
     if (this.subscriptionPlans.size > 0) return;
@@ -1263,7 +1183,6 @@ class MemoryDataStore {
     this.memberships.clear();
     this.membershipPauses.clear();
     this.seatAssignments.clear();
-    this.attendanceLogs.clear();
     this.subscriptionPlans.clear();
     this.subscriptions.clear();
     this.payments.clear();

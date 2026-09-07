@@ -52,6 +52,11 @@ export async function POST(req: NextRequest) {
             seatAssignments: { include: { seat: true } },
           },
         },
+        subscriptions: {
+          include: { plan: true },
+          orderBy: { endDate: 'desc' },
+          take: 1,
+        },
       },
     });
 
@@ -133,6 +138,27 @@ export async function POST(req: NextRequest) {
         isActive: true,
       },
       include: {
+        subscriptions: {
+          include: { plan: true },
+          orderBy: { endDate: 'desc' },
+          take: 1,
+        },
+        feeTransactions: {
+          orderBy: { paymentDate: 'desc' },
+          include: {
+            student: {
+              select: {
+                fullName: true,
+                phone: true,
+                seatAssignments: {
+                  where: { status: 'ACTIVE' },
+                  include: { seat: true },
+                  take: 1,
+                },
+              },
+            },
+          },
+        },
         rooms: {
           where: { isActive: true },
           include: {
@@ -305,6 +331,44 @@ export async function POST(req: NextRequest) {
         }).catch(() => {});
       }
 
+      const latestSub = (lib as any).subscriptions?.[0];
+      const now = new Date();
+      const hasActiveSub = Boolean(
+        latestSub &&
+        (latestSub.status === 'ACTIVE' || latestSub.status === 'MANUAL') &&
+        new Date(latestSub.endDate).getTime() > now.getTime()
+      );
+      const subDaysRemaining = latestSub
+        ? Math.max(0, Math.ceil((new Date(latestSub.endDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+        : 0;
+
+      const formattedSubscription = latestSub
+        ? {
+            id: latestSub.id,
+            planCode: latestSub.plan?.code || 'PRO',
+            planName: latestSub.plan?.name || 'Pro Plan',
+            status: hasActiveSub ? 'ACTIVE' : 'EXPIRED',
+            startDate: latestSub.startDate.toISOString().split('T')[0],
+            endDate: latestSub.endDate.toISOString().split('T')[0],
+            daysRemaining: subDaysRemaining,
+          }
+        : null;
+
+      const formattedLibraryTransactions = ((lib as any).feeTransactions || []).map((t: any) => ({
+        id: t.id,
+        studentId: t.studentId,
+        studentName: t.student?.fullName || 'Student',
+        studentPhone: t.student?.phone || '',
+        seatNumber: t.student?.seatAssignments?.[0]?.seat?.seatNumber || null,
+        amount: Number(t.amount),
+        paidForMonth: t.paidForMonth,
+        paymentDate: t.paymentDate.toISOString(),
+        paymentMode: t.paymentMode,
+        status: t.status,
+        receiptNumber: t.receiptNumber || undefined,
+        notes: t.notes || undefined,
+      }));
+
       return {
         id: lib.id,
         name: lib.name,
@@ -313,7 +377,10 @@ export async function POST(req: NextRequest) {
         rooms: formattedRooms,
         seats: allSeats,
         students: formattedStudents,
+        feeTransactions: formattedLibraryTransactions,
         createdAt: lib.createdAt.toISOString(),
+        hasActiveSubscription: hasActiveSub,
+        subscription: formattedSubscription,
       };
     });
 

@@ -4,6 +4,7 @@ import React from 'react';
 import {
   Armchair,
   CheckCircle2,
+  IndianRupee,
   Clock,
   ShieldCheck,
   Zap,
@@ -81,7 +82,7 @@ export function PublicLandingPage({ onOpenAuth }: PublicLandingPageProps) {
 
         {/* Subtitle */}
         <p className="mt-5 text-sm sm:text-base text-slate-300 max-w-2xl leading-relaxed">
-          Say goodbye to messy paper registers and WhatsApp groups. Manage multiple branches, design interactive seat layouts, schedule shifts, track daily 1-touch attendance, and manage student KYC in one fast, mobile-first app.
+          Say goodbye to messy paper registers and WhatsApp groups. Manage multiple branches, design interactive seat layouts, schedule shifts, collect monthly fees, and manage student KYC in one fast, mobile-first app.
         </p>
 
         {/* CTA Buttons */}
@@ -149,7 +150,7 @@ export function PublicLandingPage({ onOpenAuth }: PublicLandingPageProps) {
             {
               step: '04',
               title: 'Enroll Students',
-              desc: 'Assign shift seats, track admission KYC, record membership fees, and mark attendance.',
+              desc: 'Assign shift seats, track admission KYC, record monthly fees, and issue digital receipts.',
               icon: Users,
               color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
             },
@@ -219,11 +220,11 @@ export function PublicLandingPage({ onOpenAuth }: PublicLandingPageProps) {
 
           <div className="bg-slate-800/50 border border-slate-700/70 rounded-2xl p-6 hover:border-emerald-500/50 transition-all">
             <div className="w-10 h-10 rounded-xl bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mb-4">
-              <CheckCircle2 className="w-5 h-5" />
+              <IndianRupee className="w-5 h-5" />
             </div>
-            <h3 className="text-base font-bold text-white mb-2">1-Touch Attendance</h3>
+            <h3 className="text-base font-bold text-white mb-2">Fee & Revenue History</h3>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Fast mobile check-in roster. Track check-in and check-out timestamps effortlessly on the library counter tablet.
+              Collect 4h, half-day, and full-day monthly fees. Automated expiry alerts 5 days prior with payment mode records.
             </p>
           </div>
 

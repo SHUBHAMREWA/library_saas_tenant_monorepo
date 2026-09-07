@@ -28,6 +28,11 @@ export async function GET(req: NextRequest) {
         isActive: true,
       },
       include: {
+        subscriptions: {
+          include: { plan: true },
+          orderBy: { endDate: 'desc' },
+          take: 1,
+        },
         rooms: {
           where: { isActive: true },
           include: {
@@ -232,6 +237,29 @@ export async function GET(req: NextRequest) {
         notes: t.notes || undefined,
       }));
 
+      const latestSub = (lib as any).subscriptions?.[0];
+      const now = new Date();
+      const hasActiveSub = Boolean(
+        latestSub &&
+        (latestSub.status === 'ACTIVE' || latestSub.status === 'MANUAL') &&
+        new Date(latestSub.endDate).getTime() > now.getTime()
+      );
+      const subDaysRemaining = latestSub
+        ? Math.max(0, Math.ceil((new Date(latestSub.endDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+        : 0;
+
+      const formattedSubscription = latestSub
+        ? {
+            id: latestSub.id,
+            planCode: latestSub.plan?.code || 'PRO',
+            planName: latestSub.plan?.name || 'Pro Plan',
+            status: hasActiveSub ? 'ACTIVE' : 'EXPIRED',
+            startDate: latestSub.startDate.toISOString().split('T')[0],
+            endDate: latestSub.endDate.toISOString().split('T')[0],
+            daysRemaining: subDaysRemaining,
+          }
+        : null;
+
       return {
         id: lib.id,
         name: lib.name,
@@ -242,6 +270,8 @@ export async function GET(req: NextRequest) {
         students: formattedStudents,
         feeTransactions: formattedLibraryTransactions,
         createdAt: lib.createdAt.toISOString(),
+        hasActiveSubscription: hasActiveSub,
+        subscription: formattedSubscription,
       };
     });
 

@@ -83,11 +83,11 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
               <ReceiptText className="w-4 h-4" />
             </div>
             <h2 className="text-base sm:text-lg font-bold text-slate-900">
-              Fee Collections & Transactions
+              Fee History & Transactions
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Log, track, and monitor all student fee transactions across this library branch
+            Log, track, and monitor all student fee history and payments across this library branch
           </p>
         </div>
 

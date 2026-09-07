@@ -39,7 +39,7 @@ export interface StudentItem {
 interface StudentListProps {
   students: StudentItem[];
   onAddStudent: () => void;
-  onStudentClick?: (student: StudentItem) => void;
+  onStudentClick?: (student: StudentItem, initialTab?: 'profile' | 'feeHistory' | 'kyc') => void;
   initialFilterTab?: 'ALL' | 'EXPIRING_5_DAYS' | 'FEE_DUE' | 'ACTIVE';
 }
 
@@ -240,11 +240,25 @@ export const StudentList: React.FC<StudentListProps> = ({
                   </span>
                   <span>•</span>
                   {student.monthlyFee && student.monthlyFee > 0 ? (
-                    <span className="font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-1.5 py-0.5 rounded text-[11px] inline-flex items-center">
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onStudentClick?.(student, 'feeHistory');
+                      }}
+                      className="font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 px-1.5 py-0.5 rounded text-[11px] inline-flex items-center cursor-pointer transition-colors"
+                      title="Click to view fee history"
+                    >
                       ₹{student.monthlyFee}/mo
                     </span>
                   ) : (
-                    <span className="font-bold text-rose-700 bg-rose-50 border border-rose-200/80 px-1.5 py-0.5 rounded text-[10px] inline-flex items-center">
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onStudentClick?.(student, 'feeHistory');
+                      }}
+                      className="font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 px-1.5 py-0.5 rounded text-[10px] inline-flex items-center cursor-pointer transition-colors"
+                      title="Fee due - click to view history & collect fee"
+                    >
                       Fee Due
                     </span>
                   )}

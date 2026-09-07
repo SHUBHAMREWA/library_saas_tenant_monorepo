@@ -56,13 +56,6 @@ enum SeatAssignmentStatus {
   TRANSFERRED
 }
 
-enum AttendanceSource {
-  MANUAL
-  QR
-  RFID
-  DEVICE
-}
-
 enum SubscriptionStatus {
   TRIAL
   ACTIVE
@@ -133,7 +126,6 @@ model Library {
   memberships     Membership[]
   membershipPauses MembershipPause[]
   seatAssignments SeatAssignment[]
-  attendanceLogs  AttendanceLog[]
   subscriptions   Subscription[]
   payments        Payment[]
   feeTransactions StudentFeeTransaction[]
@@ -210,7 +202,6 @@ model Seat {
   library         Library          @relation(fields: [libraryId], references: [id], onDelete: Cascade)
   row             Row              @relation(fields: [rowId], references: [id], onDelete: Cascade)
   seatAssignments SeatAssignment[]
-  attendanceLogs  AttendanceLog[]
 
   @@unique([libraryId, rowId, seatNumber])
   @@index([libraryId, status])
@@ -240,7 +231,6 @@ model Student {
   library         Library          @relation(fields: [libraryId], references: [id], onDelete: Cascade)
   memberships     Membership[]
   seatAssignments SeatAssignment[]
-  attendanceLogs  AttendanceLog[]
   feeTransactions StudentFeeTransaction[]
 
   @@index([libraryId, phone])
@@ -312,28 +302,6 @@ model SeatAssignment {
   @@index([libraryId, studentId, status])
   @@index([seatId, shift, status])
   @@map("seat_assignments")
-}
-
-model AttendanceLog {
-  id             String           @id @default(uuid()) @db.Uuid
-  libraryId      String           @map("library_id") @db.Uuid
-  studentId      String           @map("student_id") @db.Uuid
-  seatId         String?          @map("seat_id") @db.Uuid
-  attendanceDate DateTime         @default(now()) @map("attendance_date") @db.Date
-  checkInTime    DateTime         @default(now()) @map("check_in_time") @db.Timestamptz
-  checkOutTime   DateTime?        @map("check_out_time") @db.Timestamptz
-  source         AttendanceSource @default(MANUAL)
-  sourceDeviceId String?          @map("source_device_id") @db.VarChar(128)
-  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz
-
-  library Library  @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  student Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  seat    Seat?    @relation(fields: [seatId], references: [id], onDelete: SetNull)
-
-  @@unique([libraryId, studentId, attendanceDate])
-  @@index([libraryId, attendanceDate])
-  @@index([studentId, attendanceDate])
-  @@map("attendance_logs")
 }
 
 model SubscriptionPlan {

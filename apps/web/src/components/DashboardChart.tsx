@@ -9,7 +9,6 @@ import {
   IndianRupee,
   BarChart3,
   Clock,
-  CheckCircle2,
 } from 'lucide-react';
 import { StudentItem } from './StudentList';
 import { VisualSeatItem } from './SeatGrid';
@@ -27,7 +26,7 @@ export const DashboardChart: React.FC<DashboardChartProps> = ({
   totalSeats,
   occupiedSeats,
 }) => {
-  const [activeMetric, setActiveMetric] = useState<'occupancy' | 'shifts' | 'weekly'>('occupancy');
+  const [activeMetric, setActiveMetric] = useState<'occupancy' | 'shifts'>('occupancy');
 
   const availableCount = Math.max(0, totalSeats - occupiedSeats);
   const occupancyPercent = totalSeats > 0 ? Math.round((occupiedSeats / totalSeats) * 100) : 0;
@@ -36,21 +35,6 @@ export const DashboardChart: React.FC<DashboardChartProps> = ({
   const morningCount = students.filter((s) => s.shift === 'MORNING').length;
   const eveningCount = students.filter((s) => s.shift === 'EVENING').length;
   const fullDayCount = students.filter((s) => s.shift === 'FULL_DAY' || !s.shift).length;
-
-  // Weekly attendance simulation data based on active student count
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const basePresent = Math.min(students.length, Math.max(1, Math.round(students.length * 0.85)));
-  const weeklyData = [
-    { day: 'Mon', present: Math.max(1, basePresent), capacity: totalSeats || 30 },
-    { day: 'Tue', present: Math.max(1, Math.round(basePresent * 0.95)), capacity: totalSeats || 30 },
-    { day: 'Wed', present: Math.max(1, Math.round(basePresent * 1.0)), capacity: totalSeats || 30 },
-    { day: 'Thu', present: Math.max(1, Math.round(basePresent * 0.9)), capacity: totalSeats || 30 },
-    { day: 'Fri', present: Math.max(1, Math.round(basePresent * 1.05)), capacity: totalSeats || 30 },
-    { day: 'Sat', present: Math.max(1, Math.round(basePresent * 1.1)), capacity: totalSeats || 30 },
-    { day: 'Sun', present: Math.max(0, Math.round(basePresent * 0.65)), capacity: totalSeats || 30 },
-  ];
-
-  const maxChartVal = Math.max(...weeklyData.map((d) => d.capacity), 30);
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 sm:p-5 space-y-4">
@@ -66,7 +50,7 @@ export const DashboardChart: React.FC<DashboardChartProps> = ({
                 Branch Analytics & Occupancy Trends
               </h3>
               <p className="text-[11px] text-slate-500">
-                Live utilization metrics, shift distribution, and 7-day attendance
+                Live utilization metrics and shift distribution
               </p>
             </div>
           </div>
@@ -84,17 +68,6 @@ export const DashboardChart: React.FC<DashboardChartProps> = ({
             }`}
           >
             Occupancy Gauge
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveMetric('weekly')}
-            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-              activeMetric === 'weekly'
-                ? 'bg-white text-indigo-700 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            Weekly Attendance
           </button>
           <button
             type="button"
@@ -167,53 +140,7 @@ export const DashboardChart: React.FC<DashboardChartProps> = ({
         </div>
       )}
 
-      {/* View 2: Weekly Attendance 7-Day Bar Chart */}
-      {activeMetric === 'weekly' && (
-        <div className="space-y-3 pt-1 animate-in fade-in duration-200">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>7-Day Attendance Volume (Check-ins vs Capacity)</span>
-            <span className="font-semibold text-slate-700">Average: ~{basePresent} students / day</span>
-          </div>
-
-          {/* SVG Bar Chart Visualization */}
-          <div className="grid grid-cols-7 gap-2 items-end h-36 pt-4 pb-2 px-1 bg-slate-50 rounded-2xl border border-slate-200">
-            {weeklyData.map((d, idx) => {
-              const heightPercent = Math.max(12, Math.round((d.present / maxChartVal) * 100));
-              const isToday = idx === (new Date().getDay() + 6) % 7; // Monday = 0
-
-              return (
-                <div key={d.day} className="flex flex-col items-center gap-1.5 h-full justify-end group">
-                  <span className="text-[10px] font-bold text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {d.present}
-                  </span>
-                  <div
-                    style={{ height: `${heightPercent}%` }}
-                    className={`w-full max-w-[36px] rounded-t-lg transition-all duration-300 shadow-2xs ${
-                      isToday
-                        ? 'bg-indigo-600 group-hover:bg-indigo-700 ring-2 ring-indigo-300'
-                        : 'bg-indigo-400/80 hover:bg-indigo-500'
-                    }`}
-                  />
-                  <span
-                    className={`text-[11px] font-bold ${
-                      isToday ? 'text-indigo-700 underline underline-offset-2' : 'text-slate-500'
-                    }`}
-                  >
-                    {d.day}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
-            <span>• Indigo bar represents student check-in count</span>
-            <span>Highlighted ring indicates current day</span>
-          </div>
-        </div>
-      )}
-
-      {/* View 3: Shift Allocation Distribution */}
+      {/* View 2: Shift Allocation Distribution */}
       {activeMetric === 'shifts' && (
         <div className="space-y-3 pt-1 animate-in fade-in duration-200">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

@@ -90,6 +90,40 @@ export class TenantService {
 
     return updated;
   }
+
+  getDashboardSummary(libraryId: string) {
+    const students = dataStore.listStudents(libraryId, { isActive: true });
+    const seats = dataStore.listSeats(libraryId);
+    const expiringSoon = dataStore.listExpiringMemberships(libraryId, 5);
+
+    const occupiedCount = seats.filter((s) => s.status === 'OCCUPIED').length;
+    const availableCount = seats.filter((s) => s.status === 'AVAILABLE').length;
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const expiredCount = Array.from(dataStore.memberships.values()).filter(
+      (m) => m.libraryId === libraryId && (m.status === 'EXPIRED' || (m.status === 'ACTIVE' && m.expectedEndDate < todayStr))
+    ).length;
+
+    const recentLogs = dataStore.auditLogs
+      .filter((a) => a.libraryId === libraryId)
+      .slice(0, 10)
+      .map((a) => ({
+        id: a.id,
+        action: a.action,
+        timestamp: a.createdAt,
+        details: `${a.action} on ${a.entityType}`,
+      }));
+
+    return {
+      totalActiveStudents: students.length,
+      totalSeats: seats.length,
+      availableSeats: availableCount,
+      occupiedSeats: occupiedCount,
+      membershipsEndingSoonCount: expiringSoon.length,
+      expiredMembershipsCount: expiredCount,
+      recentActivity: recentLogs,
+    };
+  }
 }
 
 export const tenantService = new TenantService();

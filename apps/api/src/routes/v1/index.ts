@@ -5,10 +5,9 @@ import { spaceRoutes } from '../../modules/space/space.routes';
 import { storageRoutes } from '../../modules/storage/storage.routes';
 import { studentRoutes } from '../../modules/student/student.routes';
 import { membershipRoutes } from '../../modules/membership/membership.routes';
-import { attendanceRoutes } from '../../modules/attendance/attendance.routes';
 import { paymentRoutes } from '../../modules/payment/payment.routes';
 import { adminRoutes } from '../../modules/admin/admin.routes';
-import { attendanceController } from '../../modules/attendance/attendance.controller';
+import { tenantController } from '../../modules/tenant/tenant.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { tenantGuard } from '../../middleware/tenant.middleware';
 
@@ -21,7 +20,6 @@ router.use('/libraries/:libraryId/spaces', spaceRoutes);
 router.use('/libraries/:libraryId/storage', storageRoutes);
 router.use('/libraries/:libraryId/students', studentRoutes);
 router.use('/libraries/:libraryId/memberships', membershipRoutes);
-router.use('/libraries/:libraryId/attendance', attendanceRoutes);
 router.use('/libraries/:libraryId/subscriptions', paymentRoutes);
 router.use('/payments', paymentRoutes);
 router.use('/admin', adminRoutes);
@@ -31,7 +29,7 @@ router.get(
   '/libraries/:libraryId/dashboard',
   authMiddleware,
   tenantGuard,
-  (req, res, next) => attendanceController.getDashboard(req, res, next)
+  (req, res, next) => tenantController.getDashboard(req, res, next)
 );
 
 // Overall v1 API status
@@ -47,7 +45,6 @@ router.get('/', (_req, res) => {
         'storage',
         'students',
         'memberships',
-        'attendance',
         'payments',
       ],
       architecture: 'Modular Monolith',

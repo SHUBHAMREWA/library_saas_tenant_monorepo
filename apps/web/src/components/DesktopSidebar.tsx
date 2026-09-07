@@ -4,7 +4,6 @@ import React from 'react';
 import {
   LayoutDashboard,
   Armchair,
-  CheckCircle2,
   Users,
   IndianRupee,
   MoreHorizontal,
@@ -18,8 +17,8 @@ import {
 import { LibraryBranch } from '../app/page';
 
 interface DesktopSidebarProps {
-  activeTab: 'home' | 'seats' | 'attendance' | 'students' | 'transactions' | 'more';
-  onSelectTab: (tab: 'home' | 'seats' | 'attendance' | 'students' | 'transactions' | 'more') => void;
+  activeTab: 'home' | 'seats' | 'students' | 'transactions' | 'more';
+  onSelectTab: (tab: 'home' | 'seats' | 'students' | 'transactions' | 'more') => void;
   activeLibrary: LibraryBranch | null;
   libraries: LibraryBranch[];
   onSelectLibrary: (lib: LibraryBranch) => void;
@@ -33,6 +32,7 @@ interface DesktopSidebarProps {
   } | null;
   onLogout: () => void;
   isSuperAdmin?: boolean;
+  hasActiveSubscription?: boolean;
   onOpenAdminPortal?: () => void;
   onOpenAddStudent: () => void;
   onOpenCollectFee: () => void;
@@ -48,6 +48,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   currentUser,
   onLogout,
   isSuperAdmin,
+  hasActiveSubscription,
   onOpenAdminPortal,
   onOpenAddStudent,
   onOpenCollectFee,
@@ -55,16 +56,20 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = React.useState(false);
 
   const navItems: {
-    id: 'home' | 'seats' | 'attendance' | 'students' | 'transactions' | 'more';
+    id: 'home' | 'seats' | 'students' | 'transactions' | 'more';
     label: string;
     icon: React.ComponentType<{ className?: string }>;
     badge?: string;
   }[] = [
     { id: 'home', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'seats', label: 'Seat Layout', icon: Armchair },
-    { id: 'attendance', label: 'Attendance', icon: CheckCircle2 },
     { id: 'students', label: 'Students', icon: Users, badge: activeLibrary ? `${activeLibrary.students.length}` : undefined },
-    { id: 'transactions', label: 'Fee Ledger', icon: IndianRupee },
+    {
+      id: 'transactions',
+      label: 'Fee History',
+      icon: IndianRupee,
+      badge: !hasActiveSubscription && !isSuperAdmin ? 'PRO' : undefined,
+    },
     { id: 'more', label: 'Settings & Branch', icon: MoreHorizontal },
   ];
 

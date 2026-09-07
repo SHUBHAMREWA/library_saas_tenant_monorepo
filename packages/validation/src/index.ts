@@ -121,19 +121,7 @@ export const RelocateSeatSchema = z.object({
   effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
-// ==========================================
-// Attendance Schemas
-// ==========================================
-export const AttendanceCheckInSchema = z.object({
-  studentId: z.string().uuid(),
-  seatId: z.string().uuid().optional(),
-  source: z.enum(['MANUAL', 'QR', 'RFID', 'DEVICE']).default('MANUAL'),
-  sourceDeviceId: z.string().optional(),
-});
 
-export const AttendanceCheckOutSchema = z.object({
-  studentId: z.string().uuid(),
-});
 
 // ==========================================
 // Subscription, Payment & Coupon Schemas
@@ -178,4 +166,3 @@ export type CreateStudentInput = z.infer<typeof CreateStudentSchema>;
 export type CreateMembershipInput = z.infer<typeof CreateMembershipSchema>;
 export type PauseMembershipInput = z.infer<typeof PauseMembershipSchema>;
 export type AssignSeatInput = z.infer<typeof AssignSeatSchema>;
-export type AttendanceCheckInInput = z.infer<typeof AttendanceCheckInSchema>;

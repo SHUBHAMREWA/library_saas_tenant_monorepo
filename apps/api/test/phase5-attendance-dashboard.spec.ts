@@ -3,7 +3,7 @@ import request from 'supertest';
 import { createApp } from '../src/app';
 import { dataStore } from '../src/services/data-store';
 
-describe('Phase 5: Attendance Engine & Real-Time Dashboard', () => {
+describe('Phase 5: Real-Time Dashboard Metrics', () => {
   const app = createApp();
   let token: string;
   let libraryId: string;
@@ -16,14 +16,14 @@ describe('Phase 5: Attendance Engine & Real-Time Dashboard', () => {
     // Authenticate owner & create library
     const authRes = await request(app)
       .post('/api/v1/auth/otp/verify')
-      .send({ email: 'owner.attendance@example.com', otp: '123456' });
+      .send({ email: 'owner.dashboard@example.com', otp: '123456' });
     token = authRes.body.data.accessToken;
 
     const libRes = await request(app)
       .post('/api/v1/libraries')
       .set('Authorization', `Bearer ${token}`)
       .send({
-        name: 'Apex Central Attendance Hub',
+        name: 'Apex Central Hub',
         contactPhone: '9876543210',
       });
     libraryId = libRes.body.data.id;
@@ -65,75 +65,7 @@ describe('Phase 5: Attendance Engine & Real-Time Dashboard', () => {
     });
   });
 
-  it('Check-In Flow: Records one-touch manual check-in and updates roster', async () => {
-    // 1. Check in Student One
-    const checkInRes = await request(app)
-      .post(`/api/v1/libraries/${libraryId}/attendance/check-in`)
-      .set('Authorization', `Bearer ${token}`)
-      .set('X-Library-Id', libraryId)
-      .send({
-        studentId: student1Id,
-        source: 'MANUAL',
-      });
-
-    expect(checkInRes.status).toBe(200);
-    expect(checkInRes.body.success).toBe(true);
-    expect(checkInRes.body.data.studentId).toBe(student1Id);
-    expect(checkInRes.body.data.source).toBe('MANUAL');
-
-    // 2. Fetch today's roster
-    const rosterRes = await request(app)
-      .get(`/api/v1/libraries/${libraryId}/attendance/today`)
-      .set('Authorization', `Bearer ${token}`)
-      .set('X-Library-Id', libraryId);
-
-    expect(rosterRes.status).toBe(200);
-    expect(rosterRes.body.data.length).toBe(2);
-
-    const s1Roster = rosterRes.body.data.find((r: any) => r.studentId === student1Id);
-    const s2Roster = rosterRes.body.data.find((r: any) => r.studentId === student2Id);
-
-    expect(s1Roster.isPresent).toBe(true);
-    expect(s1Roster.seatNumber).toBe('A-01');
-    expect(s2Roster.isPresent).toBe(false);
-  });
-
-  it('Check-Out Flow: Records check-out timestamp', async () => {
-    // Check in first
-    await request(app)
-      .post(`/api/v1/libraries/${libraryId}/attendance/check-in`)
-      .set('Authorization', `Bearer ${token}`)
-      .set('X-Library-Id', libraryId)
-      .send({ studentId: student1Id });
-
-    // Check out
-    const checkOutRes = await request(app)
-      .post(`/api/v1/libraries/${libraryId}/attendance/check-out`)
-      .set('Authorization', `Bearer ${token}`)
-      .set('X-Library-Id', libraryId)
-      .send({ studentId: student1Id });
-
-    expect(checkOutRes.status).toBe(200);
-    expect(checkOutRes.body.data.checkOutTime).toBeDefined();
-
-    // Roster should now indicate student is checked out
-    const rosterRes = await request(app)
-      .get(`/api/v1/libraries/${libraryId}/attendance/today`)
-      .set('Authorization', `Bearer ${token}`)
-      .set('X-Library-Id', libraryId);
-
-    const s1 = rosterRes.body.data.find((r: any) => r.studentId === student1Id);
-    expect(s1.isPresent).toBe(false);
-  });
-
   it('Real-Time Dashboard API: Computes actionable counters and expiring alerts', async () => {
-    // Check in Student 1
-    await request(app)
-      .post(`/api/v1/libraries/${libraryId}/attendance/check-in`)
-      .set('Authorization', `Bearer ${token}`)
-      .set('X-Library-Id', libraryId)
-      .send({ studentId: student1Id });
-
     // Query dashboard summary
     const dashRes = await request(app)
       .get(`/api/v1/libraries/${libraryId}/dashboard`)
@@ -142,7 +74,6 @@ describe('Phase 5: Attendance Engine & Real-Time Dashboard', () => {
 
     expect(dashRes.status).toBe(200);
     expect(dashRes.body.data.totalActiveStudents).toBe(2);
-    expect(dashRes.body.data.todayAttendanceCount).toBe(1);
     expect(dashRes.body.data.totalSeats).toBe(10);
     expect(dashRes.body.data.occupiedSeats).toBe(1);
     expect(dashRes.body.data.availableSeats).toBe(9);

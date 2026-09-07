@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   Armchair,
-  CheckCircle2,
   Users,
   MoreHorizontal,
   Bell,
@@ -29,6 +28,7 @@ import {
   Pencil,
   IndianRupee,
   ReceiptText,
+  Crown,
 } from 'lucide-react';
 import type { SeatStatus } from '@library/types';
 import dynamic from 'next/dynamic';
@@ -36,7 +36,6 @@ import { SeatGrid, VisualSeatItem } from '../components/SeatGrid';
 import { BatchSeatModal } from '../components/BatchSeatModal';
 import { StudentList, StudentItem, StudentFeeRecord } from '../components/StudentList';
 import { StudentModal } from '../components/StudentModal';
-import { AttendanceRoster, RosterItem } from '../components/AttendanceRoster';
 import { SubscriptionCard } from '../components/SubscriptionCard';
 import { KanbanBoard } from '../components/KanbanBoard';
 import { AuthModal } from '../components/AuthModal';
@@ -53,6 +52,7 @@ import { TransactionsView } from '../components/TransactionsView';
 import { CollectFeeModal } from '../components/CollectFeeModal';
 import { DesktopSidebar } from '../components/DesktopSidebar';
 import { DashboardChart } from '../components/DashboardChart';
+import { SubscriptionRequiredModal } from '../components/SubscriptionRequiredModal';
 
 const PWACompanion = dynamic(
   () => import('../components/PWACompanion').then((m) => m.PWACompanion),
@@ -69,16 +69,27 @@ export interface LibraryBranch {
   students: StudentItem[];
   feeTransactions?: StudentFeeRecord[];
   createdAt: string;
+  hasActiveSubscription?: boolean;
+  subscription?: {
+    id: string;
+    planCode: string;
+    planName: string;
+    status: string;
+    startDate: string;
+    endDate: string;
+    daysRemaining: number;
+  } | null;
 }
 
 export default function MobileDashboard() {
   const [mounted, setMounted] = useState(false);
-  const [activeTab, setActiveTab] = useState<'home' | 'seats' | 'attendance' | 'students' | 'transactions' | 'more'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'seats' | 'students' | 'transactions' | 'more'>('home');
   const [studentSubTab, setStudentSubTab] = useState<'directory' | 'pipeline'>('directory');
   const [studentFilterTab, setStudentFilterTab] = useState<'ALL' | 'EXPIRING_5_DAYS' | 'FEE_DUE' | 'ACTIVE'>('ALL');
   const [isCollectFeeModalOpen, setIsCollectFeeModalOpen] = useState(false);
   const [studentForFeeCollection, setStudentForFeeCollection] = useState<StudentItem | null>(null);
   const [returnToStudentProfileId, setReturnToStudentProfileId] = useState<string | null>(null);
+  const [profileInitialTab, setProfileInitialTab] = useState<'profile' | 'feeHistory' | 'kyc'>('profile');
 
   // User Authentication State - ZERO dummy user initially
   const [currentUser, setCurrentUser] = useState<{
@@ -126,6 +137,8 @@ export default function MobileDashboard() {
   const [isAddRowModalOpen, setIsAddRowModalOpen] = useState(false);
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
+  const [isSubscriptionRequiredModalOpen, setIsSubscriptionRequiredModalOpen] = useState(false);
+  const [subscriptionGateAction, setSubscriptionGateAction] = useState<string>('Enroll Students');
   const [selectedStudentForProfile, setSelectedStudentForProfile] = useState<StudentItem | null>(null);
   const [selectedSeatForAssignment, setSelectedSeatForAssignment] = useState<VisualSeatItem | null>(null);
   const [preselectedSeatNumberForNewStudent, setPreselectedSeatNumberForNewStudent] = useState<string | null>(null);
@@ -264,6 +277,44 @@ export default function MobileDashboard() {
 
   // Find active library
   const activeLibrary = libraries.find((l) => l.id === activeLibraryId) || libraries[0] || null;
+
+  // Subscription Guard Helper: Checks if active library has valid subscription or user is super admin
+  const hasActiveSubscription = Boolean(
+    isSuperAdmin ||
+    activeLibrary?.hasActiveSubscription ||
+    (activeLibrary?.subscription &&
+      (activeLibrary.subscription.status === 'ACTIVE' || (activeLibrary.subscription.status as any) === 'MANUAL') &&
+      ((activeLibrary.subscription.daysRemaining ?? 0) > 0 ||
+        new Date(activeLibrary.subscription.endDate).getTime() > Date.now()))
+  );
+
+  const requireSubscription = (actionTitle: string, actionFn: () => void) => {
+    if (hasActiveSubscription) {
+      actionFn();
+    } else {
+      setSubscriptionGateAction(actionTitle);
+      setIsSubscriptionRequiredModalOpen(true);
+    }
+  };
+
+  // Keep fee ledger transactions freshly synced when switching to fee history tab
+  useEffect(() => {
+    if (activeTab === 'transactions' && activeLibrary?.id && hasActiveSubscription) {
+      fetch(`/api/libraries/${activeLibrary.id}/transactions`, {
+        headers: currentUser?.email ? { 'x-user-email': currentUser.email } : {},
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && Array.isArray(data.transactions)) {
+            updateActiveLibrary((prev) => ({
+              ...prev,
+              feeTransactions: data.transactions,
+            }));
+          }
+        })
+        .catch((err) => console.error('Failed to sync fee transactions:', err));
+    }
+  }, [activeTab, activeLibrary?.id, hasActiveSubscription]);
 
   // Active library child entities
   const rawSeats = activeLibrary ? activeLibrary.seats : [];
@@ -1326,9 +1377,10 @@ export default function MobileDashboard() {
         currentUser={currentUser}
         onLogout={handleUserLogout}
         isSuperAdmin={isSuperAdmin}
+        hasActiveSubscription={hasActiveSubscription}
         onOpenAdminPortal={() => setIsAdminPortalView(true)}
-        onOpenAddStudent={() => setIsStudentModalOpen(true)}
-        onOpenCollectFee={() => setIsCollectFeeModalOpen(true)}
+        onOpenAddStudent={() => requireSubscription('Enroll Students', () => setIsStudentModalOpen(true))}
+        onOpenCollectFee={() => requireSubscription('Collect Fees', () => setIsCollectFeeModalOpen(true))}
       />
 
       {/* Mobile Top Navigation Header (Mobile only - hidden on desktop where sidebar is present) */}
@@ -1474,12 +1526,10 @@ export default function MobileDashboard() {
               ? 'Dashboard Overview'
               : activeTab === 'seats'
               ? 'Seat Layout & Halls'
-              : activeTab === 'attendance'
-              ? 'Attendance Roster'
               : activeTab === 'students'
               ? 'Student Directory'
               : activeTab === 'transactions'
-              ? 'Fee Ledger & Payments'
+              ? 'Fee History & Payments'
               : 'Branch Settings'}
           </h2>
           {activeLibrary && (
@@ -1520,7 +1570,7 @@ export default function MobileDashboard() {
                 onOpenCreateLibrary={() => setIsLibraryModalOpen(true)}
                 onOpenAddRoom={() => setIsRoomModalOpen(true)}
                 onOpenGenerateSeats={() => setIsBatchModalOpen(true)}
-                onOpenAddStudent={() => setIsStudentModalOpen(true)}
+                onOpenAddStudent={() => requireSubscription('Enroll Students', () => setIsStudentModalOpen(true))}
                 isLoggedIn={!!currentUser}
                 libraryName={activeLibrary ? activeLibrary.name : 'Your Library'}
               />
@@ -1542,7 +1592,7 @@ export default function MobileDashboard() {
                   {students.filter((s) => s.status === 'ACTIVE').length}
                 </div>
                 <div className="text-[11px] text-emerald-600 font-medium mt-1 flex items-center gap-1">
-                  <span>●</span> {occupiedCount} currently present
+                  <span>●</span> {occupiedCount} occupied seats
                 </div>
               </div>
 
@@ -1589,8 +1639,8 @@ export default function MobileDashboard() {
             <section className="flex gap-2">
               <button
                 type="button"
-                onClick={() => setIsStudentModalOpen(true)}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-medium py-2.5 px-3 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+                onClick={() => requireSubscription('Enroll Students', () => setIsStudentModalOpen(true))}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-medium py-2.5 px-3 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
               >
                 <Plus className="w-4 h-4" /> Add Student
               </button>
@@ -1954,34 +2004,7 @@ export default function MobileDashboard() {
           </section>
         )}
 
-        {/* Tab 3: Attendance Roster */}
-        {activeTab === 'attendance' && (
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-slate-900">Today's Attendance</h3>
-                <p className="text-xs text-slate-500">One-touch presence tracking</p>
-              </div>
-            </div>
-
-            <AttendanceRoster
-              roster={students.map((s, idx) => ({
-                studentId: s.id,
-                studentName: s.fullName,
-                phone: s.phone,
-                seatNumber: s.seatNumber,
-                shift: s.shift,
-                checkInTime: idx % 2 === 0 ? '2026-09-04T08:30:00Z' : null,
-                isPresent: idx % 2 === 0,
-              }))}
-              onToggleAttendance={(studentId, currentPresent) => {
-                alert(`${currentPresent ? 'Checking out' : 'Checking in'} student`);
-              }}
-            />
-          </section>
-        )}
-
-        {/* Tab 4: Students Directory & Pipeline Kanban */}
+        {/* Tab 3: Students Directory & Pipeline Kanban */}
         {activeTab === 'students' && (
           <section className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
@@ -2027,7 +2050,7 @@ export default function MobileDashboard() {
                   title="View all fee transactions"
                 >
                   <IndianRupee className="w-3.5 h-3.5" />
-                  <span>Fee Ledger</span>
+                  <span>Fee History</span>
                 </button>
               </div>
             </div>
@@ -2037,10 +2060,15 @@ export default function MobileDashboard() {
                 students={students}
                 initialFilterTab={studentFilterTab}
                 onAddStudent={() => {
-                  setPreselectedSeatNumberForNewStudent(null);
-                  setIsStudentModalOpen(true);
+                  requireSubscription('Enroll Students', () => {
+                    setPreselectedSeatNumberForNewStudent(null);
+                    setIsStudentModalOpen(true);
+                  });
                 }}
-                onStudentClick={(student) => setSelectedStudentForProfile(student)}
+                onStudentClick={(student, tab) => {
+                  setProfileInitialTab(tab || 'profile');
+                  setSelectedStudentForProfile(student);
+                }}
               />
             ) : (
               <KanbanBoard libraryId={activeLibrary?.id} />
@@ -2051,17 +2079,54 @@ export default function MobileDashboard() {
         {/* Tab: Fee Transactions & Revenue Ledger */}
         {activeTab === 'transactions' && activeLibrary && (
           <section className="space-y-4">
-            <TransactionsView
-              transactions={activeLibrary.feeTransactions || []}
-              onOpenCollectFee={() => {
-                setStudentForFeeCollection(null);
-                setIsCollectFeeModalOpen(true);
-              }}
-              onStudentClick={(studentId) => {
-                const std = activeLibrary.students.find((s) => s.id === studentId);
-                if (std) setSelectedStudentForProfile(std);
-              }}
-            />
+            {!hasActiveSubscription ? (
+              <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-12 text-center space-y-4 max-w-lg mx-auto shadow-sm [color-scheme:light]">
+                <div className="w-16 h-16 rounded-3xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 mx-auto shadow-inner">
+                  <Crown className="w-8 h-8" />
+                </div>
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
+                    Pro SaaS Feature
+                  </span>
+                  <h3 className="text-xl font-black text-slate-900 mt-2.5">
+                    Fee Ledger & History is Locked
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+                    Subscribe to seeLibrary to unlock real-time student fee collections, monthly dues ledger, payment receipts, and revenue analytics.
+                  </p>
+                </div>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSubscriptionGateAction('Access Fee Ledger');
+                      setIsSubscriptionRequiredModalOpen(true);
+                    }}
+                    className="py-3 px-6 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-indigo-600/20 inline-flex items-center gap-2 cursor-pointer"
+                  >
+                    <Crown className="w-4 h-4" />
+                    <span>Upgrade Plan to Unlock Fee Ledger</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <TransactionsView
+                transactions={activeLibrary.feeTransactions || []}
+                onOpenCollectFee={() => {
+                  requireSubscription('Collect Fees', () => {
+                    setStudentForFeeCollection(null);
+                    setIsCollectFeeModalOpen(true);
+                  });
+                }}
+                onStudentClick={(studentId) => {
+                  const std = activeLibrary.students.find((s) => s.id === studentId);
+                  if (std) {
+                    setProfileInitialTab('feeHistory');
+                    setSelectedStudentForProfile(std);
+                  }
+                }}
+              />
+            )}
           </section>
         )}
 
@@ -2098,18 +2163,28 @@ export default function MobileDashboard() {
                   </div>
                 </div>
 
-                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold rounded-lg">
-                  Free Starter Plan
+                <span className={`px-2.5 py-1 text-xs font-bold rounded-lg border ${
+                  hasActiveSubscription
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                }`}>
+                  {activeLibrary.subscription?.planName || (hasActiveSubscription ? 'Active SaaS Plan' : 'Free Starter (Design Only)')}
                 </span>
               </div>
             </div>
 
             <SubscriptionCard
-              currentPlanName="Free Starter Plan (0₹)"
-              status="ACTIVE"
-              validUntil="Free Forever"
-              onUpgrade={(planId, coupon) => {
-                console.log('Upgrading plan to', planId, 'with coupon', coupon);
+              libraryId={activeLibrary.id}
+              currentPlanName={activeLibrary.subscription?.planName || (hasActiveSubscription ? 'Active SaaS Plan' : 'Free Starter Plan (Design Only)')}
+              status={hasActiveSubscription ? 'ACTIVE' : 'NO SUBSCRIPTION'}
+              validUntil={activeLibrary.subscription ? `${new Date(activeLibrary.subscription.endDate).toLocaleDateString('en-IN')}` : 'Free Forever (Design Only)'}
+              daysRemaining={activeLibrary.subscription?.daysRemaining}
+              isSuperAdmin={isSuperAdmin}
+              userEmail={currentUser?.email}
+              onSubscriptionUpdated={() => {
+                if (currentUser?.email) {
+                  loadUserLibrariesFromDb(currentUser.email, libraries);
+                }
               }}
             />
 
@@ -2242,15 +2317,18 @@ export default function MobileDashboard() {
         isOpen={!!selectedStudentForProfile}
         onClose={() => setSelectedStudentForProfile(null)}
         student={selectedStudentForProfile}
+        initialTab={profileInitialTab}
         availableSeats={seats.filter((s) => s.status === 'AVAILABLE')}
         onAssignSeat={handleAssignSeat}
         onUpdateStudent={handleUpdateStudent}
         onDeleteStudent={handleDeleteStudent}
         onCollectFee={(std) => {
-          setReturnToStudentProfileId(std.id);
-          setSelectedStudentForProfile(null);
-          setStudentForFeeCollection(std);
-          setIsCollectFeeModalOpen(true);
+          requireSubscription('Collect Fees', () => {
+            setReturnToStudentProfileId(std.id);
+            setSelectedStudentForProfile(null);
+            setStudentForFeeCollection(std);
+            setIsCollectFeeModalOpen(true);
+          });
         }}
       />
 
@@ -2265,6 +2343,7 @@ export default function MobileDashboard() {
             setReturnToStudentProfileId(null);
             const currentStd = activeLibrary?.students.find((s) => s.id === targetId);
             if (currentStd) {
+              setProfileInitialTab('feeHistory');
               setSelectedStudentForProfile(currentStd);
             }
           }
@@ -2284,9 +2363,21 @@ export default function MobileDashboard() {
           await handleAssignSeat(studentId, seatNumber);
         }}
         onEnrollNewStudent={(seatNumber) => {
-          setPreselectedSeatNumberForNewStudent(seatNumber);
-          setIsStudentModalOpen(true);
+          requireSubscription('Enroll Students', () => {
+            setPreselectedSeatNumberForNewStudent(seatNumber);
+            setIsStudentModalOpen(true);
+          });
         }}
+      />
+
+      {/* Subscription Required Upgrade Modal */}
+      <SubscriptionRequiredModal
+        isOpen={isSubscriptionRequiredModalOpen}
+        onClose={() => setIsSubscriptionRequiredModalOpen(false)}
+        onUpgradeClick={() => {
+          setActiveTab('more');
+        }}
+        actionTitle={subscriptionGateAction}
       />
 
       {/* Mobile Bottom Navigation Bar (Thumb-Friendly, Fixed at bottom, hidden on desktop) */}
@@ -2294,9 +2385,8 @@ export default function MobileDashboard() {
         {[
           { id: 'home', label: 'Dashboard', icon: LayoutDashboard },
           { id: 'seats', label: 'Seats', icon: Armchair },
-          { id: 'attendance', label: 'Attendance', icon: CheckCircle2 },
           { id: 'students', label: 'Students', icon: Users },
-          { id: 'transactions', label: 'Ledger', icon: IndianRupee },
+          { id: 'transactions', label: 'Fee History', icon: IndianRupee },
           { id: 'more', label: 'More', icon: MoreHorizontal },
         ].map((tab) => {
           const Icon = tab.icon;

@@ -9,6 +9,29 @@ export async function GET(
   try {
     const { id: libraryId } = await context.params;
 
+    const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.ADMIN_EMAIL || 'kushwahashubham5932@gmail.com').toLowerCase().trim();
+    const callerEmail = req.headers.get('x-user-email')?.toLowerCase().trim();
+    const isSuperAdmin = callerEmail === adminEmail || callerEmail === 'kushwahashubham5932@gmail.com' || callerEmail === 'admin@libraryhub.com';
+
+    if (!isSuperAdmin) {
+      const activeSub = await prisma.subscription.findFirst({
+        where: {
+          libraryId,
+          status: { in: ['ACTIVE', 'MANUAL'] },
+          endDate: { gt: new Date() },
+        },
+      });
+
+      if (!activeSub) {
+        return NextResponse.json({
+          success: true,
+          subscriptionRequired: true,
+          transactions: [],
+          message: 'Active SaaS subscription required to access the Fee Ledger.',
+        });
+      }
+    }
+
     const transactions = await prisma.studentFeeTransaction.findMany({
       where: { libraryId },
       include: {
@@ -70,6 +93,31 @@ export async function POST(
         { error: 'studentId, amount, and paidForMonth are required' },
         { status: 400 }
       );
+    }
+
+    // Subscription Guard: Check if library has active subscription or caller is super admin
+    const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.ADMIN_EMAIL || 'kushwahashubham5932@gmail.com').toLowerCase().trim();
+    const callerEmail = req.headers.get('x-user-email')?.toLowerCase().trim();
+    const isSuperAdmin = callerEmail === adminEmail || callerEmail === 'kushwahashubham5932@gmail.com' || callerEmail === 'admin@libraryhub.com';
+
+    if (!isSuperAdmin) {
+      const activeSub = await prisma.subscription.findFirst({
+        where: {
+          libraryId,
+          status: { in: ['ACTIVE', 'MANUAL'] },
+          endDate: { gt: new Date() },
+        },
+      });
+
+      if (!activeSub) {
+        return NextResponse.json(
+          {
+            error: 'Active SaaS subscription required to collect student fees. Please upgrade your plan in Branch Settings.',
+            code: 'SUBSCRIPTION_REQUIRED',
+          },
+          { status: 403 }
+        );
+      }
     }
 
     const student = await prisma.student.findFirst({

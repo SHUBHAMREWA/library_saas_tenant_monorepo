@@ -170,7 +170,6 @@ export async function DELETE(
 
     if (seatId) {
       await prisma.seatAssignment.deleteMany({ where: { seatId } });
-      await prisma.attendanceLog.deleteMany({ where: { seatId } });
       try {
         await prisma.seat.delete({ where: { id: seatId } });
         return NextResponse.json({ success: true, deletedSeatId: seatId });
@@ -184,7 +183,6 @@ export async function DELETE(
       const ids = seats.map((s) => s.id);
       if (ids.length > 0) {
         await prisma.seatAssignment.deleteMany({ where: { seatId: { in: ids } } });
-        await prisma.attendanceLog.deleteMany({ where: { seatId: { in: ids } } });
         await prisma.seat.deleteMany({ where: { id: { in: ids } } });
       }
     }

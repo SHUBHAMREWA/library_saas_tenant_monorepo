@@ -145,35 +145,6 @@ export interface SeatAssignmentDTO {
 }
 
 // ==========================================
-// Attendance
-// ==========================================
-export type AttendanceSource = 'MANUAL' | 'QR' | 'RFID' | 'DEVICE';
-
-export interface AttendanceLogDTO {
-  id: string;
-  libraryId: string;
-  studentId: string;
-  seatId?: string | null;
-  attendanceDate: string;
-  checkInTime: string;
-  checkOutTime?: string | null;
-  source: AttendanceSource;
-  sourceDeviceId?: string | null;
-}
-
-export interface DailyAttendanceItem {
-  studentId: string;
-  studentName: string;
-  studentPhone: string;
-  seatNumber?: string | null;
-  photoUrl?: string | null;
-  shift: ShiftType;
-  checkInTime?: string | null;
-  checkOutTime?: string | null;
-  isPresent: boolean;
-}
-
-// ==========================================
 // Subscriptions, Payments & Coupons
 // ==========================================
 export type SubscriptionTier = 'TRIAL' | 'BASIC' | 'PRO' | 'ENTERPRISE';
@@ -243,7 +214,6 @@ export interface CouponDTO {
 // ==========================================
 export interface OwnerDashboardMetrics {
   totalActiveStudents: number;
-  todayAttendanceCount: number;
   totalSeats: number;
   availableSeats: number;
   occupiedSeats: number;

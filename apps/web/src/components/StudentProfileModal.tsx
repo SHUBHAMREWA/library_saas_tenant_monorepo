@@ -23,6 +23,9 @@ import {
   IndianRupee,
   Plus,
   Loader2,
+  Receipt,
+  FileText,
+  History,
 } from 'lucide-react';
 import { StudentItem, formatShift } from './StudentList';
 import { WhatsAppIcon } from './WhatsAppIcon';
@@ -41,6 +44,7 @@ interface StudentProfileModalProps {
   onUpdateStudent?: (studentId: string, data: Partial<StudentItem>) => Promise<void> | void;
   onDeleteStudent?: (studentId: string) => Promise<void> | void;
   onCollectFee?: (student: StudentItem) => void;
+  initialTab?: 'profile' | 'feeHistory' | 'kyc';
 }
 
 const STANDARD_PURPOSES = [
@@ -60,7 +64,9 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   onUpdateStudent,
   onDeleteStudent,
   onCollectFee,
+  initialTab = 'profile',
 }) => {
+  const [profileTab, setProfileTab] = useState<'profile' | 'feeHistory' | 'kyc'>(initialTab);
   const [isChangingSeat, setIsChangingSeat] = useState(false);
   const [selectedSeat, setSelectedSeat] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
@@ -108,8 +114,11 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
       setIsEditing(false);
       setIsChangingSeat(false);
       setStatusMsg(null);
+      if (initialTab) {
+        setProfileTab(initialTab);
+      }
     }
-  }, [student, isOpen]);
+  }, [student, isOpen, initialTab]);
 
   if (!isOpen || !student) return null;
 
@@ -677,322 +686,560 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
         ) : (
           /* ================= VIEW MODE ================= */
           <>
-            {/* Quick Contact CTAs */}
-            <div className="grid grid-cols-2 gap-2">
-              <a
-                href={`tel:${student.phone}`}
-                className="py-2.5 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+            {/* View Mode Segmented Tab Selector */}
+            <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setProfileTab('profile')}
+                className={`py-2 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  profileTab === 'profile'
+                    ? 'bg-white text-indigo-700 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
               >
-                <Phone className="w-3.5 h-3.5 text-slate-500" />
-                <span>Call Student</span>
-              </a>
-              <a
-                href={`https://wa.me/91${student.phone.replace(/\D/g, '')}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="py-2.5 px-3 rounded-xl border border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-              >
-                <WhatsAppIcon className="w-4 h-4 text-emerald-600" />
-                <span>WhatsApp</span>
-              </a>
-            </div>
+                <User className="w-3.5 h-3.5" />
+                <span>Profile</span>
+              </button>
 
-            {/* Seat Management Card */}
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <Armchair className="w-4 h-4 text-indigo-600" />
-                  <span>Assigned Seat</span>
-                </span>
-                {student.seatNumber ? (
-                  <span className="text-xs font-bold bg-indigo-600 text-white px-2.5 py-1 rounded-lg shadow-xs flex items-center gap-1">
-                    <Armchair className="w-3.5 h-3.5" /> Seat {student.seatNumber}
-                  </span>
-                ) : (
-                  <span className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-lg">
-                    No Seat Assigned
+              <button
+                type="button"
+                onClick={() => setProfileTab('feeHistory')}
+                className={`py-2 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  profileTab === 'feeHistory'
+                    ? 'bg-white text-emerald-700 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <IndianRupee className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Fee History</span>
+                {(student.transactions?.length || 0) > 0 && (
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      profileTab === 'feeHistory'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {student.transactions?.length}
                   </span>
                 )}
-              </div>
+              </button>
 
-              {!isChangingSeat ? (
-                <div className="flex gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setIsChangingSeat(true)}
-                    className="flex-1 py-2 px-3 bg-white border border-indigo-200 hover:bg-indigo-50 text-indigo-700 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              <button
+                type="button"
+                onClick={() => setProfileTab('kyc')}
+                className={`py-2 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  profileTab === 'kyc'
+                    ? 'bg-white text-indigo-700 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>KYC</span>
+                {student.kycPhotoUrl && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                )}
+              </button>
+            </div>
+
+            {/* TAB 1: PROFILE & SEAT ALLOCATION */}
+            {profileTab === 'profile' && (
+              <div className="space-y-3.5 animate-in fade-in duration-150">
+                {/* Quick Contact CTAs */}
+                <div className="grid grid-cols-2 gap-2">
+                  <a
+                    href={`tel:${student.phone}`}
+                    className="py-2.5 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
                   >
-                    <UserCheck className="w-3.5 h-3.5" />
-                    <span>{student.seatNumber ? 'Change / Reassign Seat' : 'Assign a Seat Now'}</span>
-                  </button>
-
-                  {student.seatNumber && (
-                    <button
-                      type="button"
-                      onClick={handleUnassign}
-                      disabled={isLoading}
-                      className="py-2 px-3 bg-white border border-rose-200 hover:bg-rose-50 text-rose-700 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1 cursor-pointer"
-                      title="Free up this seat"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Unassign</span>
-                    </button>
-                  )}
+                    <Phone className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Call Student</span>
+                  </a>
+                  <a
+                    href={`https://wa.me/91${student.phone.replace(/\D/g, '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="py-2.5 px-3 rounded-xl border border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <WhatsAppIcon className="w-4 h-4 text-emerald-600" />
+                    <span>WhatsApp</span>
+                  </a>
                 </div>
-              ) : (
-                <form onSubmit={handleSeatSubmit} className="space-y-3 pt-1 border-t border-slate-200">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Choose Available Seat
-                    </label>
-                    <select
-                      value={selectedSeat}
-                      onChange={(e) => setSelectedSeat(e.target.value)}
-                      required
-                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                    >
-                      <option value="">-- Select an Available Seat --</option>
-                      {availableSeats.map((s) => (
-                        <option key={s.id} value={s.seatNumber}>
-                          Seat {s.seatNumber} ({s.rowName || 'Main Hall'})
-                        </option>
-                      ))}
-                      {student.seatNumber && (
-                        <option value="UNASSIGN">Remove Seat (Make Unassigned)</option>
-                      )}
-                    </select>
-                    {availableSeats.length === 0 && (
-                      <p className="text-[11px] text-amber-600 mt-1">
-                        No free seats available in this library right now.
-                      </p>
+
+                {/* Seat Management Card */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <Armchair className="w-4 h-4 text-indigo-600" />
+                      <span>Assigned Seat</span>
+                    </span>
+                    {student.seatNumber ? (
+                      <span className="text-xs font-bold bg-indigo-600 text-white px-2.5 py-1 rounded-lg shadow-xs flex items-center gap-1">
+                        <Armchair className="w-3.5 h-3.5" /> Seat {student.seatNumber}
+                      </span>
+                    ) : (
+                      <span className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-lg">
+                        No Seat Assigned
+                      </span>
                     )}
                   </div>
 
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsChangingSeat(false);
-                        setSelectedSeat('');
-                      }}
-                      className="flex-1 py-2 bg-white border border-slate-200 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-100 cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isLoading || !selectedSeat}
-                      className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1 cursor-pointer"
-                    >
-                      {isLoading ? 'Saving...' : 'Confirm Assignment'}
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
+                  {!isChangingSeat ? (
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setIsChangingSeat(true)}
+                        className="flex-1 py-2 px-3 bg-white border border-indigo-200 hover:bg-indigo-50 text-indigo-700 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>{student.seatNumber ? 'Change / Reassign Seat' : 'Assign a Seat Now'}</span>
+                      </button>
 
-            {/* Academic & Shift Details */}
-            <div className="space-y-2 text-xs">
-              <div className="flex items-center justify-between py-2 border-b border-slate-100 text-slate-600">
-                <span className="flex items-center gap-1.5 font-medium">
-                  <BookOpen className="w-3.5 h-3.5 text-slate-400" /> Study Goal
-                </span>
-                <span className="font-semibold text-slate-900">{student.studyPurpose || 'General Study'}</span>
-              </div>
+                      {student.seatNumber && (
+                        <button
+                          type="button"
+                          onClick={handleUnassign}
+                          disabled={isLoading}
+                          className="py-2 px-3 bg-white border border-rose-200 hover:bg-rose-50 text-rose-700 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                          title="Free up this seat"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Unassign</span>
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <form onSubmit={handleSeatSubmit} className="space-y-3 pt-1 border-t border-slate-200">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Choose Available Seat
+                        </label>
+                        <select
+                          value={selectedSeat}
+                          onChange={(e) => setSelectedSeat(e.target.value)}
+                          required
+                          className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                        >
+                          <option value="">-- Select an Available Seat --</option>
+                          {availableSeats.map((s) => (
+                            <option key={s.id} value={s.seatNumber}>
+                              Seat {s.seatNumber} ({s.rowName || 'Main Hall'})
+                            </option>
+                          ))}
+                          {student.seatNumber && (
+                            <option value="UNASSIGN">Remove Seat (Make Unassigned)</option>
+                          )}
+                        </select>
+                        {availableSeats.length === 0 && (
+                          <p className="text-[11px] text-amber-600 mt-1">
+                            No free seats available in this library right now.
+                          </p>
+                        )}
+                      </div>
 
-              <div className="flex items-center justify-between py-2 border-b border-slate-100 text-slate-600">
-                <span className="flex items-center gap-1.5 font-medium">
-                  <Clock className="w-3.5 h-3.5 text-slate-400" /> Stay Duration / Plan
-                </span>
-                <span className="font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/80 px-2 py-0.5 rounded-md">
-                  {formatShift(student.shift)}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between py-2 border-b border-slate-100 text-slate-600">
-                <span className="flex items-center gap-1.5 font-medium">
-                  <IndianRupee className="w-3.5 h-3.5 text-emerald-600" /> Monthly Fee Rate
-                </span>
-                {student.monthlyFee && student.monthlyFee > 0 ? (
-                  <span className="font-extrabold text-emerald-700">
-                    ₹{student.monthlyFee} / month
-                  </span>
-                ) : (
-                  <span className="font-semibold text-rose-700 bg-rose-50 border border-rose-200/80 px-2 py-0.5 rounded-md text-[11px]">
-                    Not Collected (Fee Due)
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between py-2 text-slate-600">
-                <span className="flex items-center gap-1.5 font-medium">
-                  <Calendar className="w-3.5 h-3.5 text-slate-400" /> Membership Remaining
-                </span>
-                {student.membershipEndsInDays <= 0 ? (
-                  <span className="font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
-                    Expired / Fee Due
-                  </span>
-                ) : student.membershipEndsInDays <= 5 ? (
-                  <span className="font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
-                    {student.membershipEndsInDays} days left (Expiring Soon)
-                  </span>
-                ) : (
-                  <span className="font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md">
-                    {student.membershipEndsInDays} days left
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Fee & Monthly Payment History Section */}
-            <div className="pt-3 border-t border-slate-100 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <IndianRupee className="w-4 h-4 text-emerald-600" />
-                  <span>Fee & Month History</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onCollectFee?.(student)}
-                  className="py-1 px-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Collect Fee</span>
-                </button>
-              </div>
-
-              <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-xs space-y-2">
-                <div className="flex items-center justify-between text-slate-600 pb-1.5 border-b border-slate-200/60">
-                  <span className="font-medium">Total Paid Recorded:</span>
-                  <span className="font-extrabold text-slate-900">
-                    ₹{((student.transactions || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0)).toLocaleString('en-IN')}
-                  </span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsChangingSeat(false);
+                            setSelectedSeat('');
+                          }}
+                          className="flex-1 py-2 bg-white border border-slate-200 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-100 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isLoading || !selectedSeat}
+                          className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          {isLoading ? 'Saving...' : 'Confirm Assignment'}
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
 
-                {/* List of monthly transactions */}
-                {student.transactions && student.transactions.length > 0 ? (
-                  <div className="space-y-1.5 max-h-44 overflow-y-auto pr-0.5">
-                    {student.transactions.map((tx) => {
-                      const d = new Date(tx.paymentDate);
-                      const formattedD = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-                      return (
-                        <div
-                          key={tx.id}
-                          className="p-2 bg-white rounded-lg border border-slate-200 shadow-2xs flex items-center justify-between text-xs"
-                        >
-                          <div>
-                            <span className="font-bold text-slate-900 block">
-                              {tx.paidForMonth}
-                            </span>
-                            <span className="text-[10px] text-slate-400">
-                              {formattedD} • {tx.paymentMode} {tx.receiptNumber ? `• #${tx.receiptNumber}` : ''}
-                            </span>
+                {/* Academic & Shift Details */}
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-center justify-between py-2 border-b border-slate-100 text-slate-600">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <BookOpen className="w-3.5 h-3.5 text-slate-400" /> Study Goal
+                    </span>
+                    <span className="font-semibold text-slate-900">{student.studyPurpose || 'General Study'}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between py-2 border-b border-slate-100 text-slate-600">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <Clock className="w-3.5 h-3.5 text-slate-400" /> Stay Duration / Plan
+                    </span>
+                    <span className="font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/80 px-2 py-0.5 rounded-md">
+                      {formatShift(student.shift)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between py-2 border-b border-slate-100 text-slate-600">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <IndianRupee className="w-3.5 h-3.5 text-emerald-600" /> Monthly Fee Rate
+                    </span>
+                    {student.monthlyFee && student.monthlyFee > 0 ? (
+                      <span className="font-extrabold text-emerald-700">
+                        ₹{student.monthlyFee} / month
+                      </span>
+                    ) : (
+                      <span className="font-semibold text-rose-700 bg-rose-50 border border-rose-200/80 px-2 py-0.5 rounded-md text-[11px]">
+                        Not Collected (Fee Due)
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between py-2 text-slate-600">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <Calendar className="w-3.5 h-3.5 text-slate-400" /> Membership Remaining
+                    </span>
+                    {student.membershipEndsInDays <= 0 ? (
+                      <span className="font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
+                        Expired / Fee Due
+                      </span>
+                    ) : student.membershipEndsInDays <= 5 ? (
+                      <span className="font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                        {student.membershipEndsInDays} days left (Expiring Soon)
+                      </span>
+                    ) : (
+                      <span className="font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md">
+                        {student.membershipEndsInDays} days left
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Quick Fee Snapshot Banner linking to Fee History tab */}
+                <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold">
+                        <IndianRupee className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-emerald-900">Fee Status & History</h4>
+                        <p className="text-[10px] text-emerald-700">
+                          {student.transactions && student.transactions.length > 0
+                            ? `${student.transactions.length} payment${student.transactions.length > 1 ? 's' : ''} recorded`
+                            : 'No payment recorded yet'}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onCollectFee?.(student)}
+                      className="py-1 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Collect Fee</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1 border-t border-emerald-200/60 text-xs">
+                    <span className="text-slate-600 font-medium">Total Paid:</span>
+                    <span className="font-extrabold text-emerald-900">
+                      ₹{((student.transactions || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0)).toLocaleString('en-IN')}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setProfileTab('feeHistory')}
+                    className="w-full py-2 px-3 bg-white hover:bg-emerald-100/50 text-emerald-800 border border-emerald-300/80 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                  >
+                    <History className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>View Complete Fee History Tab →</span>
+                  </button>
+                </div>
+
+                {/* Quick Actions Footer: Edit & Delete Buttons */}
+                <div className="pt-2 border-t border-slate-100 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditing(true)}
+                    className="flex-1 py-2.5 px-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Edit Student</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    disabled={isLoading}
+                    className="py-2.5 px-3.5 bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    title="Delete this student"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: DEDICATED FEE HISTORY TAB */}
+            {profileTab === 'feeHistory' && (
+              <div className="space-y-3.5 animate-in fade-in duration-150">
+                {/* Tab Header & Primary Action */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                      <IndianRupee className="w-4 h-4 text-emerald-600" />
+                      <span>Fee & Payment History</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Month-wise fee records for {student.fullName}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => onCollectFee?.(student)}
+                    className="py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-xs active:scale-95"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Collect Fee</span>
+                  </button>
+                </div>
+
+                {/* 3 Metric Summary Banner */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 text-center">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                      Total Paid
+                    </span>
+                    <span className="text-sm sm:text-base font-extrabold text-slate-900 mt-0.5 block truncate">
+                      ₹{((student.transactions || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0)).toLocaleString('en-IN')}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 text-center">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                      Monthly Rate
+                    </span>
+                    <span className="text-sm sm:text-base font-extrabold text-emerald-700 mt-0.5 block truncate">
+                      {student.monthlyFee && student.monthlyFee > 0 ? `₹${student.monthlyFee}` : 'Fee Due'}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 text-center">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                      Validity
+                    </span>
+                    <span className={`text-sm sm:text-base font-extrabold mt-0.5 block truncate ${
+                      student.membershipEndsInDays <= 0
+                        ? 'text-rose-600'
+                        : student.membershipEndsInDays <= 5
+                        ? 'text-amber-600'
+                        : 'text-indigo-600'
+                    }`}>
+                      {student.membershipEndsInDays <= 0 ? 'Expired' : `${student.membershipEndsInDays}d`}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Transaction Ledger / Cards */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-slate-500 font-semibold px-0.5">
+                    <span>Monthly Transactions ({student.transactions?.length || 0})</span>
+                    <span>Newest First</span>
+                  </div>
+
+                  {student.transactions && student.transactions.length > 0 ? (
+                    <div className="space-y-2 max-h-[340px] overflow-y-auto pr-0.5">
+                      {student.transactions.map((tx) => {
+                        const d = new Date(tx.paymentDate);
+                        const formattedD = d.toLocaleDateString('en-IN', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        });
+                        return (
+                          <div
+                            key={tx.id}
+                            className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs hover:border-slate-300 transition-colors space-y-2"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100 font-bold shrink-0">
+                                  <Receipt className="w-4 h-4" />
+                                </div>
+                                <div>
+                                  <span className="font-bold text-slate-900 text-xs sm:text-sm block">
+                                    {tx.paidForMonth}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 block">
+                                    {formattedD}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="text-right">
+                                <span className="font-extrabold text-emerald-700 text-sm block">
+                                  +₹{Number(tx.amount).toLocaleString('en-IN')}
+                                </span>
+                                <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded-md uppercase">
+                                  {tx.status}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Metadata row */}
+                            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+                              <span className="flex items-center gap-1 font-medium">
+                                Mode: <span className="font-bold text-slate-700">{tx.paymentMode}</span>
+                              </span>
+
+                              {tx.receiptNumber && (
+                                <span className="font-mono text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                                  #{tx.receiptNumber}
+                                </span>
+                              )}
+                            </div>
+
+                            {tx.notes && (
+                              <div className="text-[10px] bg-slate-50 p-2 rounded-lg text-slate-600 italic border border-slate-100">
+                                &quot;{tx.notes}&quot;
+                              </div>
+                            )}
                           </div>
-                          <div className="text-right">
-                            <span className="font-bold text-emerald-700 block">
-                              +₹{Number(tx.amount).toLocaleString('en-IN')}
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    /* Clean Empty State */
+                    <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-6 text-center space-y-3">
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-100/60 text-emerald-600 flex items-center justify-center mx-auto shadow-2xs">
+                        <Receipt className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h5 className="text-xs font-bold text-slate-800">
+                          No Fee Payments Recorded Yet
+                        </h5>
+                        <p className="text-[11px] text-slate-500 max-w-xs mx-auto mt-1">
+                          No monthly transactions found for this student. Click the button below to collect their fee for this month.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onCollectFee?.(student)}
+                        className="py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Collect First Fee</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: KYC & IDENTIFICATION */}
+            {profileTab === 'kyc' && (
+              <div className="space-y-3.5 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                      <span>KYC & Document Verification</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Identity verification records for {student.fullName}
+                    </p>
+                  </div>
+
+                  {student.kycPhotoUrl ? (
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Verified
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                      Pending Photo
+                    </span>
+                  )}
+                </div>
+
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 text-xs space-y-3">
+                  <div className="flex items-center justify-between text-slate-600 pb-2 border-b border-slate-200/60">
+                    <span>Document Type:</span>
+                    <span className="font-semibold text-slate-900">
+                      {student.kycType === 'AADHAAR' ? 'Aadhaar Card' : student.kycType || 'Aadhaar Card'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-slate-600 pb-2 border-b border-slate-200/60">
+                    <span>Card Reference Number:</span>
+                    <span className="font-mono font-bold text-slate-800">
+                      {student.kycDocId || 'Not provided'}
+                    </span>
+                  </div>
+
+                  {/* Document Photo */}
+                  <div>
+                    <span className="block text-slate-600 font-medium mb-1.5">
+                      Uploaded Document Image:
+                    </span>
+                    {student.kycPhotoUrl ? (
+                      <div className="p-2.5 bg-white rounded-xl border border-slate-200 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={student.kycPhotoUrl}
+                            alt="Aadhaar Card Document"
+                            onClick={() => setPreviewingImage(student.kycPhotoUrl || null)}
+                            className="w-16 h-12 object-cover rounded-lg border border-slate-200 shadow-2xs cursor-pointer hover:opacity-90 transition-opacity"
+                            title="Click to view full image"
+                          />
+                          <div>
+                            <span className="block font-bold text-slate-800 text-xs">
+                              {student.kycType === 'AADHAAR' ? 'Aadhaar Card Photo' : 'ID Document Photo'}
                             </span>
-                            <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 py-0.2 rounded">
-                              {tx.status}
+                            <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-1 mt-0.5">
+                              <CheckCircle2 className="w-3 h-3" /> Stored in Cloudinary (WebP)
                             </span>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-slate-400 italic py-1">
-                    No fee payments recorded yet. Click &quot;Collect Fee&quot; to log payment.
-                  </p>
-                )}
-              </div>
-            </div>
 
-            {/* KYC & Identification Section */}
-            <div className="pt-3 border-t border-slate-100 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-indigo-600" />
-                  <span>KYC & Identification</span>
-                </span>
-                {student.kycPhotoUrl ? (
-                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Aadhaar Attached
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                    No Document Photo
-                  </span>
-                )}
-              </div>
-
-              <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-xs space-y-2">
-                <div className="flex items-center justify-between text-slate-600">
-                  <span>Document Type:</span>
-                  <span className="font-semibold text-slate-900">
-                    {student.kycType === 'AADHAAR' ? 'Aadhaar Card' : student.kycType || 'Aadhaar Card'}
-                  </span>
-                </div>
-                {student.kycDocId && (
-                  <div className="flex items-center justify-between text-slate-600">
-                    <span>Card Reference:</span>
-                    <span className="font-mono font-bold text-slate-800">{student.kycDocId}</span>
-                  </div>
-                )}
-
-                {/* Aadhaar Photo Thumbnail */}
-                {student.kycPhotoUrl ? (
-                  <div className="pt-2 border-t border-slate-200/70 flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <img
-                        src={student.kycPhotoUrl}
-                        alt="Aadhaar Card Document"
-                        onClick={() => setPreviewingImage(student.kycPhotoUrl || null)}
-                        className="w-16 h-12 object-cover rounded-lg border border-slate-300 shadow-2xs cursor-pointer hover:opacity-90 transition-opacity"
-                        title="Click to view full image"
-                      />
-                      <div>
-                        <span className="block font-bold text-slate-800 text-xs">Aadhaar Card Document</span>
                         <button
                           type="button"
                           onClick={() => setPreviewingImage(student.kycPhotoUrl || null)}
-                          className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 cursor-pointer flex items-center gap-1 mt-0.5"
+                          className="px-2.5 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg cursor-pointer flex items-center gap-1 transition-colors"
                         >
-                          <Eye className="w-3 h-3" /> View Full Document
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>View Full</span>
                         </button>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="p-4 bg-white border border-dashed border-slate-300 rounded-xl text-center space-y-2">
+                        <p className="text-[11px] text-slate-400 italic">
+                          No document photo uploaded yet for this student.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditing(true)}
+                          className="text-xs font-bold text-indigo-600 hover:text-indigo-700 underline cursor-pointer"
+                        >
+                          Upload Document Photo
+                        </button>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="pt-2 border-t border-slate-200/70 text-[11px] text-slate-400 italic">
-                    No physical document photo attached for this student.
-                  </div>
-                )}
+                </div>
+
+                <div className="pt-2 border-t border-slate-100 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditing(true)}
+                    className="flex-1 py-2.5 px-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Edit Document & Info</span>
+                  </button>
+                </div>
               </div>
-            </div>
-
-            {/* Quick Actions Footer: Edit & Delete Buttons */}
-            <div className="pt-3 border-t border-slate-100 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setIsEditing(true)}
-                className="flex-1 py-2.5 px-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Pencil className="w-3.5 h-3.5 text-slate-500" />
-                <span>Edit Student</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={isLoading}
-                className="py-2.5 px-3.5 bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                title="Delete this student"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete</span>
-              </button>
-            </div>
+            )}
           </>
         )}
       </div>
