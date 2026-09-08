@@ -216,15 +216,7 @@ export default function MobileDashboard() {
   const [libraries, setLibraries] = useState<LibraryBranch[]>([]);
   const [activeLibraryId, setActiveLibraryId] = useState<string | null>(null);
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
-  const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'kushwahashubham5932@gmail.com').toLowerCase().trim();
-  const isSuperAdmin =
-    currentUser?.role === 'SUPER_ADMIN' ||
-    Boolean(
-      currentUser?.email &&
-        (currentUser.email.toLowerCase().trim() === adminEmail ||
-          currentUser.email.toLowerCase().trim() === 'kushwahashubham5932@gmail.com' ||
-          currentUser.email.toLowerCase().trim() === 'admin@libraryhub.com')
-    );
+  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
   const isTestMode = Boolean(
     currentUser && (
       currentUser.email?.toLowerCase().trim() === 'rahul.owner@seelibrary.io' ||
@@ -239,17 +231,10 @@ export default function MobileDashboard() {
   useEffect(() => {
     if (isSuperAdmin) {
       setIsAdminPortalView(true);
-      if (currentUser && currentUser.role !== 'SUPER_ADMIN') {
-        const upgraded = { ...currentUser, role: 'SUPER_ADMIN' };
-        setCurrentUser(upgraded);
-        try {
-          localStorage.setItem('seelibrary_user', JSON.stringify(upgraded));
-        } catch {}
-      }
     } else {
       setIsAdminPortalView(false);
     }
-  }, [isSuperAdmin, currentUser?.role]);
+  }, [isSuperAdmin]);
 
   // Modal States
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -348,10 +333,7 @@ export default function MobileDashboard() {
 
       if (savedUser) {
         parsedUser = JSON.parse(savedUser);
-        const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'kushwahashubham5932@gmail.com').toLowerCase().trim();
-        const userClean = (parsedUser.email || '').toLowerCase().trim();
-        if (userClean === adminEmail || userClean === 'kushwahashubham5932@gmail.com' || userClean === 'admin@libraryhub.com') {
-          parsedUser.role = 'SUPER_ADMIN';
+        if (parsedUser.role === 'SUPER_ADMIN') {
           setIsAdminPortalView(true);
         }
         setCurrentUser(parsedUser);
@@ -378,20 +360,18 @@ export default function MobileDashboard() {
 
   // Sync state changes to localStorage and database
   const handleUserLogin = (user: { fullName: string; email: string; phone: string; role: string; avatar?: string }) => {
-    const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'kushwahashubham5932@gmail.com').toLowerCase().trim();
-    const userClean = (user.email || '').toLowerCase().trim();
-    const isSuper = userClean === adminEmail || userClean === 'kushwahashubham5932@gmail.com' || userClean === 'admin@libraryhub.com' || user.role === 'SUPER_ADMIN';
-    const effectiveUser = isSuper ? { ...user, role: 'SUPER_ADMIN' } : user;
-    if (isSuper) {
+    if (user.role === 'SUPER_ADMIN') {
       setIsAdminPortalView(true);
     }
-    setCurrentUser(effectiveUser);
+    setCurrentUser(user);
     try {
-      localStorage.setItem('seelibrary_user', JSON.stringify(effectiveUser));
+      localStorage.setItem('seelibrary_user', JSON.stringify(user));
     } catch {}
 
     // Load libraries for this user from database
-    loadUserLibrariesFromDb(effectiveUser.email, libraries);
+    if (user.email) {
+      loadUserLibrariesFromDb(user.email, libraries);
+    }
   };
 
   const handleLaunchDemo = () => {

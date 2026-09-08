@@ -32,6 +32,7 @@ import {
   Eye,
   ChevronRight,
   DoorOpen,
+  Crown,
 } from 'lucide-react';
 import { AdminSkeleton } from './Skeleton';
 
@@ -65,6 +66,8 @@ interface AdminPaymentItem {
   planCode: string;
   planName: string;
   durationMonths: number;
+  adjustmentAction?: string;
+  daysAdjusted?: number | null;
   isAutopay?: boolean;
   isCancelled?: boolean;
   cancellationReason?: string | null;
@@ -244,6 +247,59 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
   const [selectedLibForToggle, setSelectedLibForToggle] = useState<AdminLibrary | null>(null);
   const [isTogglingLib, setIsTogglingLib] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Subscription Adjust Modal
+  const [selectedLibForSubAdjust, setSelectedLibForSubAdjust] = useState<AdminLibrary | null>(null);
+  const [adjustAction, setAdjustAction] = useState<'INCREASE' | 'DECREASE'>('INCREASE');
+  const [adjustDays, setAdjustDays] = useState('30');
+  const [adjustPlanCode, setAdjustPlanCode] = useState('PRO');
+  const [adjustNotes, setAdjustNotes] = useState('');
+  const [isAdjustingSub, setIsAdjustingSub] = useState(false);
+
+  const handleAdjustSubscription = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedLibForSubAdjust) return;
+    setIsAdjustingSub(true);
+    try {
+      const res = await fetch('/api/admin/subscriptions/adjust', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-email': currentUser.email,
+        },
+        body: JSON.stringify({
+          libraryId: selectedLibForSubAdjust.id,
+          action: adjustAction,
+          days: parseInt(adjustDays, 10) || 30,
+          planCode: adjustPlanCode,
+          adminNotes: adjustNotes.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStatusMessage({
+          type: 'success',
+          text: data.message || 'Library subscription adjusted successfully!',
+        });
+        setSelectedLibForSubAdjust(null);
+        setAdjustNotes('');
+        await fetchAllData();
+      } else {
+        setStatusMessage({
+          type: 'error',
+          text: data.error || 'Failed to adjust subscription',
+        });
+      }
+    } catch (err) {
+      setStatusMessage({
+        type: 'error',
+        text: 'Network error while adjusting subscription',
+      });
+    } finally {
+      setIsAdjustingSub(false);
+    }
+  };
 
   // Floor Plan Inspect Modal
   const [inspectLibrary, setInspectLibrary] = useState<FloorPlanLibrary | null>(null);
@@ -957,7 +1013,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
                           })}
                         </td>
                         <td className="px-5 py-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
+                          <div className="flex items-center justify-end gap-1.5">
                             <button
                               onClick={() => openInspectModal(lib.id)}
                               title="Inspect library floor plan"
@@ -966,8 +1022,16 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
                               <Eye className="w-4 h-4" />
                             </button>
                             <button
+                              onClick={() => setSelectedLibForSubAdjust(lib)}
+                              title="Manage / Increase / Decrease Subscription Validity"
+                              className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800/50 transition-colors cursor-pointer flex items-center gap-1"
+                            >
+                              <Crown className="w-3.5 h-3.5" />
+                              <span>Sub</span>
+                            </button>
+                            <button
                               onClick={() => setSelectedLibForToggle(lib)}
-                              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors border cursor-pointer ${
+                              className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors border cursor-pointer ${
                                 lib.isActive
                                   ? 'text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/50 hover:bg-rose-50 dark:hover:bg-rose-950/30'
                                   : 'text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
@@ -1333,9 +1397,15 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
                           <td className="px-4 py-3.5 whitespace-nowrap">
                             <span className="font-semibold text-slate-900 dark:text-white block">{p.planName}</span>
                             <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 font-mono">
-                                {p.durationMonths} Month{p.durationMonths > 1 ? 's' : ''}
-                              </span>
+                              {(() => {
+                                const isDecrease = p.adjustmentAction === 'DECREASE' || p.durationMonths < 0 || Boolean(p.daysAdjusted && p.daysAdjusted < 0);
+                                const monthsAbs = Math.abs(p.durationMonths || 1);
+                                return (
+                                  <span className={`text-[10px] font-bold font-mono ${isDecrease ? 'text-rose-600 dark:text-rose-400' : 'text-indigo-600 dark:text-indigo-400'}`}>
+                                    {isDecrease ? '-' : '+'}{monthsAbs} Month{monthsAbs > 1 ? 's' : ''}
+                                  </span>
+                                );
+                              })()}
                               {p.isAutopay && (
                                 <span className="inline-flex items-center gap-1 text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
                                   <RefreshCw className="w-2.5 h-2.5" />
@@ -2006,6 +2076,159 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
                 {isTogglingLib ? 'Updating...' : selectedLibForToggle.isActive ? 'Suspend Library' : 'Activate Library'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ADJUST LIBRARY SUBSCRIPTION */}
+      {selectedLibForSubAdjust && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] rounded-2xl w-full max-w-md p-6 shadow-2xl border border-slate-200 dark:border-[#262626]">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#262626]">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+                  <Crown className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Adjust Subscription Validity</h3>
+                  <p className="text-xs text-slate-500 dark:text-neutral-400 truncate max-w-[240px]">
+                    {selectedLibForSubAdjust.name} ({selectedLibForSubAdjust.owner.fullName})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedLibForSubAdjust(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Current Sub Status Summary */}
+            <div className="mt-4 p-3 bg-slate-50 dark:bg-[#18181b] rounded-xl border border-slate-200 dark:border-[#2e2e2e] text-xs space-y-1">
+              <div className="flex justify-between text-slate-600 dark:text-neutral-300">
+                <span>Current Validity:</span>
+                <span className="font-bold text-slate-900 dark:text-white">
+                  {selectedLibForSubAdjust.subscription ? selectedLibForSubAdjust.subscription.validUntil : 'No active subscription'}
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-600 dark:text-neutral-300">
+                <span>Autopay Status:</span>
+                <span className="font-semibold text-slate-900 dark:text-white">
+                  {selectedLibForSubAdjust.subscription?.autoRenew
+                    ? 'Active'
+                    : selectedLibForSubAdjust.subscription?.autoRenewCancelledAt
+                    ? 'Cancelled'
+                    : 'Off'}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleAdjustSubscription} className="space-y-4 mt-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1.5">
+                  Adjustment Action
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAdjustAction('INCREASE')}
+                    className={`py-2.5 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      adjustAction === 'INCREASE'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-500 ring-2 ring-emerald-500/20'
+                        : 'bg-white dark:bg-[#18181b] text-slate-600 dark:text-neutral-400 border-slate-200 dark:border-[#2e2e2e]'
+                    }`}
+                  >
+                    <span>➕ Extend / Increase</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdjustAction('DECREASE')}
+                    className={`py-2.5 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      adjustAction === 'DECREASE'
+                        ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-500 ring-2 ring-rose-500/20'
+                        : 'bg-white dark:bg-[#18181b] text-slate-600 dark:text-neutral-400 border-slate-200 dark:border-[#2e2e2e]'
+                    }`}
+                  >
+                    <span>➖ Reduce / Decrease</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
+                    Number of Days
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    max="3650"
+                    placeholder="30"
+                    value={adjustDays}
+                    onChange={(e) => setAdjustDays(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm font-bold text-slate-900 dark:text-white bg-white dark:bg-[#18181b] border border-slate-300 dark:border-[#2e2e2e] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                  />
+                  <p className="text-[10px] text-slate-400 dark:text-neutral-500 mt-1">
+                    e.g. 30 days = +1 month
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
+                    Target Plan Level
+                  </label>
+                  <select
+                    value={adjustPlanCode}
+                    onChange={(e) => setAdjustPlanCode(e.target.value)}
+                    className="w-full px-3 py-2.5 text-sm font-semibold text-slate-900 dark:text-white bg-white dark:bg-[#18181b] border border-slate-300 dark:border-[#2e2e2e] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs cursor-pointer"
+                  >
+                    <option value="PRO">Pro Plan (Full Features)</option>
+                    <option value="ADVANCE">Advance Plan</option>
+                    <option value="BASIC">Basic Plan</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
+                  Admin Audit Reason (Logged in history)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Granted promotional extension / Special loyalty bonus"
+                  value={adjustNotes}
+                  onChange={(e) => setAdjustNotes(e.target.value)}
+                  className="w-full px-3.5 py-2.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-neutral-500 bg-white dark:bg-[#18181b] border border-slate-300 dark:border-[#2e2e2e] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                />
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-[#262626]">
+                <button
+                  type="button"
+                  onClick={() => setSelectedLibForSubAdjust(null)}
+                  className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAdjustingSub}
+                  className={`px-5 py-2 text-xs font-extrabold text-white rounded-xl transition-colors shadow-xs cursor-pointer flex items-center gap-1.5 ${
+                    adjustAction === 'INCREASE'
+                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                      : 'bg-rose-600 hover:bg-rose-700'
+                  }`}
+                >
+                  {isAdjustingSub
+                    ? 'Updating...'
+                    : adjustAction === 'INCREASE'
+                    ? 'Extend Validity'
+                    : 'Reduce Validity'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

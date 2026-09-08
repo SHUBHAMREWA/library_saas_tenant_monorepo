@@ -4,11 +4,15 @@ import crypto from 'crypto';
 
 export async function GET(req: NextRequest) {
   try {
-    const adminEmail = (process.env.ADMIN_EMAIL || process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'kushwahashubham5932@gmail.com').toLowerCase().trim();
     const callerEmail = req.headers.get('x-admin-email')?.toLowerCase().trim();
+    const configuredAdminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
 
-    if (callerEmail && callerEmail !== adminEmail && callerEmail !== 'kushwahashubham5932@gmail.com' && callerEmail !== 'admin@libraryhub.com') {
-      return NextResponse.json({ error: 'Unauthorized: Admin access required' }, { status: 403 });
+    if (callerEmail) {
+      const dbUser = await prisma.user.findUnique({ where: { email: callerEmail } });
+      const isSuperAdmin = dbUser?.role === 'SUPER_ADMIN' || (configuredAdminEmail && callerEmail === configuredAdminEmail);
+      if (!isSuperAdmin) {
+        return NextResponse.json({ error: 'Unauthorized: Admin access required' }, { status: 403 });
+      }
     }
 
     await ensureDefaultSubscriptionPlans(prisma);
@@ -43,11 +47,15 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const adminEmail = (process.env.ADMIN_EMAIL || process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'kushwahashubham5932@gmail.com').toLowerCase().trim();
     const callerEmail = req.headers.get('x-admin-email')?.toLowerCase().trim();
+    const configuredAdminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
 
-    if (callerEmail && callerEmail !== adminEmail && callerEmail !== 'kushwahashubham5932@gmail.com' && callerEmail !== 'admin@libraryhub.com') {
-      return NextResponse.json({ error: 'Unauthorized: Admin access required' }, { status: 403 });
+    if (callerEmail) {
+      const dbUser = await prisma.user.findUnique({ where: { email: callerEmail } });
+      const isSuperAdmin = dbUser?.role === 'SUPER_ADMIN' || (configuredAdminEmail && callerEmail === configuredAdminEmail);
+      if (!isSuperAdmin) {
+        return NextResponse.json({ error: 'Unauthorized: Admin access required' }, { status: 403 });
+      }
     }
 
     const body = await req.json();
