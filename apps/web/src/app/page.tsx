@@ -289,6 +289,7 @@ export default function MobileDashboard() {
 
           // If SUPER_ADMIN — go to dedicated /admin page (clean route)
           if (authData.user.role === 'SUPER_ADMIN') {
+            setIsAdminPortalView(true);
             router.replace('/admin');
             return;
           }
@@ -341,6 +342,7 @@ export default function MobileDashboard() {
         parsedUser = JSON.parse(savedUser);
         if (parsedUser.role === 'SUPER_ADMIN') {
           setIsAdminPortalView(true);
+          router.replace('/admin');
         }
         setCurrentUser(parsedUser);
       }

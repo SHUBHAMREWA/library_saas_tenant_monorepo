@@ -4,10 +4,10 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const role = req.cookies.get('seelibrary_role')?.value;
 
-  // Protect /admin — only SUPER_ADMIN can access
+  // Protect /admin — if cookie explicitly says non-admin (e.g. 'USER'), redirect to home.
+  // If cookie is not set yet, allow /admin to load so client-side DB verification runs.
   if (pathname.startsWith('/admin')) {
-    if (role !== 'SUPER_ADMIN') {
-      // Not admin → send to home (user dashboard / login)
+    if (role && role !== 'SUPER_ADMIN') {
       return NextResponse.redirect(new URL('/', req.url));
     }
   }

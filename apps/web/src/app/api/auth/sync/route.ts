@@ -21,14 +21,17 @@ export async function POST(req: NextRequest) {
 
     console.log('[auth/sync] email:', cleanEmail, '| existingRole:', existingUser?.role ?? 'NOT_FOUND');
 
-    // CRITICAL: Never downgrade a SUPER_ADMIN role.
-    // The Render backend (via ADMIN_EMAIL env var) bootstraps SUPER_ADMIN into PostgreSQL DB at startup.
-    // Vercel frontend just reads role from DB — no ADMIN_EMAIL env var needed on Vercel.
-    const roleToSave = existingUser?.role === 'SUPER_ADMIN'
-      ? 'SUPER_ADMIN'
-      : (existingUser?.role || 'USER');
+    // Server-side Super Admin Determination:
+    // 1. User in PostgreSQL DB already has role === 'SUPER_ADMIN' (bootstrapped by Render backend)
+    // 2. OR server environment variable ADMIN_EMAIL matches
+    const configuredAdminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+    const isSuperAdmin =
+      existingUser?.role === 'SUPER_ADMIN' ||
+      Boolean(configuredAdminEmail && cleanEmail === configuredAdminEmail);
 
-    console.log('[auth/sync] roleToSave:', roleToSave);
+    const roleToSave = isSuperAdmin ? 'SUPER_ADMIN' : (existingUser?.role || 'USER');
+
+    console.log('[auth/sync] roleToSave:', roleToSave, '| isSuperAdmin:', isSuperAdmin);
 
     const user = await prisma.user.upsert({
       where: { email: cleanEmail },

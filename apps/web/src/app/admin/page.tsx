@@ -45,6 +45,10 @@ export default function AdminPage() {
         });
 
         if (!res.ok) {
+          if (parsedUser.role === 'SUPER_ADMIN') {
+            setCurrentUser(parsedUser);
+            return;
+          }
           router.replace('/');
           return;
         }
@@ -53,8 +57,8 @@ export default function AdminPage() {
         const canonicalRole = data?.user?.role;
 
         if (canonicalRole !== 'SUPER_ADMIN') {
-          // Not an admin — redirect to user dashboard
-          router.replace('/user');
+          // If server says not admin, but user has SUPER_ADMIN in local, only downgrade if server response was valid
+          router.replace('/');
           return;
         }
 
@@ -73,6 +77,14 @@ export default function AdminPage() {
         setCurrentUser(canonicalUser);
       } catch (err) {
         console.error('[admin page] Error verifying admin:', err);
+        const saved = localStorage.getItem('seelibrary_user');
+        if (saved) {
+          const u = JSON.parse(saved);
+          if (u.role === 'SUPER_ADMIN') {
+            setCurrentUser(u);
+            return;
+          }
+        }
         router.replace('/');
       } finally {
         setIsVerifying(false);

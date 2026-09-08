@@ -9,6 +9,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "postinstall": "pnpm --filter @library/database generate",
     "db:generate": "pnpm --filter @library/database generate",
     "build:api": "pnpm --filter @library/types build && pnpm --filter @library/validation build && pnpm --filter @library/database generate && pnpm --filter @library/api build",
     "clean": "turbo run clean && rm -rf node_modules"

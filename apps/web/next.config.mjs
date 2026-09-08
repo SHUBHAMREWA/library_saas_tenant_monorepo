@@ -2,6 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@library/types', '@library/validation'],
+  serverExternalPackages: ['@prisma/client', '@library/database'],
   images: {
     remotePatterns: [
       {
