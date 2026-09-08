@@ -12,14 +12,10 @@ export function middleware(req: NextRequest) {
     }
   }
 
-  // Protect /user — must be logged in (any role)
+  // Protect /user — must be logged in (any role, including SUPER_ADMIN who switched to library view)
   if (pathname.startsWith('/user')) {
     if (!role) {
       return NextResponse.redirect(new URL('/', req.url));
-    }
-    // If SUPER_ADMIN tries to go to /user → redirect to /admin
-    if (role === 'SUPER_ADMIN') {
-      return NextResponse.redirect(new URL('/admin', req.url));
     }
   }
 

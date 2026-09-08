@@ -79,11 +79,11 @@ export default function AdminPage() {
 
         // 3. Update localStorage with canonical user
         const canonicalUser = {
-          fullName: data.user.fullName || parsedUser.fullName || '',
-          email: data.user.email,
-          phone: data.user.phone || parsedUser.phone || '',
+          fullName: data?.user?.fullName || parsedUser.fullName || '',
+          email: data?.user?.email || parsedUser.email,
+          phone: data?.user?.phone || parsedUser.phone || '',
           role: 'SUPER_ADMIN',
-          avatar: data.user.avatar || parsedUser.avatar,
+          avatar: data?.user?.avatar || parsedUser.avatar,
         };
         try {
           localStorage.setItem('seelibrary_user', JSON.stringify(canonicalUser));
@@ -113,12 +113,33 @@ export default function AdminPage() {
     return <AdminSkeleton />;
   }
 
+  const handleLogout = () => {
+    try {
+      localStorage.removeItem('seelibrary_user');
+      localStorage.removeItem('quickcheck_user');
+      localStorage.removeItem('seelibrary_libraries');
+      localStorage.removeItem('seelibrary_active_lib_id');
+      sessionStorage.clear();
+      document.cookie = 'seelibrary_role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    } catch {}
+    router.replace('/');
+  };
+
+  const handleSwitchToLibraryView = (targetLibId?: string) => {
+    try {
+      sessionStorage.setItem('seelibrary_view_mode', 'library');
+      if (targetLibId) {
+        localStorage.setItem('seelibrary_active_lib_id', targetLibId);
+      }
+    } catch {}
+    router.push('/?view=library');
+  };
+
   return (
     <AdminDashboard
       currentUser={currentUser}
-      onSwitchToLibraryView={() => {
-        router.push('/user');
-      }}
+      onSwitchToLibraryView={handleSwitchToLibraryView}
+      onLogout={handleLogout}
     />
   );
 }

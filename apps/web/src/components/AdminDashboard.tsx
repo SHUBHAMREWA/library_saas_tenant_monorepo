@@ -33,6 +33,7 @@ import {
   ChevronRight,
   DoorOpen,
   Crown,
+  LogOut,
 } from 'lucide-react';
 import { AdminSkeleton } from './Skeleton';
 
@@ -187,11 +188,12 @@ interface FloorPlanLibrary {
 }
 
 interface AdminDashboardProps {
-  currentUser: { fullName: string; email: string; phone: string; role: string };
+  currentUser: { fullName: string; email: string; phone: string; role: string; avatar?: string };
   onSwitchToLibraryView?: (libraryId?: string) => void;
+  onLogout?: () => void;
 }
 
-export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDashboardProps) {
+export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'plans' | 'coupons' | 'users' | 'audit' | 'payments' | 'broadcast'>('overview');
   const [payments, setPayments] = useState<AdminPaymentItem[]>([]);
   const [adminPaymentFilter, setAdminPaymentFilter] = useState<'ALL' | 'SUCCESS' | 'PENDING' | 'FAILED' | 'CANCELLED_AUTOPAY'>('ALL');
@@ -721,9 +723,20 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
               <button
                 onClick={() => onSwitchToLibraryView()}
                 className="px-4 py-2 text-xs font-semibold text-slate-900 bg-amber-400 hover:bg-amber-300 rounded-xl transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+                title="Switch to User Library View"
               >
                 <Layers className="w-3.5 h-3.5" />
                 Switch to Library View
+              </button>
+            )}
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="px-3.5 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:text-white hover:bg-rose-600 dark:hover:bg-rose-600 rounded-xl transition-colors flex items-center gap-1.5 border border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20 cursor-pointer shadow-xs"
+                title="Sign out of account"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                Sign Out
               </button>
             )}
           </div>

@@ -231,8 +231,18 @@ export default function MobileDashboard() {
   );
   const [isAdminPortalView, setIsAdminPortalView] = useState(false);
 
+  // Check if admin explicitly wants library view (user dashboard view)
+  const isLibraryViewPreferred = () => {
+    if (typeof window === 'undefined') return false;
+    const urlParams = new URLSearchParams(window.location.search);
+    return (
+      urlParams.get('view') === 'library' ||
+      sessionStorage.getItem('seelibrary_view_mode') === 'library'
+    );
+  };
+
   useEffect(() => {
-    if (isSuperAdmin) {
+    if (isSuperAdmin && !isLibraryViewPreferred()) {
       setIsAdminPortalView(true);
     } else {
       setIsAdminPortalView(false);
@@ -312,11 +322,15 @@ export default function MobileDashboard() {
           document.cookie = `seelibrary_role=${canonicalUser.role}; path=/; max-age=604800`;
         } catch {}
 
-        // If SUPER_ADMIN — go to dedicated /admin page (clean route)
+        // If SUPER_ADMIN — go to dedicated /admin page unless user explicitly chose library view
         if (authData.user.role === 'SUPER_ADMIN') {
-          setIsAdminPortalView(true);
-          router.replace('/admin');
-          return;
+          if (!isLibraryViewPreferred()) {
+            setIsAdminPortalView(true);
+            router.replace('/admin');
+            return;
+          } else {
+            setIsAdminPortalView(false);
+          }
         }
       }
 
@@ -365,8 +379,12 @@ export default function MobileDashboard() {
       if (savedUser) {
         parsedUser = JSON.parse(savedUser);
         if (parsedUser.role === 'SUPER_ADMIN') {
-          setIsAdminPortalView(true);
-          router.replace('/admin');
+          if (!isLibraryViewPreferred()) {
+            setIsAdminPortalView(true);
+            router.replace('/admin');
+          } else {
+            setIsAdminPortalView(false);
+          }
         }
         setCurrentUser(parsedUser);
       }
@@ -392,9 +410,6 @@ export default function MobileDashboard() {
 
   // Sync state changes to localStorage and database
   const handleUserLogin = (user: { fullName: string; email: string; phone: string; role: string; avatar?: string }) => {
-    if (user.role === 'SUPER_ADMIN') {
-      setIsAdminPortalView(true);
-    }
     setCurrentUser(user);
     try {
       localStorage.setItem('seelibrary_user', JSON.stringify(user));
@@ -403,6 +418,16 @@ export default function MobileDashboard() {
     // Load libraries for this user from database
     if (user.email) {
       loadUserLibrariesFromDb(user.email, libraries);
+    }
+
+    if (user.role === 'SUPER_ADMIN') {
+      if (!isLibraryViewPreferred()) {
+        setIsAdminPortalView(true);
+        router.replace('/admin');
+        return;
+      } else {
+        setIsAdminPortalView(false);
+      }
     }
   };
 
@@ -421,11 +446,13 @@ export default function MobileDashboard() {
     setLibraries([]);
     setActiveLibraryId(null);
     setIsAuthModalOpen(false);
+    setIsAdminPortalView(false);
     try {
       localStorage.removeItem('seelibrary_user');
       localStorage.removeItem('quickcheck_user');
       localStorage.removeItem('seelibrary_libraries');
       localStorage.removeItem('seelibrary_active_lib_id');
+      sessionStorage.clear();
     } catch {}
     // Clear role cookie so middleware doesn't redirect to /admin on next visit
     document.cookie = 'seelibrary_role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
@@ -1541,17 +1568,20 @@ export default function MobileDashboard() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            {libraries.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setIsAdminPortalView(false)}
-                className="px-3 py-1.5 bg-slate-100 dark:bg-[#1c1c1e] hover:bg-slate-200 dark:hover:bg-[#2c2c2e] text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-200 dark:border-[#2a2a2a] cursor-pointer"
-              >
-                <Layers className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
-                <span className="hidden sm:inline">Switch to Library View</span>
-                <span className="sm:hidden">Library View</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  sessionStorage.setItem('seelibrary_view_mode', 'library');
+                } catch {}
+                setIsAdminPortalView(false);
+              }}
+              className="px-3 py-1.5 bg-slate-100 dark:bg-[#1c1c1e] hover:bg-slate-200 dark:hover:bg-[#2c2c2e] text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-200 dark:border-[#2a2a2a] cursor-pointer"
+            >
+              <Layers className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
+              <span className="hidden sm:inline">Switch to Library View</span>
+              <span className="sm:hidden">Library View</span>
+            </button>
 
             <button
               type="button"
@@ -1593,11 +1623,16 @@ export default function MobileDashboard() {
           <AdminDashboard
             currentUser={currentUser}
             onSwitchToLibraryView={(targetLibId) => {
-              if (targetLibId) {
-                setActiveLibraryId(targetLibId);
-              }
+              try {
+                sessionStorage.setItem('seelibrary_view_mode', 'library');
+                if (targetLibId) {
+                  setActiveLibraryId(targetLibId);
+                  localStorage.setItem('seelibrary_active_lib_id', targetLibId);
+                }
+              } catch {}
               setIsAdminPortalView(false);
             }}
+            onLogout={handleUserLogout}
           />
         </main>
 
@@ -1649,8 +1684,13 @@ export default function MobileDashboard() {
             {isSuperAdmin && (
               <button
                 type="button"
-                onClick={() => setIsAdminPortalView(true)}
-                className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-all"
+                onClick={() => {
+                  try {
+                    sessionStorage.removeItem('seelibrary_view_mode');
+                  } catch {}
+                  router.push('/admin');
+                }}
+                className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
               >
                 <ShieldCheck className="w-4 h-4 text-slate-950" />
                 <span>Super Admin Portal</span>
@@ -1694,8 +1734,13 @@ export default function MobileDashboard() {
             {isSuperAdmin && (
               <button
                 type="button"
-                onClick={() => setIsAdminPortalView(true)}
-                className="mt-6 px-8 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm rounded-2xl shadow-xl shadow-amber-500/20 active:scale-95 transition-all flex items-center gap-2 border border-amber-300/40"
+                onClick={() => {
+                  try {
+                    sessionStorage.removeItem('seelibrary_view_mode');
+                  } catch {}
+                  router.push('/admin');
+                }}
+                className="mt-6 px-8 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm rounded-2xl shadow-xl shadow-amber-500/20 active:scale-95 transition-all flex items-center gap-2 border border-amber-300/40 cursor-pointer"
               >
                 <ShieldCheck className="w-5 h-5 text-slate-950" />
                 <span>Open Super Admin Portal</span>
@@ -1774,7 +1819,12 @@ export default function MobileDashboard() {
         onLogout={handleUserLogout}
         isSuperAdmin={isSuperAdmin}
         hasActiveSubscription={hasActiveSubscription}
-        onOpenAdminPortal={() => setIsAdminPortalView(true)}
+        onOpenAdminPortal={() => {
+          try {
+            sessionStorage.removeItem('seelibrary_view_mode');
+          } catch {}
+          router.push('/admin');
+        }}
         onOpenNotifications={() => setIsNotificationCenterOpen(true)}
         unreadNotificationCount={unreadNotificationCount}
         onOpenAddStudent={() => requireSubscription('Enroll Students', () => setIsStudentModalOpen(true))}
@@ -1884,8 +1934,13 @@ export default function MobileDashboard() {
           {isSuperAdmin && (
             <button
               type="button"
-              onClick={() => setIsAdminPortalView(true)}
-              className="px-3 py-1.5 bg-slate-900 hover:bg-black text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all"
+              onClick={() => {
+                try {
+                  sessionStorage.removeItem('seelibrary_view_mode');
+                } catch {}
+                router.push('/admin');
+              }}
+              className="px-3 py-1.5 bg-slate-900 hover:bg-black text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
             >
               <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
               <span className="hidden sm:inline">Admin Portal</span>
@@ -3210,8 +3265,13 @@ export default function MobileDashboard() {
         {isSuperAdmin && (
           <button
             type="button"
-            onClick={() => setIsAdminPortalView(true)}
-            className="flex flex-col items-center justify-center flex-1 py-1 rounded-lg text-amber-600 dark:text-amber-400 font-bold hover:text-amber-700 dark:hover:text-amber-300 transition-colors"
+            onClick={() => {
+              try {
+                sessionStorage.removeItem('seelibrary_view_mode');
+              } catch {}
+              router.push('/admin');
+            }}
+            className="flex flex-col items-center justify-center flex-1 py-1 rounded-lg text-amber-600 dark:text-amber-400 font-bold hover:text-amber-700 dark:hover:text-amber-300 transition-colors cursor-pointer"
           >
             <ShieldCheck className="w-5 h-5 stroke-[2.2px] text-amber-500 dark:text-amber-400" />
             <span className="text-[10px] mt-0.5">Admin</span>
