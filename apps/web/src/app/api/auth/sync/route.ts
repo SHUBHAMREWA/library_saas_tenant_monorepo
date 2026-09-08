@@ -15,9 +15,15 @@ export async function POST(req: NextRequest) {
     const cleanName = fullName?.trim() || cleanEmail.split('@')[0] || 'User';
     const configuredAdminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
 
+    console.log('[auth/sync] email:', cleanEmail);
+    console.log('[auth/sync] ADMIN_EMAIL configured:', Boolean(configuredAdminEmail));
+    console.log('[auth/sync] email matches ADMIN_EMAIL:', configuredAdminEmail === cleanEmail);
+
     const existingUser = await prisma.user.findUnique({
       where: { email: cleanEmail },
     });
+
+    console.log('[auth/sync] existingUser role:', existingUser?.role ?? 'NOT_FOUND');
 
     // Server-side Super Admin Determination:
     // 1. Server environment variable ADMIN_EMAIL matches
@@ -25,6 +31,8 @@ export async function POST(req: NextRequest) {
     const isSuperAdmin =
       Boolean(configuredAdminEmail && cleanEmail === configuredAdminEmail) ||
       existingUser?.role === 'SUPER_ADMIN';
+
+    console.log('[auth/sync] isSuperAdmin:', isSuperAdmin, '| finalRole will be:', isSuperAdmin ? 'SUPER_ADMIN' : (existingUser?.role || 'USER'));
 
     const finalRole = isSuperAdmin ? 'SUPER_ADMIN' : (existingUser?.role || 'USER');
 

@@ -40,9 +40,6 @@ export function PublicLandingPage({ onOpenAuth, onLaunchDemo }: PublicLandingPag
             <span className="text-xl font-black tracking-tight text-slate-900 dark:text-white">
               see<span className="text-indigo-600 dark:text-indigo-400">Library</span>
             </span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30">
-              SaaS OS
-            </span>
           </div>
         </div>
 
