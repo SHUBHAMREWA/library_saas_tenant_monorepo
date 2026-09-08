@@ -345,10 +345,10 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-base font-bold text-slate-900 truncate">
+                    <span className="text-base font-bold text-slate-900 dark:text-white truncate">
                       {currentUser.fullName}
                     </span>
-                    <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-full">
+                    <span className="text-[10px] px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 font-bold rounded-full">
                       {currentUser.role}
                     </span>
                   </div>
