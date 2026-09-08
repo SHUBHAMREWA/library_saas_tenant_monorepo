@@ -136,10 +136,14 @@ export default function AdminPage() {
   };
 
   return (
-    <AdminDashboard
-      currentUser={currentUser}
-      onSwitchToLibraryView={handleSwitchToLibraryView}
-      onLogout={handleLogout}
-    />
+    <div className="min-h-screen bg-slate-50 dark:bg-black text-slate-900 dark:text-white transition-colors">
+      <main className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <AdminDashboard
+          currentUser={currentUser}
+          onSwitchToLibraryView={handleSwitchToLibraryView}
+          onLogout={handleLogout}
+        />
+      </main>
+    </div>
   );
 }
