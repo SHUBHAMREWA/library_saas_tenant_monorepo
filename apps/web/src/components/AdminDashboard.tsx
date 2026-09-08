@@ -255,6 +255,47 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
   const [adjustPlanCode, setAdjustPlanCode] = useState('PRO');
   const [adjustNotes, setAdjustNotes] = useState('');
   const [isAdjustingSub, setIsAdjustingSub] = useState(false);
+  const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+
+  const handleUpdateUserRole = async (targetUser: AdminUser, newRole: string) => {
+    if (updatingUserId) return;
+    setUpdatingUserId(targetUser.id);
+
+    try {
+      const res = await fetch(`/api/admin/users/${targetUser.id}/role`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-email': currentUser.email,
+        },
+        body: JSON.stringify({ role: newRole }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setUsers((prev) =>
+          prev.map((u) => (u.id === targetUser.id ? { ...u, role: newRole } : u))
+        );
+        setStatusMessage({
+          type: 'success',
+          text: `User '${targetUser.email}' role updated to ${newRole}!`,
+        });
+      } else {
+        setStatusMessage({
+          type: 'error',
+          text: data.error || 'Failed to update user role',
+        });
+      }
+    } catch (err) {
+      setStatusMessage({
+        type: 'error',
+        text: 'Network error while updating user role',
+      });
+    } finally {
+      setUpdatingUserId(null);
+      setTimeout(() => setStatusMessage(null), 4000);
+    }
+  };
 
   const handleAdjustSubscription = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1233,6 +1274,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
                   <th className="px-5 py-3">Global Role</th>
                   <th className="px-5 py-3">Libraries</th>
                   <th className="px-5 py-3">Joined</th>
+                  <th className="px-5 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-[#222222]">
@@ -1247,7 +1289,8 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
                     </td>
                     <td className="px-5 py-3.5">
                       {u.role === 'SUPER_ADMIN' ? (
-                        <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50">
+                        <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 inline-flex items-center gap-1">
+                          <Crown className="w-3 h-3 text-amber-600" />
                           SUPER_ADMIN
                         </span>
                       ) : (
@@ -1261,6 +1304,29 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
                     </td>
                     <td className="px-5 py-3.5 text-xs text-slate-400 dark:text-neutral-500">
                       {new Date(u.createdAt).toLocaleDateString('en-IN')}
+                    </td>
+                    <td className="px-5 py-3.5 text-right whitespace-nowrap">
+                      {u.role === 'SUPER_ADMIN' ? (
+                        <button
+                          type="button"
+                          disabled={updatingUserId === u.id || u.email.toLowerCase() === currentUser.email.toLowerCase()}
+                          onClick={() => handleUpdateUserRole(u, 'USER')}
+                          className="px-3 py-1 text-xs font-semibold rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 hover:bg-rose-100 hover:text-rose-700 transition-colors disabled:opacity-40 cursor-pointer"
+                          title={u.email.toLowerCase() === currentUser.email.toLowerCase() ? "Cannot demote active logged-in admin" : "Demote to USER"}
+                        >
+                          {updatingUserId === u.id ? 'Updating...' : 'Demote to USER'}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={updatingUserId === u.id}
+                          onClick={() => handleUpdateUserRole(u, 'SUPER_ADMIN')}
+                          className="px-3 py-1 text-xs font-bold rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-600 hover:text-white transition-colors disabled:opacity-40 cursor-pointer flex items-center gap-1 inline-flex"
+                        >
+                          <Crown className="w-3.5 h-3.5" />
+                          {updatingUserId === u.id ? 'Updating...' : 'Make Super Admin'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
