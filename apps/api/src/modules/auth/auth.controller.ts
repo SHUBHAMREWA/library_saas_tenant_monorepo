@@ -92,6 +92,89 @@ export class AuthController {
       next(err);
     }
   }
+
+  async syncUser(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { email, fullName, phone, avatar } = req.body;
+      if (!email) {
+        res.status(400).json({ error: 'Email is required' });
+        return;
+      }
+      const cleanEmail = email.toLowerCase().trim();
+      const cleanName = fullName?.trim() || cleanEmail.split('@')[0] || 'User';
+      const configuredAdminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+
+      // 1. Check & persist in Neon PostgreSQL DB
+      let dbUser: any = null;
+      try {
+        const { prisma } = await import('@library/database');
+        const existing = await prisma.user.findUnique({
+          where: { email: cleanEmail },
+        });
+
+        const isSuperAdmin =
+          existing?.role === 'SUPER_ADMIN' ||
+          Boolean(configuredAdminEmail && cleanEmail === configuredAdminEmail);
+
+        const finalRole = isSuperAdmin ? 'SUPER_ADMIN' : (existing?.role || 'USER');
+
+        dbUser = await prisma.user.upsert({
+          where: { email: cleanEmail },
+          update: {
+            fullName: cleanName,
+            phone: phone || undefined,
+            avatarUrl: avatar || undefined,
+            role: finalRole,
+          },
+          create: {
+            id: (await import('crypto')).randomUUID(),
+            email: cleanEmail,
+            fullName: cleanName,
+            phone: phone || null,
+            avatarUrl: avatar || null,
+            role: finalRole,
+          },
+        });
+      } catch (dbErr) {
+        console.warn('[AuthController] DB sync fallback to memory store:', dbErr);
+      }
+
+      // 2. Also ensure in-memory store has it
+      let memUser = dataStore.findUserByEmail(cleanEmail);
+      const isSuperAdmin =
+        dbUser?.role === 'SUPER_ADMIN' ||
+        Boolean(configuredAdminEmail && cleanEmail === configuredAdminEmail) ||
+        memUser?.role === 'SUPER_ADMIN';
+
+      const finalRole = isSuperAdmin ? 'SUPER_ADMIN' : (dbUser?.role || memUser?.role || 'USER');
+
+      if (!memUser) {
+        memUser = dataStore.createUser({
+          email: cleanEmail,
+          fullName: cleanName,
+          phone,
+          avatarUrl: avatar,
+          role: finalRole as any,
+        });
+      } else {
+        memUser.role = finalRole as any;
+      }
+
+      res.status(200).json({
+        success: true,
+        user: {
+          id: dbUser?.id || memUser.id,
+          email: cleanEmail,
+          fullName: dbUser?.fullName || memUser.fullName,
+          phone: dbUser?.phone || memUser.phone || '',
+          role: finalRole,
+          avatar: dbUser?.avatarUrl || memUser.avatarUrl,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const authController = new AuthController();

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@library/database';
 import crypto from 'crypto';
+
+const RENDER_BACKEND_URL =
+  process.env.API_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  'https://seelibrarybackend.onrender.com';
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,62 +18,106 @@ export async function POST(req: NextRequest) {
     const cleanEmail = email.toLowerCase().trim();
     const cleanName = fullName?.trim() || cleanEmail.split('@')[0] || 'User';
 
-    // Check existing user in DB first
-    const existingUser = await prisma.user.findUnique({
-      where: { email: cleanEmail },
-    });
+    let canonicalUser: {
+      id: string;
+      email: string;
+      fullName: string;
+      phone: string;
+      role: string;
+      avatar?: string;
+    } | null = null;
 
-    console.log('[auth/sync] email:', cleanEmail, '| existingRole:', existingUser?.role ?? 'NOT_FOUND');
+    // Strategy 1: If DATABASE_URL is set on Vercel, query Prisma directly
+    if (process.env.DATABASE_URL) {
+      try {
+        const { prisma } = await import('@library/database');
+        const existingUser = await prisma.user.findUnique({
+          where: { email: cleanEmail },
+        });
 
-    // Server-side Super Admin Determination:
-    // 1. User in PostgreSQL DB already has role === 'SUPER_ADMIN' (bootstrapped by Render backend)
-    // 2. OR server environment variable ADMIN_EMAIL matches
-    const configuredAdminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
-    const isSuperAdmin =
-      existingUser?.role === 'SUPER_ADMIN' ||
-      Boolean(configuredAdminEmail && cleanEmail === configuredAdminEmail);
+        const configuredAdminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+        const isSuperAdmin =
+          existingUser?.role === 'SUPER_ADMIN' ||
+          Boolean(configuredAdminEmail && cleanEmail === configuredAdminEmail);
 
-    const roleToSave = isSuperAdmin ? 'SUPER_ADMIN' : (existingUser?.role || 'USER');
+        const roleToSave = isSuperAdmin ? 'SUPER_ADMIN' : (existingUser?.role || 'USER');
 
-    console.log('[auth/sync] roleToSave:', roleToSave, '| isSuperAdmin:', isSuperAdmin);
+        const user = await prisma.user.upsert({
+          where: { email: cleanEmail },
+          update: {
+            fullName: cleanName,
+            phone: phone || undefined,
+            avatarUrl: avatar || undefined,
+            role: roleToSave,
+          },
+          create: {
+            id: crypto.randomUUID(),
+            email: cleanEmail,
+            fullName: cleanName,
+            phone: phone || null,
+            avatarUrl: avatar || null,
+            role: roleToSave,
+          },
+        });
 
-    const user = await prisma.user.upsert({
-      where: { email: cleanEmail },
-      update: {
-        fullName: cleanName,
-        phone: phone || undefined,
-        avatarUrl: avatar || undefined,
-        role: roleToSave, // ← never overwrites SUPER_ADMIN with USER
-      },
-      create: {
+        canonicalUser = {
+          id: user.id,
+          email: user.email,
+          fullName: user.fullName,
+          phone: user.phone || '',
+          role: user.role,
+          avatar: user.avatarUrl || undefined,
+        };
+      } catch (localDbErr) {
+        console.warn('[auth/sync] Local Prisma DB query failed, falling back to Render backend:', localDbErr);
+      }
+    }
+
+    // Strategy 2: Forward to Render backend (which has Neon PostgreSQL DB + ADMIN_EMAIL env)
+    if (!canonicalUser) {
+      try {
+        const renderRes = await fetch(`${RENDER_BACKEND_URL}/api/v1/auth/sync`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: cleanEmail, fullName: cleanName, phone, avatar }),
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (renderRes.ok) {
+          const renderData = await renderRes.json();
+          if (renderData.user) {
+            canonicalUser = renderData.user;
+            console.log('[auth/sync] Successfully synced via Render backend:', canonicalUser?.role);
+          }
+        }
+      } catch (renderErr) {
+        console.warn('[auth/sync] Render backend sync request failed:', renderErr);
+      }
+    }
+
+    // Fallback: If both fail, return user with USER role
+    if (!canonicalUser) {
+      canonicalUser = {
         id: crypto.randomUUID(),
         email: cleanEmail,
         fullName: cleanName,
-        phone: phone || null,
-        avatarUrl: avatar || null,
-        role: roleToSave,
-      },
-    });
+        phone: phone || '',
+        role: 'USER',
+        avatar,
+      };
+    }
 
     const res = NextResponse.json({
       success: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        fullName: user.fullName,
-        phone: user.phone || '',
-        role: user.role,
-        avatar: user.avatarUrl,
-      },
+      user: canonicalUser,
     });
 
-    // Set role cookie — readable by middleware (httpOnly: false so JS can also read it)
-    // This allows /admin route protection without any frontend env vars
-    res.cookies.set('seelibrary_role', user.role, {
+    // Set role cookie for middleware and client navigation
+    res.cookies.set('seelibrary_role', canonicalUser.role, {
       httpOnly: false,
       sameSite: 'lax',
       path: '/',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      maxAge: 60 * 60 * 24 * 7,
       secure: process.env.NODE_ENV === 'production',
     });
 
@@ -79,4 +127,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
   }
 }
-

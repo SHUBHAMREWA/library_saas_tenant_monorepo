@@ -265,34 +265,55 @@ export default function MobileDashboard() {
   const loadUserLibrariesFromDb = async (userEmail: string, localFallbackLibs?: LibraryBranch[]) => {
     setIsSyncingData(true);
     try {
-      // 1. Sync User in DB and get canonical role
-      const authRes = await fetch('/api/auth/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: userEmail, fullName: currentUser?.fullName || '' }),
-      });
+      let authData: any = null;
+      try {
+        const authRes = await fetch('/api/auth/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: userEmail, fullName: currentUser?.fullName || '' }),
+        });
+        if (authRes.ok) {
+          authData = await authRes.json();
+        }
+      } catch (e) {
+        console.warn('Next.js /api/auth/sync call failed:', e);
+      }
 
-      if (authRes.ok) {
-        const authData = await authRes.json();
-        if (authData.user) {
-          const canonicalUser = {
-            fullName: authData.user.fullName || currentUser?.fullName || '',
-            email: authData.user.email,
-            phone: authData.user.phone || '',
-            role: authData.user.role || 'USER',
-            avatar: authData.user.avatar || undefined,
-          };
-          setCurrentUser(canonicalUser);
-          try {
-            localStorage.setItem('seelibrary_user', JSON.stringify(canonicalUser));
-          } catch {}
-
-          // If SUPER_ADMIN — go to dedicated /admin page (clean route)
-          if (authData.user.role === 'SUPER_ADMIN') {
-            setIsAdminPortalView(true);
-            router.replace('/admin');
-            return;
+      // Direct fallback to Render backend if Vercel route didn't return user
+      if (!authData?.user) {
+        try {
+          const directRes = await fetch('https://seelibrarybackend.onrender.com/api/v1/auth/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: userEmail, fullName: currentUser?.fullName || '' }),
+          });
+          if (directRes.ok) {
+            authData = await directRes.json();
           }
+        } catch (e) {
+          console.warn('Render direct sync fallback failed:', e);
+        }
+      }
+
+      if (authData?.user) {
+        const canonicalUser = {
+          fullName: authData.user.fullName || currentUser?.fullName || '',
+          email: authData.user.email,
+          phone: authData.user.phone || '',
+          role: authData.user.role || 'USER',
+          avatar: authData.user.avatar || undefined,
+        };
+        setCurrentUser(canonicalUser);
+        try {
+          localStorage.setItem('seelibrary_user', JSON.stringify(canonicalUser));
+          document.cookie = `seelibrary_role=${canonicalUser.role}; path=/; max-age=604800`;
+        } catch {}
+
+        // If SUPER_ADMIN — go to dedicated /admin page (clean route)
+        if (authData.user.role === 'SUPER_ADMIN') {
+          setIsAdminPortalView(true);
+          router.replace('/admin');
+          return;
         }
       }
 

@@ -37,27 +37,39 @@ export default function AdminPage() {
           return;
         }
 
-        // 2. Always verify role from DB via /api/auth/sync (source of truth)
-        const res = await fetch('/api/auth/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: parsedUser.email, fullName: parsedUser.fullName || '' }),
-        });
-
-        if (!res.ok) {
-          if (parsedUser.role === 'SUPER_ADMIN') {
-            setCurrentUser(parsedUser);
-            return;
+        // 2. Verify role from DB via /api/auth/sync or directly from Render backend
+        let data: any = null;
+        try {
+          const res = await fetch('/api/auth/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: parsedUser.email, fullName: parsedUser.fullName || '' }),
+          });
+          if (res.ok) {
+            data = await res.json();
           }
-          router.replace('/');
-          return;
+        } catch (e) {
+          console.warn('[admin page] /api/auth/sync failed:', e);
         }
 
-        const data = await res.json();
-        const canonicalRole = data?.user?.role;
+        if (!data?.user) {
+          try {
+            const directRes = await fetch('https://seelibrarybackend.onrender.com/api/v1/auth/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: parsedUser.email, fullName: parsedUser.fullName || '' }),
+            });
+            if (directRes.ok) {
+              data = await directRes.json();
+            }
+          } catch (e) {
+            console.warn('[admin page] Render direct sync failed:', e);
+          }
+        }
+
+        const canonicalRole = data?.user?.role || (parsedUser.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'USER');
 
         if (canonicalRole !== 'SUPER_ADMIN') {
-          // If server says not admin, but user has SUPER_ADMIN in local, only downgrade if server response was valid
           router.replace('/');
           return;
         }
