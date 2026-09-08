@@ -66,6 +66,8 @@ interface AdminPaymentItem {
   planCode: string;
   planName: string;
   durationMonths: number;
+  adjustmentAction?: string;
+  daysAdjusted?: number | null;
   isAutopay?: boolean;
   isCancelled?: boolean;
   cancellationReason?: string | null;
@@ -1395,9 +1397,15 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView }: AdminDash
                           <td className="px-4 py-3.5 whitespace-nowrap">
                             <span className="font-semibold text-slate-900 dark:text-white block">{p.planName}</span>
                             <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 font-mono">
-                                {p.durationMonths} Month{p.durationMonths > 1 ? 's' : ''}
-                              </span>
+                              {(() => {
+                                const isDecrease = p.adjustmentAction === 'DECREASE' || p.durationMonths < 0 || Boolean(p.daysAdjusted && p.daysAdjusted < 0);
+                                const monthsAbs = Math.abs(p.durationMonths || 1);
+                                return (
+                                  <span className={`text-[10px] font-bold font-mono ${isDecrease ? 'text-rose-600 dark:text-rose-400' : 'text-indigo-600 dark:text-indigo-400'}`}>
+                                    {isDecrease ? '-' : '+'}{monthsAbs} Month{monthsAbs > 1 ? 's' : ''}
+                                  </span>
+                                );
+                              })()}
                               {p.isAutopay && (
                                 <span className="inline-flex items-center gap-1 text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
                                   <RefreshCw className="w-2.5 h-2.5" />

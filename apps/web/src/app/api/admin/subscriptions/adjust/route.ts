@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { prisma, ensureDefaultSubscriptionPlans } from '@library/database';
 import crypto from 'crypto';
 
@@ -52,6 +52,8 @@ export async function POST(req: NextRequest) {
     let targetSubId: string;
     let subStartDate: Date;
 
+    const actionUpper = String(action || '').toUpperCase().trim();
+    const isReduce = actionUpper === 'DECREASE' || actionUpper === 'REDUCE';
     const daysCount = Math.max(1, parseInt(String(days), 10) || 30);
 
     if (existingSub) {
@@ -59,19 +61,17 @@ export async function POST(req: NextRequest) {
       targetSubId = existingSub.id;
       subStartDate = existingSub.startDate;
 
-      if (action === 'INCREASE' || action === 'EXTEND') {
+      if (!isReduce) {
         // Extend: add days to existing endDate (or today if expired)
         const baseDate = previousEndDate.getTime() > now.getTime() ? previousEndDate : now;
         newEndDate = new Date(baseDate.getTime() + daysCount * 24 * 60 * 60 * 1000);
-      } else if (action === 'DECREASE' || action === 'REDUCE') {
+      } else {
         // Reduce: subtract days from existing endDate
         newEndDate = new Date(previousEndDate.getTime() - daysCount * 24 * 60 * 60 * 1000);
         // Ensure new end date is not earlier than subscription start date
         if (newEndDate.getTime() < subStartDate.getTime()) {
           newEndDate = subStartDate;
         }
-      } else {
-        return NextResponse.json({ error: "Invalid action. Use 'INCREASE' or 'DECREASE'." }, { status: 400 });
       }
 
       const isStillActive = newEndDate.getTime() > now.getTime();
@@ -82,15 +82,14 @@ export async function POST(req: NextRequest) {
           endDate: newEndDate,
           status: isStillActive ? 'MANUAL' : 'EXPIRED',
           provider: 'MANUAL_ADMIN',
-          adminNotes: adminNotes || `Super Admin adjusted subscription validity (${action} by ${daysCount} days)`,
+          adminNotes: adminNotes || `Super Admin adjusted subscription validity (${isReduce ? 'DECREASE' : 'INCREASE'} by ${daysCount} days)`,
           updatedAt: new Date(),
         },
       });
     } else {
       // Create new subscription if none existed
       subStartDate = now;
-      daysCount;
-      newEndDate = new Date(now.getTime() + daysCount * 24 * 60 * 60 * 1000);
+      newEndDate = new Date(now.getTime() + (isReduce ? 1 : daysCount) * 24 * 60 * 60 * 1000);
       targetSubId = crypto.randomUUID();
 
       await prisma.subscription.create({
@@ -109,7 +108,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const adjustmentTypeLabel = action === 'INCREASE' ? 'Extended' : 'Decreased';
+    const monthsCount = Math.round(daysCount / 30) || 1;
+    const signedMonths = isReduce ? -monthsCount : monthsCount;
+    const signedDays = isReduce ? -daysCount : daysCount;
+    const adjustmentTypeLabel = isReduce ? 'Decreased' : 'Extended';
     const statusDetailMsg = `Super Admin ${adjustmentTypeLabel} validity by ${daysCount} days (${adminNotes || 'Manual Admin Override'})`;
 
     // Record adjustment entry in payments ledger so both User & Admin see it in subscription history!
@@ -128,9 +130,9 @@ export async function POST(req: NextRequest) {
         metadata: {
           planCode: plan.code,
           planName: `${plan.name} (Admin Override)`,
-          durationMonths: Math.round(daysCount / 30) || 1,
-          adjustmentAction: action,
-          daysAdjusted: daysCount,
+          durationMonths: signedMonths,
+          adjustmentAction: isReduce ? 'DECREASE' : 'INCREASE',
+          daysAdjusted: signedDays,
           previousEndDate: previousEndDate ? previousEndDate.toISOString().split('T')[0] : null,
           newEndDate: newEndDate.toISOString().split('T')[0],
           isAdminAdjustment: true,

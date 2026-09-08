@@ -32,6 +32,8 @@ export interface SubscriptionPaymentRecord {
   planCode: string;
   planName: string;
   durationMonths: number;
+  adjustmentAction?: string;
+  daysAdjusted?: number | null;
   previousEndDate?: string | null;
   newEndDate?: string | null;
   discountApplied?: number;
@@ -685,9 +687,21 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                       </td>
                       <td className="px-4 py-3.5 whitespace-nowrap">
                         {item.status === 'SUCCESS' ? (
-                          <span className="inline-flex items-center gap-1 font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-800 px-2 py-0.5 rounded-lg text-[11px]">
-                            +{item.durationMonths} Month{item.durationMonths > 1 ? 's' : ''}
-                          </span>
+                          (() => {
+                            const isDecrease = item.adjustmentAction === 'DECREASE' || item.durationMonths < 0 || Boolean(item.daysAdjusted && item.daysAdjusted < 0);
+                            const monthsAbs = Math.abs(item.durationMonths || 1);
+                            return (
+                              <span
+                                className={`inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded-lg text-[11px] ${
+                                  isDecrease
+                                    ? 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 border border-rose-100 dark:border-rose-800'
+                                    : 'text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-800'
+                                }`}
+                              >
+                                {isDecrease ? '-' : '+'}{monthsAbs} Month{monthsAbs > 1 ? 's' : ''}
+                              </span>
+                            );
+                          })()
                         ) : (
                           <span className="text-slate-400 dark:text-[#737373] text-[11px] italic">Not applied</span>
                         )}
