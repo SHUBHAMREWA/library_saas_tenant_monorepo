@@ -13,11 +13,17 @@ export async function POST(req: NextRequest) {
 
     const cleanEmail = email.toLowerCase().trim();
     const cleanName = fullName?.trim() || cleanEmail.split('@')[0] || 'User';
-    const adminEmail = (process.env.ADMIN_EMAIL || process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'kushwahashubham5932@gmail.com').toLowerCase().trim();
-    const isSuperAdminEmail =
-      cleanEmail === adminEmail ||
-      cleanEmail === 'kushwahashubham5932@gmail.com' ||
-      cleanEmail === 'admin@libraryhub.com';
+    const configuredAdminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+
+    const existingUser = await prisma.user.findUnique({
+      where: { email: cleanEmail },
+    });
+
+    const isSuperAdmin =
+      (configuredAdminEmail && cleanEmail === configuredAdminEmail) ||
+      existingUser?.role === 'SUPER_ADMIN';
+
+    const finalRole = isSuperAdmin ? 'SUPER_ADMIN' : (existingUser?.role || 'USER');
 
     const user = await prisma.user.upsert({
       where: { email: cleanEmail },
@@ -25,7 +31,7 @@ export async function POST(req: NextRequest) {
         fullName: cleanName,
         phone: phone || undefined,
         avatarUrl: avatar || undefined,
-        ...(isSuperAdminEmail ? { role: 'SUPER_ADMIN' } : {}),
+        role: finalRole,
       },
       create: {
         id: crypto.randomUUID(),
@@ -33,7 +39,7 @@ export async function POST(req: NextRequest) {
         fullName: cleanName,
         phone: phone || null,
         avatarUrl: avatar || null,
-        role: isSuperAdminEmail ? 'SUPER_ADMIN' : 'USER',
+        role: finalRole,
       },
     });
 

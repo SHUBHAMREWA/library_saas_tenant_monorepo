@@ -9,9 +9,14 @@ export async function GET(
   try {
     const { id: libraryId } = await context.params;
 
-    const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.ADMIN_EMAIL || 'kushwahashubham5932@gmail.com').toLowerCase().trim();
-    const callerEmail = req.headers.get('x-user-email')?.toLowerCase().trim();
-    const isSuperAdmin = callerEmail === adminEmail || callerEmail === 'kushwahashubham5932@gmail.com' || callerEmail === 'admin@libraryhub.com';
+    const callerEmail = (req.headers.get('x-user-email') || req.headers.get('x-admin-email'))?.toLowerCase().trim();
+    const configuredAdmin = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+
+    let isSuperAdmin = Boolean(configuredAdmin && callerEmail === configuredAdmin);
+    if (!isSuperAdmin && callerEmail) {
+      const dbUser = await prisma.user.findUnique({ where: { email: callerEmail } });
+      isSuperAdmin = dbUser?.role === 'SUPER_ADMIN';
+    }
 
     if (!isSuperAdmin) {
       const activeSub = await prisma.subscription.findFirst({
@@ -108,9 +113,14 @@ export async function POST(
     }
 
     // Subscription Guard: Check if library has active subscription or caller is super admin
-    const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.ADMIN_EMAIL || 'kushwahashubham5932@gmail.com').toLowerCase().trim();
-    const callerEmail = req.headers.get('x-user-email')?.toLowerCase().trim();
-    const isSuperAdmin = callerEmail === adminEmail || callerEmail === 'kushwahashubham5932@gmail.com' || callerEmail === 'admin@libraryhub.com';
+    const callerEmail = (req.headers.get('x-user-email') || req.headers.get('x-admin-email'))?.toLowerCase().trim();
+    const configuredAdmin = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+
+    let isSuperAdmin = Boolean(configuredAdmin && callerEmail === configuredAdmin);
+    if (!isSuperAdmin && callerEmail) {
+      const dbUser = await prisma.user.findUnique({ where: { email: callerEmail } });
+      isSuperAdmin = dbUser?.role === 'SUPER_ADMIN';
+    }
 
     if (!isSuperAdmin) {
       const activeSub = await prisma.subscription.findFirst({

@@ -4,20 +4,16 @@ import { broadcastPushToAll, sendPushToLibrary, createAppNotification } from '@/
 
 export async function POST(req: NextRequest) {
   try {
-    const adminEmail = (
-      process.env.NEXT_PUBLIC_ADMIN_EMAIL ||
-      process.env.ADMIN_EMAIL ||
-      'kushwahashubham5932@gmail.com'
-    ).toLowerCase().trim();
-
-    const callerEmail = (req.headers.get('x-user-email') || '').toLowerCase().trim();
+    const callerEmail = (req.headers.get('x-user-email') || req.headers.get('x-admin-email') || '').toLowerCase().trim();
     const body = await req.json();
     const requestEmail = (body.adminEmail || callerEmail).toLowerCase().trim();
+    const configuredAdminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
 
-    const isSuperAdmin =
-      requestEmail === adminEmail ||
-      requestEmail === 'kushwahashubham5932@gmail.com' ||
-      requestEmail === 'admin@libraryhub.com';
+    let isSuperAdmin = Boolean(configuredAdminEmail && requestEmail === configuredAdminEmail);
+    if (!isSuperAdmin && requestEmail) {
+      const user = await prisma.user.findUnique({ where: { email: requestEmail } });
+      isSuperAdmin = user?.role === 'SUPER_ADMIN';
+    }
 
     if (!isSuperAdmin) {
       return NextResponse.json(

@@ -59,13 +59,8 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
     }
   };
 
-  const resolveRole = (email: string) => {
-    const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'kushwahashubham5932@gmail.com').toLowerCase().trim();
-    const clean = email.toLowerCase().trim();
-    if (clean === adminEmail || clean === 'kushwahashubham5932@gmail.com' || clean === 'admin@libraryhub.com' || clean.includes('admin')) {
-      return 'SUPER_ADMIN';
-    }
-    return 'OWNER';
+  const resolveRole = (_email: string) => {
+    return 'USER';
   };
 
   const handleGoogleCredentialResponse = (response: any) => {
@@ -289,13 +284,11 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
     setIsLoading(true);
     setTimeout(() => {
       setIsLoading(false);
-      const isSuperAdmin = email.toLowerCase().includes('admin') || role === 'SUPER_ADMIN';
-      const finalRole = isSuperAdmin ? 'SUPER_ADMIN' : role;
       onLoginSuccess({
         fullName,
         email,
         phone: '9876543210',
-        role: finalRole,
+        role,
         avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=4f46e5&color=fff`,
       });
       onClose();
