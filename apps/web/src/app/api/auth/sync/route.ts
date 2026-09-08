@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       success: true,
       user: {
         id: user.id,
@@ -59,8 +59,21 @@ export async function POST(req: NextRequest) {
         avatar: user.avatarUrl,
       },
     });
+
+    // Set role cookie — readable by middleware (httpOnly: false so JS can also read it)
+    // This allows /admin route protection without any frontend env vars
+    res.cookies.set('seelibrary_role', user.role, {
+      httpOnly: false,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+      secure: process.env.NODE_ENV === 'production',
+    });
+
+    return res;
   } catch (error: any) {
     console.error('API /api/auth/sync error:', error);
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
   }
 }
+

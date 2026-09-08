@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+
 import {
   LayoutDashboard,
   Armchair,
@@ -192,6 +194,7 @@ export interface LibraryBranch {
 }
 
 export default function MobileDashboard() {
+  const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [isSyncingData, setIsSyncingData] = useState(false);
@@ -280,12 +283,15 @@ export default function MobileDashboard() {
             avatar: authData.user.avatar || undefined,
           };
           setCurrentUser(canonicalUser);
-          if (authData.user.role === 'SUPER_ADMIN') {
-            setIsAdminPortalView(true);
-          }
           try {
             localStorage.setItem('seelibrary_user', JSON.stringify(canonicalUser));
           } catch {}
+
+          // If SUPER_ADMIN — go to dedicated /admin page (clean route)
+          if (authData.user.role === 'SUPER_ADMIN') {
+            router.replace('/admin');
+            return;
+          }
         }
       }
 
@@ -395,6 +401,8 @@ export default function MobileDashboard() {
       localStorage.removeItem('seelibrary_libraries');
       localStorage.removeItem('seelibrary_active_lib_id');
     } catch {}
+    // Clear role cookie so middleware doesn't redirect to /admin on next visit
+    document.cookie = 'seelibrary_role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
   };
 
   // Find active library
