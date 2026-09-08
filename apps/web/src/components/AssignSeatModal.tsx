@@ -20,6 +20,7 @@ export interface SeatInfo {
   rowName?: string;
   studentName?: string | null;
   status?: string;
+  hasLocker?: boolean;
 }
 
 interface AssignSeatModalProps {
@@ -114,10 +115,15 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
               <Armchair className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <h3 className="font-bold text-slate-900 dark:text-white text-base">
                   Assign Seat {seat.seatNumber}
                 </h3>
+                {seat.hasLocker && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 flex items-center gap-1">
+                    🔐 Locker Included
+                  </span>
+                )}
                 {isSeatCurrentlyReserved && (
                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 flex items-center gap-1">
                     <Bookmark className="w-2.5 h-2.5" /> Reserved

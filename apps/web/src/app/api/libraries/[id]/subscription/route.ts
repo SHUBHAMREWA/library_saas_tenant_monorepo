@@ -42,6 +42,8 @@ export async function GET(
         endDate: latestSub.endDate.toISOString().split('T')[0],
         daysRemaining,
         autoRenew: latestSub.autoRenew,
+        autoRenewCancelledAt: latestSub.autoRenewCancelledAt ? latestSub.autoRenewCancelledAt.toISOString() : null,
+        cancellationReason: latestSub.cancellationReason || null,
         provider: latestSub.provider,
       };
     }

@@ -276,14 +276,14 @@ export function AdminSkeleton() {
   return (
     <div className="space-y-6">
       {/* Header Bar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-2">
-          <Skeleton className="h-6 w-56 bg-slate-800" />
-          <Skeleton className="h-3.5 w-72 bg-slate-800" />
+          <Skeleton className="h-6 w-56" />
+          <Skeleton className="h-3.5 w-72" />
         </div>
         <div className="flex items-center gap-3">
-          <Skeleton className="h-9 w-24 rounded-lg bg-slate-800" />
-          <Skeleton className="h-9 w-36 rounded-lg bg-slate-800" />
+          <Skeleton className="h-9 w-24 rounded-lg" />
+          <Skeleton className="h-9 w-36 rounded-lg" />
         </div>
       </div>
 
@@ -292,31 +292,31 @@ export function AdminSkeleton() {
         {[1, 2, 3, 4, 5, 6].map((i) => (
           <div
             key={i}
-            className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 space-y-2"
+            className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-xl p-3.5 space-y-2"
           >
-            <Skeleton className="h-3 w-16 bg-slate-800" />
-            <Skeleton className="h-6 w-14 bg-slate-800" />
-            <Skeleton className="h-2.5 w-20 bg-slate-800" />
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-6 w-14" />
+            <Skeleton className="h-2.5 w-20" />
           </div>
         ))}
       </div>
 
       {/* Data Table Skeleton */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-          <Skeleton className="h-5 w-36 bg-slate-800" />
-          <Skeleton className="h-8 w-44 rounded-lg bg-slate-800" />
+      <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#262626]">
+          <Skeleton className="h-5 w-36" />
+          <Skeleton className="h-8 w-44 rounded-lg" />
         </div>
         {[1, 2, 3, 4].map((i) => (
           <div
             key={i}
-            className="p-3.5 rounded-xl border border-slate-800 bg-slate-800/40 flex items-center justify-between"
+            className="p-3.5 rounded-xl border border-slate-100 dark:border-[#262626] bg-slate-50/50 dark:bg-[#161616] flex items-center justify-between"
           >
             <div className="space-y-1.5">
-              <Skeleton className="h-4 w-44 bg-slate-800" />
-              <Skeleton className="h-3 w-32 bg-slate-800" />
+              <Skeleton className="h-4 w-44" />
+              <Skeleton className="h-3 w-32" />
             </div>
-            <Skeleton className="h-7 w-24 rounded-lg bg-slate-800" />
+            <Skeleton className="h-7 w-24 rounded-lg" />
           </div>
         ))}
       </div>

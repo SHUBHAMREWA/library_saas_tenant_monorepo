@@ -9,7 +9,7 @@ export async function POST(
   try {
     const { id: libraryId } = await context.params;
     const body = await req.json();
-    const { planCode = 'BASIC', couponCode, userEmail } = body;
+    const { planCode = 'BASIC', couponCode, userEmail, isAutopay = false } = body;
 
     const library = await prisma.library.findUnique({
       where: { id: libraryId },
@@ -73,6 +73,7 @@ export async function POST(
         planName: plan.name,
         finalAmount: 0,
         discountAmount,
+        isAutopay: Boolean(isAutopay),
       });
     }
 
@@ -97,6 +98,7 @@ export async function POST(
           planCode: plan.code,
           planName: plan.name,
           durationMonths: months,
+          isAutopay: isAutopay ? 'true' : 'false',
           userEmail: userEmail || library.owner?.email || '',
         },
       }),
@@ -129,11 +131,12 @@ export async function POST(
             planCode: plan.code,
             planName: plan.name,
             durationMonths: months,
+            isAutopay: Boolean(isAutopay),
             discountApplied: discountAmount,
             couponCode: couponCode || null,
             initiatedAt: new Date().toISOString(),
             paidByEmail: userEmail || library.owner?.email,
-            statusDetail: 'Payment Initiated in Razorpay Modal',
+            statusDetail: isAutopay ? 'Payment Initiated (Monthly Autopay Enabled)' : 'Payment Initiated in Razorpay Modal',
           },
         },
       });

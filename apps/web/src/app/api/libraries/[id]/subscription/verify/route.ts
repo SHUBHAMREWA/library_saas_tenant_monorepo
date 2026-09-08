@@ -17,6 +17,7 @@ export async function POST(
       couponCode,
       userEmail,
       bypassPayment = false,
+      isAutopay = false,
     } = body;
 
     const library = await prisma.library.findUnique({
@@ -126,6 +127,8 @@ export async function POST(
           endDate: newEndDate,
           status: 'ACTIVE',
           provider: 'RAZORPAY',
+          autoRenew: Boolean(isAutopay),
+          autoRenewCancelledAt: isAutopay ? null : existingActiveSub.autoRenewCancelledAt,
           updatedAt: new Date(),
         },
       });
@@ -145,7 +148,8 @@ export async function POST(
           startDate: subStartDate,
           endDate: newEndDate,
           provider: 'RAZORPAY',
-          autoRenew: false,
+          autoRenew: Boolean(isAutopay),
+          autoRenewCancelledAt: null,
         },
       });
     }

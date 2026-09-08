@@ -9,7 +9,7 @@ export async function POST(
   try {
     const { id: libraryId } = await context.params;
     const body = await req.json();
-    const { roomName, rowNames, seatsPerRow, startNumber } = body;
+    const { roomName, rowNames, rowConfigs, seatsPerRow, startNumber } = body;
 
     const finalRoomName = roomName?.trim() || 'Ground Floor - Silent Hall';
     const validRows = Array.isArray(rowNames) && rowNames.length > 0 ? rowNames : ['Row A', 'Row B'];
@@ -30,6 +30,8 @@ export async function POST(
     for (let rIdx = 0; rIdx < validRows.length; rIdx++) {
       const rName = validRows[rIdx];
       const rowId = crypto.randomUUID();
+      const rowCfg = Array.isArray(rowConfigs) ? rowConfigs.find((c: any) => c.name === rName) : null;
+      const hasLocker = Boolean(rowCfg?.hasLocker);
 
       await prisma.row.create({
         data: {
@@ -37,13 +39,11 @@ export async function POST(
           libraryId,
           roomId: createdRoom.id,
           name: rName,
+          hasLocker,
         },
       });
 
       if (countPerRow > 0) {
-        const rowMatch = rName.match(/([A-Za-z0-9]+)$/);
-        const prefix = rowMatch ? `${rowMatch[1].toUpperCase()}-` : `R${rIdx + 1}-`;
-
         for (let i = 0; i < countPerRow; i++) {
           const num = currentNum < 10 ? `0${currentNum}` : `${currentNum}`;
           const seatId = crypto.randomUUID();
@@ -57,6 +57,7 @@ export async function POST(
               rowId,
               seatNumber,
               status: 'AVAILABLE',
+              hasLocker,
             },
           });
 
@@ -67,6 +68,7 @@ export async function POST(
             status: 'AVAILABLE',
             studentName: null,
             roomId: createdRoom.id,
+            hasLocker,
           });
         }
       }

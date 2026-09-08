@@ -479,7 +479,14 @@ export default function MobileDashboard() {
   const seats = [...rawSeats].sort((a, b) =>
     a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' })
   );
-  const students = activeLibrary ? activeLibrary.students : [];
+  const rawStudents = activeLibrary ? activeLibrary.students : [];
+  const students = rawStudents.map((std) => {
+    const seatObj = std.seatNumber ? rawSeats.find((s) => s.seatNumber === std.seatNumber) : null;
+    return {
+      ...std,
+      hasLocker: Boolean(std.hasLocker || seatObj?.hasLocker),
+    };
+  });
   const rooms = activeLibrary ? activeLibrary.rooms : [];
 
   // Display rooms with fallback for libraries with seats but unconfigured rooms
@@ -667,6 +674,7 @@ export default function MobileDashboard() {
   const handleRoomCreated = async (data: {
     roomName: string;
     rowNames: string[];
+    rowConfigs?: Array<{ name: string; hasLocker: boolean }>;
     seatsPerRow?: number;
     startNumber?: number;
   }) => {
@@ -712,11 +720,17 @@ export default function MobileDashboard() {
     const seatsPerRow = data.seatsPerRow ?? 10;
     const newSeats: VisualSeatItem[] = [];
 
+    const lockerMap = new Map<string, boolean>();
+    (data.rowConfigs || []).forEach((rc) => {
+      lockerMap.set(rc.name.trim().toLowerCase(), rc.hasLocker);
+    });
+
     if (seatsPerRow > 0) {
       let currentNum = Math.max(1, data.startNumber || 1);
       finalRows.forEach((rowName, rIdx) => {
         const rowMatch = rowName.match(/([A-Za-z0-9]+)$/);
         const prefix = rowMatch ? `${rowMatch[1].toUpperCase()}-` : `R${rIdx + 1}-`;
+        const hasLocker = lockerMap.get(rowName.trim().toLowerCase()) ?? false;
 
         for (let i = 0; i < seatsPerRow; i++) {
           const num = currentNum < 10 ? `0${currentNum}` : `${currentNum}`;
@@ -727,6 +741,7 @@ export default function MobileDashboard() {
             status: 'AVAILABLE',
             studentName: null,
             roomId: newRoomId,
+            hasLocker,
           });
           currentNum++;
         }
@@ -747,7 +762,12 @@ export default function MobileDashboard() {
     setSelectedRoomId(newRoomId);
   };
 
-  const handleAddRowsToRoom = async (data: { rowNames: string[]; seatsPerRow: number; startNumber?: number }) => {
+  const handleAddRowsToRoom = async (data: {
+    rowNames: string[];
+    rowConfigs?: Array<{ name: string; hasLocker: boolean }>;
+    seatsPerRow: number;
+    startNumber?: number;
+  }) => {
     if (!currentSelectedRoom || !activeLibrary) return;
     const roomId = currentSelectedRoom.id;
 
@@ -758,6 +778,7 @@ export default function MobileDashboard() {
         body: JSON.stringify({
           roomId,
           rowNames: data.rowNames,
+          rowConfigs: data.rowConfigs,
           seatsPerRow: data.seatsPerRow,
           startNumber: data.startNumber,
         }),
@@ -784,7 +805,13 @@ export default function MobileDashboard() {
     // Fallback if offline
     const fallbackSeats: VisualSeatItem[] = [];
     let currentNum = Math.max(1, data.startNumber || 1);
+    const lockerMap = new Map<string, boolean>();
+    (data.rowConfigs || []).forEach((rc) => {
+      lockerMap.set(rc.name.trim().toLowerCase(), rc.hasLocker);
+    });
+
     data.rowNames.forEach((rName) => {
+      const hasLocker = lockerMap.get(rName.trim().toLowerCase()) ?? false;
       for (let i = 0; i < data.seatsPerRow; i++) {
         const num = currentNum < 10 ? `0${currentNum}` : `${currentNum}`;
         fallbackSeats.push({
@@ -794,6 +821,7 @@ export default function MobileDashboard() {
           status: 'AVAILABLE',
           studentName: null,
           roomId,
+          hasLocker,
         });
         currentNum++;
       }
@@ -1274,23 +1302,43 @@ export default function MobileDashboard() {
       const updatedStudents = lib.students.map((s) => {
         if (s.id === paymentData.studentId) {
           const currentDays = Math.max(0, s.membershipEndsInDays || 0);
-          const preservedMonthlyFee = paymentData.isSettlingDue
-            ? (s.monthlyFee && s.monthlyFee > 0 ? s.monthlyFee : paymentData.totalFee ?? paymentData.amount)
-            : (paymentData.totalFee ?? paymentData.amount);
+          const preservedMonthlyFee = Math.max(
+            s.monthlyFee || 0,
+            s.totalFee || 0,
+            paymentData.totalFee || 0,
+            paymentData.amount || 0
+          );
+
+          // Update prior partial transactions for this student/month
+          const updatedOldTxs = (s.transactions || []).map((t) => {
+            const matchesMonth = t.paidForMonth?.trim().toLowerCase() === paymentData.paidForMonth?.trim().toLowerCase();
+            if ((matchesMonth || paymentData.isSettlingDue) && t.remainingFee && t.remainingFee > 0) {
+              const newRem = paymentData.remainingFee !== undefined ? paymentData.remainingFee : Math.max(0, t.remainingFee - paymentData.amount);
+              return {
+                ...t,
+                remainingFee: newRem,
+                status: newRem === 0 ? ('PAID' as const) : ('PARTIAL' as const),
+              };
+            }
+            return t;
+          });
 
           return {
             ...s,
             shift: paymentData.shift || s.shift,
             monthlyFee: preservedMonthlyFee,
+            totalFee: preservedMonthlyFee,
             remainingFee: paymentData.remainingFee ?? 0,
             status: 'ACTIVE' as const,
             membershipEndsInDays:
               paymentData.extendDays > 0
-                ? currentDays <= 0
+                ? paymentData.validTo
+                  ? Math.max(0, Math.ceil((new Date(paymentData.validTo).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+                  : currentDays <= 0
                   ? paymentData.extendDays
                   : currentDays + paymentData.extendDays
                 : currentDays,
-            transactions: [newTx, ...(s.transactions || [])],
+            transactions: [newTx, ...updatedOldTxs],
           };
         }
         return s;
@@ -1307,7 +1355,23 @@ export default function MobileDashboard() {
         return seat;
       });
 
-      const updatedTransactions = [newTx, ...(lib.feeTransactions || [])];
+      const updatedTransactions = [
+        newTx,
+        ...(lib.feeTransactions || []).map((t) => {
+          if (t.studentId === paymentData.studentId) {
+            const matchesMonth = t.paidForMonth?.trim().toLowerCase() === paymentData.paidForMonth?.trim().toLowerCase();
+            if ((matchesMonth || paymentData.isSettlingDue) && t.remainingFee && t.remainingFee > 0) {
+              const newRem = paymentData.remainingFee !== undefined ? paymentData.remainingFee : Math.max(0, t.remainingFee - paymentData.amount);
+              return {
+                ...t,
+                remainingFee: newRem,
+                status: newRem === 0 ? ('PAID' as const) : ('PARTIAL' as const),
+              };
+            }
+          }
+          return t;
+        }),
+      ];
 
       return {
         ...lib,
@@ -1321,23 +1385,42 @@ export default function MobileDashboard() {
     setSelectedStudentForProfile((prev) => {
       if (prev && prev.id === paymentData.studentId) {
         const currentDays = Math.max(0, prev.membershipEndsInDays || 0);
-        const preservedMonthlyFee = paymentData.isSettlingDue
-          ? (prev.monthlyFee && prev.monthlyFee > 0 ? prev.monthlyFee : paymentData.totalFee ?? paymentData.amount)
-          : (paymentData.totalFee ?? paymentData.amount);
+        const preservedMonthlyFee = Math.max(
+          prev.monthlyFee || 0,
+          prev.totalFee || 0,
+          paymentData.totalFee || 0,
+          paymentData.amount || 0
+        );
+
+        const updatedOldTxs = (prev.transactions || []).map((t) => {
+          const matchesMonth = t.paidForMonth?.trim().toLowerCase() === paymentData.paidForMonth?.trim().toLowerCase();
+          if ((matchesMonth || paymentData.isSettlingDue) && t.remainingFee && t.remainingFee > 0) {
+            const newRem = paymentData.remainingFee !== undefined ? paymentData.remainingFee : Math.max(0, t.remainingFee - paymentData.amount);
+            return {
+              ...t,
+              remainingFee: newRem,
+              status: newRem === 0 ? ('PAID' as const) : ('PARTIAL' as const),
+            };
+          }
+          return t;
+        });
 
         return {
           ...prev,
           shift: paymentData.shift || prev.shift,
           monthlyFee: preservedMonthlyFee,
+          totalFee: preservedMonthlyFee,
           remainingFee: paymentData.remainingFee ?? 0,
           status: 'ACTIVE' as const,
           membershipEndsInDays:
             paymentData.extendDays > 0
-              ? currentDays <= 0
+              ? paymentData.validTo
+                ? Math.max(0, Math.ceil((new Date(paymentData.validTo).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+                : currentDays <= 0
                 ? paymentData.extendDays
                 : currentDays + paymentData.extendDays
               : currentDays,
-          transactions: [newTx, ...(prev.transactions || [])],
+          transactions: [newTx, ...updatedOldTxs],
         };
       }
       return prev;
@@ -1387,53 +1470,69 @@ export default function MobileDashboard() {
   // 1.5. SUPER ADMIN PLATFORM CONSOLE VIEW
   if (mounted && currentUser && isSuperAdmin && isAdminPortalView) {
     return (
-      <div className="flex flex-col min-h-screen bg-slate-950 text-slate-100">
+      <div className="flex flex-col min-h-screen bg-slate-50 dark:bg-[#0a0a0a] text-slate-900 dark:text-slate-100 transition-colors">
         <PWACompanion />
 
         {/* Super Admin Top Header */}
-        <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 sm:px-8 py-3 flex items-center justify-between shadow-md">
+        <header className="sticky top-0 z-30 bg-white/90 dark:bg-[#121212]/90 backdrop-blur-md border-b border-slate-200 dark:border-[#262626] px-4 sm:px-8 py-3 flex items-center justify-between shadow-xs transition-colors">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center font-black text-sm">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/10 dark:bg-amber-500/20 border border-amber-500/30 dark:border-amber-500/40 text-amber-600 dark:text-amber-400 flex items-center justify-center font-black text-sm">
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-base sm:text-lg font-black tracking-tight text-white">
-                  see<span className="text-amber-400">Library</span>
+                <span className="text-base sm:text-lg font-black tracking-tight text-slate-900 dark:text-white">
+                  see<span className="text-amber-500 dark:text-amber-400">Library</span>
                 </span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/20 dark:border-amber-500/30">
                   Super Admin
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 hidden sm:block">Platform Governance & Multi-Tenant Control</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block">Platform Governance & Multi-Tenant Control</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             {libraries.length > 0 && (
               <button
                 type="button"
                 onClick={() => setIsAdminPortalView(false)}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-700"
+                className="px-3 py-1.5 bg-slate-100 dark:bg-[#1c1c1e] hover:bg-slate-200 dark:hover:bg-[#2c2c2e] text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-200 dark:border-[#2a2a2a] cursor-pointer"
               >
-                <Layers className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Switch to Library View</span>
+                <Layers className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
+                <span className="hidden sm:inline">Switch to Library View</span>
+                <span className="sm:hidden">Library View</span>
               </button>
             )}
 
             <button
               type="button"
               onClick={() => setIsLibraryModalOpen(true)}
-              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">New Library</span>
             </button>
 
+            {/* Theme Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+              className="p-2 rounded-xl text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] transition-colors cursor-pointer border border-slate-200 dark:border-[#2a2a2a]"
+              aria-label="Toggle theme"
+              title={resolvedTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            >
+              {resolvedTheme === 'dark' ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-slate-600" />
+              )}
+            </button>
+
             <button
               type="button"
               onClick={handleUserLogout}
-              className="text-xs text-rose-400 hover:text-rose-300 font-bold px-2.5 py-1.5 rounded-lg hover:bg-rose-500/10 transition-colors flex items-center gap-1"
+              className="text-xs text-rose-500 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300 font-bold px-2.5 py-1.5 rounded-lg hover:bg-rose-500/10 transition-colors flex items-center gap-1 cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Sign Out</span>
@@ -1854,16 +1953,6 @@ export default function MobileDashboard() {
             )}
           </button>
 
-          <button
-            type="button"
-            className="p-2 rounded-xl text-slate-500 dark:text-neutral-400 hover:text-slate-700 dark:hover:text-[#f5f5f5] hover:bg-slate-100 dark:hover:bg-[#1c1c1e] relative transition-colors cursor-pointer"
-            aria-label="Notifications"
-          >
-            <Bell className="w-4 h-4" />
-            {expiringSoonCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-500 rounded-full" />
-            )}
-          </button>
           <div className="h-4 w-[1px] bg-slate-200 dark:bg-[#262626]" />
           <div className="text-xs text-slate-500 dark:text-neutral-400 font-medium">
             {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
@@ -2384,6 +2473,10 @@ export default function MobileDashboard() {
                   setProfileInitialTab(tab || 'profile');
                   setSelectedStudentForProfile(student);
                 }}
+                onAssignSeat={(student) => {
+                  setProfileInitialTab('profile');
+                  setSelectedStudentForProfile(student);
+                }}
               />
             ) : (
               <KanbanBoard libraryId={activeLibrary?.id} />
@@ -2688,11 +2781,14 @@ export default function MobileDashboard() {
             if (returnToStudentProfileId) {
               const targetId = returnToStudentProfileId;
               setReturnToStudentProfileId(null);
-              const currentStd = activeLibrary?.students.find((s) => s.id === targetId);
-              if (currentStd) {
-                setProfileInitialTab('feeHistory');
-                setSelectedStudentForProfile(currentStd);
-              }
+              setProfileInitialTab('feeHistory');
+              updateActiveLibrary((currentLib) => {
+                const refreshedStd = currentLib.students.find((s) => s.id === targetId);
+                if (refreshedStd) {
+                  setSelectedStudentForProfile(refreshedStd);
+                }
+                return currentLib;
+              });
             }
           }}
           students={activeLibrary?.students || []}

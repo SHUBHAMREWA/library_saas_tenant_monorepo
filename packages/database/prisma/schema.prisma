@@ -179,6 +179,7 @@ model Row {
   libraryId String    @map("library_id") @db.Uuid
   roomId    String    @map("room_id") @db.Uuid
   name      String    @db.VarChar(64)
+  hasLocker Boolean   @default(false) @map("has_locker")
   sortOrder Int       @default(0) @map("sort_order")
   isActive  Boolean   @default(true) @map("is_active")
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
@@ -198,6 +199,7 @@ model Seat {
   rowId      String     @map("row_id") @db.Uuid
   seatNumber String     @map("seat_number") @db.VarChar(64)
   status     SeatStatus @default(AVAILABLE)
+  hasLocker  Boolean    @default(false) @map("has_locker")
   sortOrder  Int        @default(0) @map("sort_order")
   isActive   Boolean    @default(true) @map("is_active")
   deletedAt  DateTime?  @map("deleted_at") @db.Timestamptz
@@ -334,6 +336,8 @@ model Subscription {
   startDate              DateTime               @map("start_date") @db.Date
   endDate                DateTime               @map("end_date") @db.Date
   autoRenew              Boolean                @default(false) @map("auto_renew")
+  autoRenewCancelledAt   DateTime?              @map("auto_renew_cancelled_at") @db.Timestamptz
+  cancellationReason     String?                @map("cancellation_reason") @db.Text
   provider               PaymentGatewayProvider @default(MANUAL_ADMIN)
   providerSubscriptionId String?                @map("provider_subscription_id") @db.VarChar(128)
   adminNotes             String?                @map("admin_notes") @db.Text

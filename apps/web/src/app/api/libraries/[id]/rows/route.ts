@@ -9,7 +9,7 @@ export async function POST(
   try {
     const { id: libraryId } = await context.params;
     const body = await req.json();
-    const { roomId, rowNames, seatsPerRow, startNumber } = body;
+    const { roomId, rowNames, rowConfigs, seatsPerRow, startNumber } = body;
 
     if (!roomId) {
       return NextResponse.json({ error: 'roomId is required' }, { status: 400 });
@@ -64,6 +64,9 @@ export async function POST(
       const rName = validRows[i].trim();
       if (!rName) continue;
 
+      const rowCfg = Array.isArray(rowConfigs) ? rowConfigs.find((c: any) => c.name === rName) : null;
+      const hasLocker = Boolean(rowCfg?.hasLocker);
+
       // Check if row already exists in this room
       let targetRow = await prisma.row.findFirst({
         where: { roomId, name: rName },
@@ -76,6 +79,7 @@ export async function POST(
             libraryId,
             roomId,
             name: rName,
+            hasLocker,
             sortOrder: startSortOrder + i,
           },
         });
@@ -84,12 +88,10 @@ export async function POST(
       createdRows.push({
         id: targetRow.id,
         name: targetRow.name,
+        hasLocker: targetRow.hasLocker,
       });
 
       if (countPerRow > 0) {
-        const match = rName.match(/([A-Za-z0-9]+)$/);
-        const prefix = match ? `${match[1].toUpperCase()}-` : 'S-';
-
         const existingSeatsInRow = await prisma.seat.findMany({
           where: { libraryId, rowId: targetRow.id },
           select: { seatNumber: true },
@@ -115,6 +117,7 @@ export async function POST(
               rowId: targetRow.id,
               seatNumber,
               status: 'AVAILABLE',
+              hasLocker,
             },
           });
 
@@ -126,6 +129,7 @@ export async function POST(
             status: 'AVAILABLE',
             studentName: null,
             roomId,
+            hasLocker,
           });
           createdForThisRow++;
         }

@@ -10,6 +10,7 @@ export interface VisualSeatItem {
   seatNumber: string;
   rowName: string;
   status: SeatStatus;
+  hasLocker?: boolean;
   studentName?: string | null;
   shift?: string | null;
   roomId?: string | null;
@@ -38,6 +39,7 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
 }) => {
   const [selectedSeat, setSelectedSeat] = useState<VisualSeatItem | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
+  const [lockerFilter, setLockerFilter] = useState<'ALL' | 'LOCKER_ONLY'>('ALL');
 
   // Sort seats in natural numeric sequence (e.g. 01, 02, 03, ..., 10, 11)
   const sortedSeats = [...seats].sort((a, b) =>
@@ -45,8 +47,9 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
   );
 
   const filteredSeats = sortedSeats.filter((s) => {
-    if (filterStatus === 'ALL') return true;
-    return s.status === filterStatus;
+    if (filterStatus !== 'ALL' && s.status !== filterStatus) return false;
+    if (lockerFilter === 'LOCKER_ONLY' && !s.hasLocker) return false;
+    return true;
   });
 
   const uniqueRows = Array.from(new Set(sortedSeats.map((s) => s.rowName || 'Row A'))).sort((a, b) =>
@@ -84,8 +87,8 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* Quick Status Filter Pills */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+      {/* Quick Status & Locker Filter Pills */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
         {['ALL', 'AVAILABLE', 'OCCUPIED', 'RESERVED', 'MAINTENANCE'].map((status) => (
           <button
             key={status}
@@ -100,6 +103,22 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
             {status === 'ALL' ? `All (${seats.length})` : status.charAt(0) + status.slice(1).toLowerCase()}
           </button>
         ))}
+
+        <div className="h-4 w-[1px] bg-slate-200 dark:bg-neutral-800 mx-1 shrink-0" />
+
+        <button
+          type="button"
+          onClick={() => setLockerFilter((prev) => (prev === 'ALL' ? 'LOCKER_ONLY' : 'ALL'))}
+          className={`px-3 py-1.5 rounded-full font-semibold transition-all shrink-0 cursor-pointer flex items-center gap-1 ${
+            lockerFilter === 'LOCKER_ONLY'
+              ? 'bg-amber-500 text-white shadow-xs'
+              : 'bg-white dark:bg-[#121212] text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60 hover:bg-amber-50 dark:hover:bg-amber-950/30'
+          }`}
+          title="Filter seats with attached book lockers"
+        >
+          <span>🔐</span>
+          <span>Locker Seats ({seats.filter((s) => s.hasLocker).length})</span>
+        </button>
       </div>
 
       {/* Responsive Seat Grid (Grouped by Row) */}
@@ -110,6 +129,9 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
               .filter((s) => (s.rowName || 'Row A') === rName)
               .sort((a, b) => a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' }));
             if (rowSeats.length === 0) return null;
+
+            const isRowLocker = rowSeats.some((s) => s.hasLocker);
+
             return (
               <div key={rName} className="space-y-2 p-3 bg-slate-50/70 dark:bg-[#121212] rounded-xl border border-slate-200 dark:border-[#262626]">
                 <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-[#262626]">
@@ -118,6 +140,11 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                       <span className="w-2 h-2 rounded-full bg-indigo-600" />
                       {rName}
                     </span>
+                    {isRowLocker && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 flex items-center gap-0.5">
+                        🔐 Locker Row
+                      </span>
+                    )}
                     <span className="text-[11px] font-semibold text-slate-500 dark:text-[#a8a8a8]">
                       {rowSeats.length} {rowSeats.length === 1 ? 'seat' : 'seats'}
                     </span>
@@ -151,6 +178,9 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                         <div className="flex items-center gap-1">
                           <span className={`w-1.5 h-1.5 rounded-full ${badge.indicator}`} />
                           <span className="text-[11px] font-bold tracking-tight">{seat.seatNumber.replace(/^[A-Za-z0-9]+-/, '')}</span>
+                          {seat.hasLocker && (
+                            <span title="Book Locker Included" className="text-[10px]">🔐</span>
+                          )}
                         </div>
                         <span className="text-[11px] font-medium truncate max-w-[65px] mt-0.5">
                           {seat.studentName || badge.label}
@@ -259,7 +289,14 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                   <Armchair className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-900 dark:text-white text-base">Seat {selectedSeat.seatNumber.replace(/^[A-Za-z0-9]+-/, '')}</h3>
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="font-bold text-slate-900 dark:text-white text-base">Seat {selectedSeat.seatNumber.replace(/^[A-Za-z0-9]+-/, '')}</h3>
+                    {selectedSeat.hasLocker && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 flex items-center gap-0.5">
+                        🔐 Locker
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-slate-500 dark:text-[#a8a8a8]">{selectedSeat.rowName}</p>
                 </div>
               </div>

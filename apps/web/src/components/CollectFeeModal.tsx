@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, CheckCircle2, IndianRupee, Calendar, CreditCard, User, Armchair, ShieldCheck, Clock, AlertCircle, Printer, FileCheck, Copy } from 'lucide-react';
 import { StudentItem } from './StudentList';
 import { WhatsAppIcon } from './WhatsAppIcon';
 import { generateWhatsAppReceiptText, openWhatsApp, FeeReceiptData } from '@/lib/receipt-utils';
+import { formatMonthPeriod, getDetailedPeriodLabel } from '@/lib/billing-periods';
 
 interface CollectFeeModalProps {
   isOpen: boolean;
@@ -81,7 +82,6 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
   const [paymentMode, setPaymentMode] = useState<string>('UPI');
   const [paymentDate, setPaymentDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState<string>('');
-  const [extendMembership, setExtendMembership] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [recordedReceipt, setRecordedReceipt] = useState<FeeReceiptData | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
@@ -110,7 +110,6 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
           const due = activeStudent.remainingFee!;
           setTotalFee(due);
           setAmount(due);
-          setExtendMembership(false);
           const dueTx = (activeStudent.transactions || []).find((t) => t.remainingFee && t.remainingFee > 0);
           const targetMonth = dueTx?.paidForMonth || currentMonth;
           setPaidForMonth(targetMonth);
@@ -120,7 +119,6 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
           const fee = getSuggestedFee(shiftVal, activeStudent.monthlyFee);
           setTotalFee(fee);
           setAmount(fee);
-          setExtendMembership(true);
           setPaidForMonth(currentMonth);
           setNotes('');
         }
@@ -129,7 +127,6 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         setTotalFee(1200);
         setAmount(1200);
         setPaidForMonth(currentMonth);
-        setExtendMembership(true);
         setNotes('');
       }
     }
@@ -148,7 +145,6 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         const due = found.remainingFee!;
         setTotalFee(due);
         setAmount(due);
-        setExtendMembership(false);
         const dueTx = (found.transactions || []).find((t) => t.remainingFee && t.remainingFee > 0);
         const targetMonth = dueTx?.paidForMonth || currentMonth;
         setPaidForMonth(targetMonth);
@@ -158,7 +154,6 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         const fee = getSuggestedFee(shiftVal, found.monthlyFee);
         setTotalFee(fee);
         setAmount(fee);
-        setExtendMembership(true);
         setPaidForMonth(currentMonth);
         setNotes('');
       }
@@ -184,8 +179,16 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
     }
 
     const finalTotalFee = isSettlingDue
-      ? (currentStudent?.remainingFee || getFeeNum)
+      ? (currentStudent?.monthlyFee && currentStudent.monthlyFee > 0
+          ? currentStudent.monthlyFee
+          : (currentStudent?.totalFee || (currentStudent?.remainingFee || 0) + getFeeNum))
       : (totalNum > 0 ? totalNum : getFeeNum);
+
+    const calculatedDays = isSettlingDue
+      ? 0
+      : validFrom && validTo
+      ? Math.max(1, Math.round((new Date(validTo).getTime() - new Date(validFrom).getTime()) / (1000 * 60 * 60 * 24)))
+      : 30;
 
     setIsLoading(true);
     try {
@@ -200,7 +203,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         paymentMode,
         paymentDate: new Date(paymentDate).toISOString(),
         notes: notes.trim() || (isSettlingDue ? `Remaining fee clearance for ${paidForMonth}` : undefined),
-        extendDays: extendMembership ? 30 : 0,
+        extendDays: calculatedDays,
         shift: planDuration,
         isSettlingDue,
       });
@@ -452,7 +455,6 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                     const due = currentStudent?.remainingFee || 0;
                     setTotalFee(due);
                     setAmount(due);
-                    setExtendMembership(false);
                     const dueTx = (currentStudent?.transactions || []).find((t) => t.remainingFee && t.remainingFee > 0);
                     const targetMonth = dueTx?.paidForMonth || currentMonth;
                     setPaidForMonth(targetMonth);
@@ -477,7 +479,6 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                     const fee = getSuggestedFee(shiftVal, currentStudent?.monthlyFee);
                     setTotalFee(fee);
                     setAmount(fee);
-                    setExtendMembership(true);
                     setPaidForMonth(currentMonth);
                     setNotes('');
                   }}
@@ -689,7 +690,17 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                   type="date"
                   required
                   value={validFrom}
-                  onChange={(e) => setValidFrom(e.target.value)}
+                  onChange={(e) => {
+                    const newFrom = e.target.value;
+                    setValidFrom(newFrom);
+                    if (newFrom) {
+                      const d = new Date(newFrom);
+                      d.setDate(d.getDate() + 30);
+                      const newTo = d.toISOString().split('T')[0];
+                      setValidTo(newTo);
+                      setPaidForMonth(formatMonthPeriod(newFrom, newTo));
+                    }
+                  }}
                   className="w-full px-3 py-1.5 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-medium text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -699,11 +710,27 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                   type="date"
                   required
                   value={validTo}
-                  onChange={(e) => setValidTo(e.target.value)}
+                  onChange={(e) => {
+                    const newTo = e.target.value;
+                    setValidTo(newTo);
+                    if (validFrom && newTo) {
+                      setPaidForMonth(formatMonthPeriod(validFrom, newTo));
+                    }
+                  }}
                   className="w-full px-3 py-1.5 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-medium text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
             </div>
+
+            {/* Dynamic Billing Period Label */}
+            {validFrom && validTo && (
+              <div className="p-2 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-800/50 rounded-xl text-xs flex items-center justify-between">
+                <span className="text-slate-500 dark:text-neutral-400 font-medium text-[11px]">Period Cycle:</span>
+                <span className="font-bold text-indigo-700 dark:text-indigo-300 text-[11px]">
+                  {getDetailedPeriodLabel(validFrom, validTo)}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Fee for Month Selector */}
@@ -711,17 +738,14 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
             <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
               Billing Month Reference *
             </label>
-            <select
+            <input
+              type="text"
+              required
               value={paidForMonth}
               onChange={(e) => setPaidForMonth(e.target.value)}
+              placeholder="e.g. Jan – Feb 2026"
               className="w-full px-3 py-2 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-            >
-              {monthOptions.map((m) => (
-                <option key={m} value={m} className="dark:bg-[#1c1c1e] dark:text-neutral-100">
-                  {m}
-                </option>
-              ))}
-            </select>
+            />
           </div>
 
           {/* Payment Mode Selector (Only UPI / QR and Cash) */}
@@ -778,48 +802,6 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
             </div>
           </div>
 
-          {/* Membership extension checkbox */}
-          {paymentType === 'REMAINING_DUE' ? (
-            <div className="p-3 bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-slate-400 dark:text-neutral-500 shrink-0" />
-                <div>
-                  <span className="text-xs font-bold text-slate-800 dark:text-neutral-200 block">
-                    Extend Validity (+30 Days)
-                  </span>
-                  <span className="text-[10px] text-slate-500 dark:text-neutral-400">
-                    Unchecked: validity was already granted on initial payment. Check only to add extra 30 days.
-                  </span>
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={extendMembership}
-                onChange={(e) => setExtendMembership(e.target.checked)}
-                className="w-4 h-4 text-emerald-600 rounded border-slate-300 dark:border-[#363636] focus:ring-emerald-500 cursor-pointer"
-              />
-            </div>
-          ) : (
-            <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <div>
-                  <span className="text-xs font-bold text-emerald-900 dark:text-emerald-300 block">
-                    Extend Validity (+30 Days)
-                  </span>
-                  <span className="text-[10px] text-emerald-700 dark:text-emerald-400/90">
-                    Adds 30 days to the student's active membership renewal date.
-                  </span>
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={extendMembership}
-                onChange={(e) => setExtendMembership(e.target.checked)}
-                className="w-4 h-4 text-emerald-600 rounded border-slate-300 dark:border-[#363636] focus:ring-emerald-500 cursor-pointer"
-              />
-            </div>
-          )}
 
           {/* Action buttons */}
           <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-[#262626]">

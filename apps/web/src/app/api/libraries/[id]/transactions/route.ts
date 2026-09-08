@@ -45,7 +45,10 @@ export async function GET(
           },
         },
       },
-      orderBy: { paymentDate: 'desc' },
+      orderBy: [
+        { paymentDate: 'desc' },
+        { createdAt: 'desc' },
+      ],
     });
 
     const formatted = transactions.map((t) => ({
@@ -173,6 +176,54 @@ export async function POST(
       },
     });
 
+    // When settling a due or recording a payment that clears a month's dues,
+    // update previous partial transactions for this month/student so their remainingFee is reduced/cleared
+    if (isSettlingDue || (remainingFee !== undefined && Number(remainingFee) === 0)) {
+      try {
+        let pendingTxs = await prisma.studentFeeTransaction.findMany({
+          where: {
+            studentId: student.id,
+            libraryId,
+            id: { not: transaction.id },
+            remainingFee: { gt: 0 },
+            ...(paidForMonth ? { paidForMonth: paidForMonth.trim() } : {}),
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+
+        if (pendingTxs.length === 0 && isSettlingDue) {
+          pendingTxs = await prisma.studentFeeTransaction.findMany({
+            where: {
+              studentId: student.id,
+              libraryId,
+              id: { not: transaction.id },
+              remainingFee: { gt: 0 },
+            },
+            orderBy: { createdAt: 'asc' },
+          });
+        }
+
+        let credit = Number(amount);
+        for (const pTx of pendingTxs) {
+          if (credit <= 0) break;
+          const curRem = Number(pTx.remainingFee || 0);
+          const reduction = Math.min(curRem, credit);
+          const updatedRem = curRem - reduction;
+          credit -= reduction;
+
+          await prisma.studentFeeTransaction.update({
+            where: { id: pTx.id },
+            data: {
+              remainingFee: updatedRem,
+              status: updatedRem === 0 ? 'PAID' : 'PARTIAL',
+            },
+          });
+        }
+      } catch (err) {
+        console.error('Failed to update pending prior transactions:', err);
+      }
+    }
+
     let newDaysRemaining: number | undefined;
 
     // Extend membership validity if requested & update membership fee amount + shift
@@ -236,9 +287,14 @@ export async function POST(
       },
       updatedStudent: {
         id: student.id,
-        monthlyFee: isSettlingDue
-          ? (activeMembership ? Number(activeMembership.feeAmount) : Number(totalFee || amount))
-          : (totalFee !== undefined ? Number(totalFee) : Number(amount)),
+        monthlyFee: activeMembership && Number(activeMembership.feeAmount) > 0
+          ? Number(activeMembership.feeAmount)
+          : isSettlingDue
+          ? Number(totalFee || amount)
+          : (totalFee !== undefined && Number(totalFee) > 0 ? Number(totalFee) : Number(amount)),
+        totalFee: activeMembership && Number(activeMembership.feeAmount) > 0
+          ? Number(activeMembership.feeAmount)
+          : (totalFee !== undefined && Number(totalFee) > 0 ? Number(totalFee) : Number(amount)),
         remainingFee: remainingFee !== undefined ? Number(remainingFee) : 0,
         membershipEndsInDays: newDaysRemaining,
         shift: shift || activeMembership?.shift || 'FULL_DAY',

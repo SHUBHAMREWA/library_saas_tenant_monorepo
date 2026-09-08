@@ -53,6 +53,10 @@ export async function GET(req: NextRequest) {
         planCode: meta.planCode || 'PRO',
         planName: meta.planName || (meta.planCode ? `${meta.planCode} Plan` : 'SaaS Plan'),
         durationMonths: meta.durationMonths || 1,
+        isAutopay: Boolean(meta.isAutopay || meta.action === 'AUTOPAY_CANCELLED'),
+        isCancelled: meta.action === 'AUTOPAY_CANCELLED' || Boolean(meta.cancellationReason),
+        cancellationReason: meta.cancellationReason || null,
+        cancelledAt: meta.cancelledAt || null,
         failureReason: meta.failureReason || null,
         statusDetail: meta.statusDetail || null,
       };

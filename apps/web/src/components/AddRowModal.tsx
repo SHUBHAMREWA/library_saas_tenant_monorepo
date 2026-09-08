@@ -9,7 +9,12 @@ interface AddRowModalProps {
   roomName: string;
   existingRows: string[];
   existingSeats?: Array<{ seatNumber: string; rowName?: string; roomId?: string | null }>;
-  onAddRows: (data: { rowNames: string[]; seatsPerRow: number; startNumber?: number }) => Promise<void> | void;
+  onAddRows: (data: {
+    rowNames: string[];
+    rowConfigs?: Array<{ name: string; hasLocker: boolean }>;
+    seatsPerRow: number;
+    startNumber?: number;
+  }) => Promise<void> | void;
 }
 
 export function AddRowModal({
@@ -20,7 +25,7 @@ export function AddRowModal({
   existingSeats = [],
   onAddRows,
 }: AddRowModalProps) {
-  const [rowInputs, setRowInputs] = useState<string[]>([]);
+  const [rowInputs, setRowInputs] = useState<Array<{ name: string; hasLocker: boolean }>>([]);
   const [seatsPerRow, setSeatsPerRow] = useState<number | ''>(10);
   const [startNumber, setStartNumber] = useState<number | ''>(1);
   const [isLoading, setIsLoading] = useState(false);
@@ -42,10 +47,13 @@ export function AddRowModal({
   useEffect(() => {
     if (isOpen) {
       if (!existingRows || existingRows.length === 0) {
-        setRowInputs(['Row A', 'Row B']);
+        setRowInputs([
+          { name: 'Row A', hasLocker: false },
+          { name: 'Row B', hasLocker: false },
+        ]);
       } else {
         const nextLetter = String.fromCharCode(65 + existingRows.length);
-        setRowInputs([`Row ${nextLetter}`]);
+        setRowInputs([{ name: `Row ${nextLetter}`, hasLocker: false }]);
       }
       const suggested = getSuggestedStartNumber();
       setStartNumber(suggested);
@@ -58,7 +66,7 @@ export function AddRowModal({
   const handleAddRow = () => {
     const totalCount = existingRows.length + rowInputs.length;
     const nextLetter = String.fromCharCode(65 + totalCount);
-    setRowInputs((prev) => [...prev, `Row ${nextLetter}`]);
+    setRowInputs((prev) => [...prev, { name: `Row ${nextLetter}`, hasLocker: false }]);
   };
 
   const handleRemoveRow = (index: number) => {
@@ -68,17 +76,19 @@ export function AddRowModal({
 
   const numStart = startNumber === '' ? 1 : Math.max(1, Number(startNumber));
   const numSeats = seatsPerRow === '' ? 0 : Math.max(0, Number(seatsPerRow));
-  const validRows = rowInputs.map((r) => r.trim()).filter((r) => r.length > 0);
+  const validRows = rowInputs.filter((r) => r.name.trim().length > 0);
   const totalSeatsToCreate = rowInputs.length * numSeats;
+  const lockerRowsCount = validRows.filter((r) => r.hasLocker).length;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const finalRows = validRows.length > 0 ? validRows : ['Row A'];
+    const finalRows = validRows.length > 0 ? validRows : [{ name: 'Row A', hasLocker: false }];
 
     setIsLoading(true);
     try {
       await onAddRows({
-        rowNames: finalRows,
+        rowNames: finalRows.map((r) => r.name),
+        rowConfigs: finalRows,
         seatsPerRow: numSeats,
         startNumber: numStart,
       });
@@ -128,20 +138,37 @@ export function AddRowModal({
             </div>
 
             <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-              {rowInputs.map((rowVal, idx) => (
+              {rowInputs.map((rowItem, idx) => (
                 <div key={idx} className="flex items-center gap-2">
                   <input
                     type="text"
                     required
-                    value={rowVal}
+                    value={rowItem.name}
                     onChange={(e) => {
                       const updated = [...rowInputs];
-                      updated[idx] = e.target.value;
+                      updated[idx] = { ...updated[idx], name: e.target.value };
                       setRowInputs(updated);
                     }}
                     placeholder={`e.g. Row ${String.fromCharCode(65 + existingRows.length + idx)}`}
                     className="flex-1 px-3 py-2 bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:bg-white dark:focus:bg-[#121212] focus:outline-hidden focus:ring-2 focus:ring-indigo-600 transition-colors"
                   />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = [...rowInputs];
+                      updated[idx] = { ...updated[idx], hasLocker: !updated[idx].hasLocker };
+                      setRowInputs(updated);
+                    }}
+                    title={rowItem.hasLocker ? 'Locker row: all seats will include lockers' : 'Click to enable Locker for this row'}
+                    className={`px-2.5 py-2 rounded-lg text-[11px] font-bold border transition-all flex items-center gap-1 cursor-pointer shrink-0 ${
+                      rowItem.hasLocker
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                        : 'bg-slate-100 dark:bg-[#262626] text-slate-600 dark:text-neutral-400 border-slate-200 dark:border-neutral-700 hover:bg-slate-200 dark:hover:bg-[#333]'
+                    }`}
+                  >
+                    <span>🔐</span>
+                    <span>{rowItem.hasLocker ? 'Locker Row' : '+ Locker'}</span>
+                  </button>
                   {rowInputs.length > 1 && (
                     <button
                       type="button"
@@ -209,7 +236,14 @@ export function AddRowModal({
                   const endPadded = rowEnd < 10 ? `0${rowEnd}` : `${rowEnd}`;
                   return (
                     <div key={i} className="flex items-center justify-between text-xs bg-white dark:bg-[#121212] px-2.5 py-1.5 rounded-lg border border-slate-100 dark:border-[#262626]">
-                      <span className="font-bold text-slate-800 dark:text-neutral-200">{r}:</span>
+                      <span className="font-bold text-slate-800 dark:text-neutral-200 flex items-center gap-1.5">
+                        <span>{r.name}:</span>
+                        {r.hasLocker && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 flex items-center gap-0.5">
+                            🔐 Locker Row
+                          </span>
+                        )}
+                      </span>
                       <span className="font-mono text-indigo-600 dark:text-indigo-400 font-bold">
                         {startPadded} → {endPadded}
                         <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-normal ml-1">({numSeats} seats)</span>
@@ -226,7 +260,9 @@ export function AddRowModal({
             <div className="flex items-center gap-2">
               <Armchair className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span>
-                <strong>{rowInputs.length} new row(s)</strong> • <strong>{totalSeatsToCreate} seats total</strong>
+                <strong>{rowInputs.length} new row(s)</strong>
+                {lockerRowsCount > 0 && <span className="text-amber-700 dark:text-amber-400 font-semibold"> ({lockerRowsCount} 🔐 Locker)</span>}
+                {' '}• <strong>{totalSeatsToCreate} seats total</strong>
               </span>
             </div>
             <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-300 bg-white dark:bg-[#1c1c1e] px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800/60">

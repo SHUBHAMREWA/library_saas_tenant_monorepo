@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   Armchair,
@@ -28,7 +28,7 @@ import {
   History,
   Send,
 } from 'lucide-react';
-import { StudentItem, StudentFeeRecord, formatShift } from './StudentList';
+import { StudentItem, StudentFeeRecord, formatShift, MONTH_NAMES } from './StudentList';
 import { WhatsAppIcon } from './WhatsAppIcon';
 import {
   compressAndConvertToWebP,
@@ -40,6 +40,17 @@ import {
   generateWhatsAppFeeReminderText,
   openWhatsApp,
 } from '@/lib/receipt-utils';
+
+function formatFriendlyDate(dateStr?: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
 
 interface StudentProfileModalProps {
   isOpen: boolean;
@@ -126,6 +137,86 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [isUploadingKyc, setIsUploadingKyc] = useState(false);
 
+  const computedMonthlyRate = useMemo(() => {
+    if (!student) return 0;
+    const monthSumMap = new Map<string, number>();
+    let maxTxTotal = 0;
+    (student.transactions || []).forEach((tx) => {
+      const k = tx.paidForMonth?.trim().toLowerCase() || '';
+      monthSumMap.set(k, (monthSumMap.get(k) || 0) + Number(tx.amount || 0));
+      if (tx.totalFee && Number(tx.totalFee) > maxTxTotal) {
+        maxTxTotal = Number(tx.totalFee);
+      }
+    });
+    let highestMonthSum = 0;
+    monthSumMap.forEach((v) => {
+      if (v > highestMonthSum) highestMonthSum = v;
+    });
+
+    return Math.max(student.monthlyFee || 0, student.totalFee || 0, maxTxTotal, highestMonthSum);
+  }, [student]);
+
+  // Fee History Filter states (Month & Year) - Defaults to current date's Year & Month
+  const currentYearStr = new Date().getFullYear().toString();
+  const currentMonthName = new Date().toLocaleString('en-US', { month: 'long' });
+
+  const [feeHistoryYear, setFeeHistoryYear] = useState<string>(currentYearStr);
+  const [feeHistoryMonth, setFeeHistoryMonth] = useState<string>(currentMonthName);
+
+  // Derive available years from student transactions
+  const availableFeeHistoryYears = useMemo(() => {
+    const years = new Set<string>();
+    const currentYear = new Date().getFullYear().toString();
+    years.add(currentYear);
+    (student?.transactions || []).forEach((tx) => {
+      if (tx.paymentDate) {
+        const yr = new Date(tx.paymentDate).getFullYear().toString();
+        if (yr && !isNaN(Number(yr))) years.add(yr);
+      }
+      if (tx.paidForMonth) {
+        const match = tx.paidForMonth.match(/\b(20\d\d)\b/);
+        if (match) years.add(match[1]);
+      }
+      if (tx.validTo) {
+        const match = tx.validTo.match(/\b(20\d\d)\b/);
+        if (match) years.add(match[1]);
+      }
+    });
+    return Array.from(years).sort((a, b) => b.localeCompare(a));
+  }, [student?.transactions]);
+
+  // Filter transactions for this student by month & year
+  const filteredFeeHistoryTransactions = useMemo(() => {
+    return (student?.transactions || []).filter((tx) => {
+      let matchYear = true;
+      if (feeHistoryYear !== 'ALL') {
+        const dMatch = tx.paymentDate && new Date(tx.paymentDate).getFullYear().toString() === feeHistoryYear;
+        const pMatch = tx.paidForMonth && tx.paidForMonth.includes(feeHistoryYear);
+        const vMatch =
+          (tx.validFrom && tx.validFrom.includes(feeHistoryYear)) ||
+          (tx.validTo && tx.validTo.includes(feeHistoryYear));
+        matchYear = Boolean(dMatch || pMatch || vMatch);
+      }
+
+      let matchMonth = true;
+      if (feeHistoryMonth !== 'ALL') {
+        const pMatch = tx.paidForMonth && tx.paidForMonth.toLowerCase().includes(feeHistoryMonth.toLowerCase());
+        const dMatch =
+          tx.paymentDate &&
+          new Date(tx.paymentDate).toLocaleString('en-US', { month: 'long' }).toLowerCase() ===
+            feeHistoryMonth.toLowerCase();
+        matchMonth = Boolean(pMatch || dMatch);
+      }
+
+      return matchYear && matchMonth;
+    });
+  }, [student?.transactions, feeHistoryYear, feeHistoryMonth]);
+
+  // Total paid under currently selected filter
+  const filteredPaidSum = useMemo(() => {
+    return filteredFeeHistoryTransactions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+  }, [filteredFeeHistoryTransactions]);
+
   // Reset or populate fields when modal opens or student changes
   useEffect(() => {
     if (student) {
@@ -146,17 +237,20 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
       setEditKycDocId(student.kycDocId || '');
       setEditPhotoUrl(student.photoUrl || null);
       setEditKycPhotoUrl(student.kycPhotoUrl || null);
-      setEditMonthlyFee(student.monthlyFee && student.monthlyFee > 0 ? student.monthlyFee : '');
+      const effectiveRate = computedMonthlyRate > 0 ? computedMonthlyRate : (student.monthlyFee && student.monthlyFee > 0 ? student.monthlyFee : '');
+      setEditMonthlyFee(effectiveRate);
       setIsUploadingPhoto(false);
       setIsUploadingKyc(false);
       setIsEditing(false);
       setIsChangingSeat(false);
       setStatusMsg(null);
+      setFeeHistoryYear(new Date().getFullYear().toString());
+      setFeeHistoryMonth(new Date().toLocaleString('en-US', { month: 'long' }));
       if (initialTab) {
         setProfileTab(initialTab);
       }
     }
-  }, [student, isOpen, initialTab]);
+  }, [student, isOpen, initialTab, computedMonthlyRate]);
 
   if (!isOpen || !student) return null;
 
@@ -936,9 +1030,9 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                       <IndianRupee className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Monthly Fee Rate
                     </span>
                     <div className="flex items-center gap-2">
-                      {student.monthlyFee && student.monthlyFee > 0 ? (
+                      {computedMonthlyRate > 0 ? (
                         <span className="font-extrabold text-emerald-700 dark:text-emerald-400">
-                          ₹{student.monthlyFee} / month
+                          ₹{computedMonthlyRate} / month
                         </span>
                       ) : (
                         <span className="font-semibold text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-800/50 px-2 py-0.5 rounded-md text-[11px]">
@@ -1110,10 +1204,13 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                 <div className="grid grid-cols-3 gap-2">
                   <div className="bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200/80 dark:border-[#262626] rounded-xl p-2.5 text-center">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-neutral-500 block">
-                      Total Paid
+                      {feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL' ? 'Filtered Paid' : 'Total Paid'}
                     </span>
                     <span className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white mt-0.5 block truncate">
-                      ₹{((student.transactions || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0)).toLocaleString('en-IN')}
+                      ₹{(feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL'
+                        ? filteredPaidSum
+                        : (student.transactions || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0)
+                      ).toLocaleString('en-IN')}
                     </span>
                   </div>
 
@@ -1122,7 +1219,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                       Monthly Rate
                     </span>
                     <span className="text-sm sm:text-base font-extrabold text-emerald-700 dark:text-emerald-400 mt-0.5 block truncate">
-                      {student.monthlyFee && student.monthlyFee > 0 ? `₹${student.monthlyFee}` : 'Fee Due'}
+                      {computedMonthlyRate > 0 ? `₹${computedMonthlyRate}` : 'Fee Due'}
                     </span>
                   </div>
 
@@ -1148,16 +1245,71 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                   </div>
                 </div>
 
+                {/* Month & Year Filter Controls */}
+                <div className="bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200/80 dark:border-[#262626] rounded-xl p-2.5 flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                    {/* Year select */}
+                    <div className="flex items-center gap-1 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#333] rounded-lg px-2.5 py-1.5 shadow-2xs flex-1">
+                      <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      <select
+                        value={feeHistoryYear}
+                        onChange={(e) => setFeeHistoryYear(e.target.value)}
+                        className="bg-transparent text-slate-800 dark:text-neutral-200 font-semibold text-xs focus:outline-hidden cursor-pointer w-full"
+                      >
+                        <option value="ALL">All Years</option>
+                        {availableFeeHistoryYears.map((yr) => (
+                          <option key={yr} value={yr}>
+                            {yr}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Month select */}
+                    <div className="flex items-center gap-1 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#333] rounded-lg px-2.5 py-1.5 shadow-2xs flex-1">
+                      <select
+                        value={feeHistoryMonth}
+                        onChange={(e) => setFeeHistoryMonth(e.target.value)}
+                        className="bg-transparent text-slate-800 dark:text-neutral-200 font-semibold text-xs focus:outline-hidden cursor-pointer w-full"
+                      >
+                        <option value="ALL">All Months</option>
+                        {MONTH_NAMES.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {(feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFeeHistoryYear('ALL');
+                        setFeeHistoryMonth('ALL');
+                      }}
+                      className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline cursor-pointer shrink-0 px-1"
+                    >
+                      Clear Filter
+                    </button>
+                  )}
+                </div>
+
                 {/* Transaction Ledger / Cards */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs text-slate-500 dark:text-neutral-400 font-semibold px-0.5">
-                    <span>Monthly Transactions ({student.transactions?.length || 0})</span>
+                    <span>
+                      {feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL'
+                        ? `Filtered Transactions (${filteredFeeHistoryTransactions.length})`
+                        : `Monthly Transactions (${student.transactions?.length || 0})`}
+                    </span>
                     <span>Newest First</span>
                   </div>
 
-                  {student.transactions && student.transactions.length > 0 ? (
+                  {filteredFeeHistoryTransactions.length > 0 ? (
                     <div className="space-y-2 max-h-[340px] overflow-y-auto pr-0.5">
-                      {student.transactions.map((tx) => {
+                      {filteredFeeHistoryTransactions.map((tx) => {
                         const d = new Date(tx.paymentDate);
                         const formattedD = d.toLocaleDateString('en-IN', {
                           day: 'numeric',
@@ -1184,7 +1336,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                                   {tx.validFrom && tx.validTo && (
                                     <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium block mt-0.5 flex items-center gap-1">
                                       <Calendar className="w-3 h-3 inline" />
-                                      {tx.validFrom} to {tx.validTo}
+                                      {formatFriendlyDate(tx.validFrom)} – {formatFriendlyDate(tx.validTo)}
                                     </span>
                                   )}
                                 </div>
@@ -1290,20 +1442,37 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                       </div>
                       <div>
                         <h5 className="text-xs font-bold text-slate-800 dark:text-neutral-200">
-                          No Fee Payments Recorded Yet
+                          {feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL'
+                            ? `No Transactions in ${feeHistoryMonth !== 'ALL' ? feeHistoryMonth : ''} ${feeHistoryYear !== 'ALL' ? feeHistoryYear : ''}`
+                            : 'No Fee Payments Recorded Yet'}
                         </h5>
                         <p className="text-[11px] text-slate-500 dark:text-neutral-400 max-w-xs mx-auto mt-1">
-                          No monthly transactions found for this student. Click the button below to collect their fee for this month.
+                          {feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL'
+                            ? 'No payment records found for the selected month and year filter.'
+                            : 'No monthly transactions found for this student. Click the button below to collect their fee.'}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => onCollectFee?.(student)}
-                        className="py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Collect First Fee</span>
-                      </button>
+                      {feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL' ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFeeHistoryYear('ALL');
+                            setFeeHistoryMonth('ALL');
+                          }}
+                          className="py-1.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                        >
+                          <span>Show All Months</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onCollectFee?.(student)}
+                          className="py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Collect First Fee</span>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

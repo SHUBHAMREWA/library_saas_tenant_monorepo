@@ -55,6 +55,7 @@ export interface RowDTO {
   libraryId: string;
   roomId: string;
   name: string;
+  hasLocker?: boolean;
   sortOrder: number;
   isActive: boolean;
 }
@@ -65,6 +66,7 @@ export interface SeatDTO {
   rowId: string;
   seatNumber: string;
   status: SeatStatus;
+  hasLocker?: boolean;
   sortOrder: number;
   isActive: boolean;
 }
@@ -72,6 +74,7 @@ export interface SeatDTO {
 export interface SeatVisualItem extends SeatDTO {
   rowName: string;
   roomName: string;
+  hasLocker?: boolean;
   currentStudent?: {
     id: string;
     fullName: string;

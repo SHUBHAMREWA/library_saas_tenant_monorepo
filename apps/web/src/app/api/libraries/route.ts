@@ -63,13 +63,19 @@ export async function GET(req: NextRequest) {
               take: 1,
             },
             feeTransactions: {
-              orderBy: { paymentDate: 'desc' },
+              orderBy: [
+                { paymentDate: 'desc' },
+                { createdAt: 'desc' },
+              ],
             },
           },
           orderBy: { createdAt: 'desc' },
         },
         feeTransactions: {
-          orderBy: { paymentDate: 'desc' },
+          orderBy: [
+            { paymentDate: 'desc' },
+            { createdAt: 'desc' },
+          ],
           include: {
             student: {
               select: {
@@ -193,18 +199,50 @@ export async function GET(req: NextRequest) {
           }
         }
 
-        const latestTx = studentTxList[0];
-        const studentTotalFee = latestTx?.totalFee
-          ? Number(latestTx.totalFee)
-          : Number(activeMembership?.feeAmount || 1000);
+        // Group transactions by billing month/period to compute true remaining due & month totals
+        const monthAmountsMap = new Map<string, number>();
+        const monthLatestTxMap = new Map<string, (typeof studentTxList)[0]>();
+        let maxRecordedTotalFee = 0;
 
-        const studentRemainingFee = latestTx?.remainingFee
-          ? Number(latestTx.remainingFee)
-          : !hasPaidTx
-          ? studentTotalFee
-          : 0;
+        studentTxList.forEach((tx) => {
+          const key = tx.paidForMonth.trim().toLowerCase();
+          monthAmountsMap.set(key, (monthAmountsMap.get(key) || 0) + Number(tx.amount || 0));
+          if (!monthLatestTxMap.has(key)) {
+            monthLatestTxMap.set(key, tx);
+          }
+          if (tx.totalFee && Number(tx.totalFee) > maxRecordedTotalFee) {
+            maxRecordedTotalFee = Number(tx.totalFee);
+          }
+        });
 
-        const computedMonthlyFee = studentTotalFee;
+        let totalRemainingDue = 0;
+        let highestMonthPaymentSum = 0;
+
+        monthLatestTxMap.forEach((tx, key) => {
+          if (tx.remainingFee && tx.remainingFee > 0) {
+            totalRemainingDue += Number(tx.remainingFee);
+          }
+          const paidInThisMonth = monthAmountsMap.get(key) || 0;
+          if (paidInThisMonth > highestMonthPaymentSum) {
+            highestMonthPaymentSum = paidInThisMonth;
+          }
+        });
+
+        // The true agreed monthly fee rate:
+        // Priority 1: activeMembership.feeAmount (if genuine plan amount > 0)
+        // Priority 2: Highest totalFee declared across transactions
+        // Priority 3: Total sum paid in a single month (e.g. 1000 + 200 = 1200)
+        // Default: 1000
+        const membershipPlanFee = activeMembership?.feeAmount ? Number(activeMembership.feeAmount) : 0;
+        const computedMonthlyFee = membershipPlanFee > 0
+          ? membershipPlanFee
+          : Math.max(maxRecordedTotalFee, highestMonthPaymentSum, 1000);
+
+        const studentRemainingFee = hasPaidTx
+          ? totalRemainingDue
+          : !assignedSeatNumber
+          ? 0
+          : computedMonthlyFee;
 
         return {
           id: std.id,
@@ -220,6 +258,8 @@ export async function GET(req: NextRequest) {
           kycDocId: std.kycDocId || undefined,
           kycType: std.kycDocType,
           monthlyFee: computedMonthlyFee,
+          totalFee: computedMonthlyFee,
+          remainingFee: studentRemainingFee,
           transactions: studentTxList,
         };
       });

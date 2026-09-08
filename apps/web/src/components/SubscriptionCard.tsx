@@ -16,6 +16,8 @@ import {
   AlertCircle,
   Clock,
   XCircle,
+  RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 
 export interface SubscriptionPaymentRecord {
@@ -94,6 +96,14 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
   const [availablePlans, setAvailablePlans] = useState<AvailablePlanItem[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<'ALL' | 'SUCCESS' | 'PENDING' | 'FAILED'>('ALL');
+  
+  // Autopay States
+  const [isAutopaySelected, setIsAutopaySelected] = useState(true);
+  const [subAutoRenew, setSubAutoRenew] = useState<boolean>(false);
+  const [subAutoRenewCancelledAt, setSubAutoRenewCancelledAt] = useState<string | null>(null);
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
 
   const defaultPlans: AvailablePlanItem[] = [
     {
@@ -144,6 +154,13 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
             setSelectedPlanCode(data.availablePlans[0].code);
           }
         }
+        if (data.subscription) {
+          setSubAutoRenew(Boolean(data.subscription.autoRenew));
+          setSubAutoRenewCancelledAt(data.subscription.autoRenewCancelledAt || null);
+        } else {
+          setSubAutoRenew(false);
+          setSubAutoRenewCancelledAt(null);
+        }
         if (data.hasActiveSubscription && status !== 'ACTIVE' && onSubscriptionUpdated) {
           onSubscriptionUpdated();
         }
@@ -152,6 +169,41 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
       console.error('Failed to load subscription data:', err);
     } finally {
       setIsLoadingHistory(false);
+    }
+  };
+
+  const handleCancelAutopay = async () => {
+    setIsCancelling(true);
+    try {
+      const res = await fetch(`/api/libraries/${libraryId}/subscription/cancel-autopay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-email': userEmail || '',
+        },
+        body: JSON.stringify({
+          reason: cancelReason.trim() || 'Cancelled by user from dashboard',
+          userEmail,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSubAutoRenew(false);
+        setSubAutoRenewCancelledAt(data.subscription?.autoRenewCancelledAt || new Date().toISOString());
+        setIsCancelModalOpen(false);
+        setCancelReason('');
+        await fetchSubscriptionData();
+        if (onSubscriptionUpdated) {
+          onSubscriptionUpdated();
+        }
+      } else {
+        alert(data.error || 'Failed to cancel Autopay');
+      }
+    } catch (err) {
+      alert('Network error while cancelling Autopay');
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -222,6 +274,8 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
   const handleProceedPayment = async () => {
     setIsSubmitting(true);
     try {
+      const shouldEnableAutopay = isAutopaySelected && activeSelectedPlan.code === 'BASIC';
+
       // 1. Create order on backend with Razorpay REST API
       const orderRes = await fetch(`/api/libraries/${libraryId}/subscription/create-order`, {
         method: 'POST',
@@ -233,6 +287,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
           planCode: activeSelectedPlan.code,
           couponCode: discount !== null ? coupon.trim().toUpperCase() : undefined,
           userEmail,
+          isAutopay: shouldEnableAutopay,
         }),
       });
 
@@ -256,6 +311,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
             planCode: activeSelectedPlan.code,
             couponCode: discount !== null ? coupon.trim().toUpperCase() : undefined,
             userEmail,
+            isAutopay: shouldEnableAutopay,
           }),
         });
 
@@ -324,6 +380,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                 planCode: activeSelectedPlan.code,
                 couponCode: discount !== null ? coupon.trim().toUpperCase() : undefined,
                 userEmail,
+                isAutopay: shouldEnableAutopay,
               }),
             });
 
@@ -449,6 +506,48 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
             </span>
           </div>
         </div>
+
+        {/* Autopay Status Banner */}
+        {isActive && (
+          <div className="pt-2 border-t border-indigo-900/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+            {subAutoRenew ? (
+              <div className="flex items-center gap-2 text-emerald-300">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                <span className="font-semibold">
+                  Monthly Autopay Enabled: Renews automatically on {validUntil}
+                </span>
+              </div>
+            ) : subAutoRenewCancelledAt ? (
+              <div className="flex items-center gap-2 text-amber-300">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>
+                  Autopay was cancelled on{' '}
+                  <strong className="text-white">
+                    {new Date(subAutoRenewCancelledAt).toLocaleDateString('en-IN', {
+                      day: 'numeric',
+                      month: 'short',
+                    })}
+                  </strong>{' '}
+                  (Plan remains active until {validUntil})
+                </span>
+              </div>
+            ) : (
+              <div className="text-indigo-300">
+                One-Time Payment Plan (Autopay not enabled)
+              </div>
+            )}
+
+            {subAutoRenew && (
+              <button
+                type="button"
+                onClick={() => setIsCancelModalOpen(true)}
+                className="text-xs font-bold text-rose-300 hover:text-rose-100 hover:bg-rose-950/60 border border-rose-800/60 px-3 py-1.5 rounded-xl transition cursor-pointer self-start sm:self-auto"
+              >
+                Cancel Autopay
+              </button>
+            )}
+          </div>
+        )}
 
         <button
           type="button"
@@ -690,7 +789,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                       <div>
                         <div className="font-black text-slate-900 dark:text-white text-sm">{p.name}</div>
                         <div className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 mt-0.5">
-                          {p.durationMonths} {p.durationMonths === 1 ? 'Month' : p.durationMonths === 12 ? 'Year' : 'Months'}
+                          {p.durationMonths === 12 ? '1 Year' : `${p.durationMonths} ${p.durationMonths === 1 ? 'Month' : 'Months'}`}
                         </div>
                         <p className="text-[10px] text-slate-500 dark:text-[#a8a8a8] mt-1 leading-tight">
                           {p.description || 'Full features included'}
@@ -731,6 +830,30 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                 </p>
               </div>
             </div>
+
+            {/* Autopay Option for Basic Plan (₹100/mo) */}
+            {activeSelectedPlan.code === 'BASIC' && (
+              <div className="p-3.5 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl flex items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-1.5 font-bold text-xs text-emerald-900 dark:text-emerald-200">
+                    <RefreshCw className="w-3.5 h-3.5 text-emerald-600 animate-spin-slow" />
+                    <span>Enable Monthly Autopay (Auto-Renew)</span>
+                  </div>
+                  <p className="text-[11px] text-emerald-700 dark:text-emerald-300">
+                    Automatically renew ₹{finalPrice}/mo via UPI/Card mandate. You can cancel anytime from your dashboard.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={isAutopaySelected}
+                    onChange={(e) => setIsAutopaySelected(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
+              </div>
+            )}
 
             {/* Coupon Code Input */}
             <div className="space-y-1.5">
@@ -810,6 +933,68 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
             <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 dark:text-[#737373] font-medium pt-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
               <span>100% Secured by Razorpay • UPI, Cards & NetBanking</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Autopay Confirmation Modal */}
+      {isCancelModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-white w-full max-w-md rounded-3xl p-6 shadow-2xl space-y-4 border border-slate-200 dark:border-[#262626]">
+            <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400">
+              <div className="p-2.5 bg-rose-100 dark:bg-rose-950/60 rounded-2xl">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-base text-slate-900 dark:text-white">Cancel Monthly Autopay?</h3>
+                <p className="text-xs text-slate-500 dark:text-[#a8a8a8]">Disable automatic recurring renewals</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 dark:bg-[#1a1a1a] rounded-2xl border border-slate-200 dark:border-[#262626] text-xs space-y-2 text-slate-600 dark:text-[#a8a8a8]">
+              <p>
+                ✓ <strong>Your plan remains 100% active</strong> until <strong className="text-slate-900 dark:text-white">{validUntil}</strong>.
+              </p>
+              <p>
+                ✓ No further automatic charges will occur on your UPI/Card mandate.
+              </p>
+              <p>
+                ✓ You can renew manually anytime from your dashboard.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-[#d4d4d4]">
+                Reason for Cancellation (Optional)
+              </label>
+              <input
+                type="text"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. Trying another duration, temporary pause..."
+                className="w-full px-3.5 py-2.5 border border-slate-300 dark:border-[#262626] rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-[#737373] bg-white dark:bg-[#1a1a1a] focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-600"
+              />
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                disabled={isCancelling}
+                onClick={() => setIsCancelModalOpen(false)}
+                className="px-4 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#262626] rounded-xl transition cursor-pointer"
+              >
+                Keep Autopay Active
+              </button>
+              <button
+                type="button"
+                disabled={isCancelling}
+                onClick={handleCancelAutopay}
+                className="px-4 py-2.5 text-xs font-extrabold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <XCircle className="w-4 h-4" />
+                <span>{isCancelling ? 'Cancelling...' : 'Confirm & Cancel Autopay'}</span>
+              </button>
             </div>
           </div>
         </div>
