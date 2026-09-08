@@ -333,16 +333,7 @@ export default function MobileDashboard() {
 
       if (savedUser) {
         parsedUser = JSON.parse(savedUser);
-        const userClean = (parsedUser.email || '').toLowerCase().trim();
-        const isSuper =
-          parsedUser.role === 'SUPER_ADMIN' ||
-          userClean === 'shubhamrewamp17@gmail.com' ||
-          userClean === 'kushwahashubham5932@gmail.com' ||
-          userClean === 'shubhamkushwaha.ee19@gmail.com' ||
-          userClean === 'admin@libraryhub.com';
-
-        if (isSuper) {
-          parsedUser.role = 'SUPER_ADMIN';
+        if (parsedUser.role === 'SUPER_ADMIN') {
           setIsAdminPortalView(true);
         }
         setCurrentUser(parsedUser);
@@ -369,27 +360,17 @@ export default function MobileDashboard() {
 
   // Sync state changes to localStorage and database
   const handleUserLogin = (user: { fullName: string; email: string; phone: string; role: string; avatar?: string }) => {
-    const userClean = (user.email || '').toLowerCase().trim();
-    const isSuper =
-      user.role === 'SUPER_ADMIN' ||
-      userClean === 'shubhamrewamp17@gmail.com' ||
-      userClean === 'kushwahashubham5932@gmail.com' ||
-      userClean === 'shubhamkushwaha.ee19@gmail.com' ||
-      userClean === 'admin@libraryhub.com';
-
-    const effectiveUser = isSuper ? { ...user, role: 'SUPER_ADMIN' } : user;
-
-    if (isSuper) {
+    if (user.role === 'SUPER_ADMIN') {
       setIsAdminPortalView(true);
     }
-    setCurrentUser(effectiveUser);
+    setCurrentUser(user);
     try {
-      localStorage.setItem('seelibrary_user', JSON.stringify(effectiveUser));
+      localStorage.setItem('seelibrary_user', JSON.stringify(user));
     } catch {}
 
     // Load libraries for this user from database
-    if (effectiveUser.email) {
-      loadUserLibrariesFromDb(effectiveUser.email, libraries);
+    if (user.email) {
+      loadUserLibrariesFromDb(user.email, libraries);
     }
   };
 

@@ -13,20 +13,19 @@ export async function POST(req: NextRequest) {
 
     const cleanEmail = email.toLowerCase().trim();
     const cleanName = fullName?.trim() || cleanEmail.split('@')[0] || 'User';
-    const configuredAdminEmail = (process.env.ADMIN_EMAIL || process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'shubhamrewamp17@gmail.com').toLowerCase().trim();
+    const configuredAdminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
 
     const existingUser = await prisma.user.findUnique({
       where: { email: cleanEmail },
     });
 
-    const isKnownAdmin =
-      cleanEmail === configuredAdminEmail ||
-      cleanEmail === 'shubhamrewamp17@gmail.com' ||
-      cleanEmail === 'kushwahashubham5932@gmail.com' ||
-      cleanEmail === 'shubhamkushwaha.ee19@gmail.com' ||
-      cleanEmail === 'admin@libraryhub.com';
+    // Server-side Super Admin Determination:
+    // 1. Server environment variable ADMIN_EMAIL matches
+    // 2. User in PostgreSQL DB already has role === 'SUPER_ADMIN'
+    const isSuperAdmin =
+      Boolean(configuredAdminEmail && cleanEmail === configuredAdminEmail) ||
+      existingUser?.role === 'SUPER_ADMIN';
 
-    const isSuperAdmin = isKnownAdmin || existingUser?.role === 'SUPER_ADMIN';
     const finalRole = isSuperAdmin ? 'SUPER_ADMIN' : (existingUser?.role || 'USER');
 
     const user = await prisma.user.upsert({
