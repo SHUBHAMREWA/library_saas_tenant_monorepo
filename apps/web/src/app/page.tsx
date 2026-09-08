@@ -286,16 +286,20 @@ export default function MobileDashboard() {
 
       if (authRes.ok) {
         const authData = await authRes.json();
-        if (authData.user?.role === 'SUPER_ADMIN') {
-          setCurrentUser((prev) => (prev ? { ...prev, role: 'SUPER_ADMIN' } : null));
-          setIsAdminPortalView(true);
+        if (authData.user) {
+          const canonicalUser = {
+            fullName: authData.user.fullName || currentUser?.fullName || '',
+            email: authData.user.email,
+            phone: authData.user.phone || '',
+            role: authData.user.role || 'USER',
+            avatar: authData.user.avatar || undefined,
+          };
+          setCurrentUser(canonicalUser);
+          if (authData.user.role === 'SUPER_ADMIN') {
+            setIsAdminPortalView(true);
+          }
           try {
-            const currentSaved = localStorage.getItem('seelibrary_user');
-            if (currentSaved) {
-              const parsed = JSON.parse(currentSaved);
-              parsed.role = 'SUPER_ADMIN';
-              localStorage.setItem('seelibrary_user', JSON.stringify(parsed));
-            }
+            localStorage.setItem('seelibrary_user', JSON.stringify(canonicalUser));
           } catch {}
         }
       }
