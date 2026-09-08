@@ -19,8 +19,11 @@ export async function POST(req: NextRequest) {
       where: { email: cleanEmail },
     });
 
+    // Server-side Super Admin Determination:
+    // 1. Server environment variable ADMIN_EMAIL matches
+    // 2. User in PostgreSQL DB already has role === 'SUPER_ADMIN'
     const isSuperAdmin =
-      (configuredAdminEmail && cleanEmail === configuredAdminEmail) ||
+      Boolean(configuredAdminEmail && cleanEmail === configuredAdminEmail) ||
       existingUser?.role === 'SUPER_ADMIN';
 
     const finalRole = isSuperAdmin ? 'SUPER_ADMIN' : (existingUser?.role || 'USER');
