@@ -13,28 +13,22 @@ export async function POST(req: NextRequest) {
 
     const cleanEmail = email.toLowerCase().trim();
     const cleanName = fullName?.trim() || cleanEmail.split('@')[0] || 'User';
-    const configuredAdminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
 
-    console.log('[auth/sync] email:', cleanEmail);
-    console.log('[auth/sync] ADMIN_EMAIL configured:', Boolean(configuredAdminEmail));
-    console.log('[auth/sync] email matches ADMIN_EMAIL:', configuredAdminEmail === cleanEmail);
-
+    // Check existing user in DB first
     const existingUser = await prisma.user.findUnique({
       where: { email: cleanEmail },
     });
 
-    console.log('[auth/sync] existingUser role:', existingUser?.role ?? 'NOT_FOUND');
+    console.log('[auth/sync] email:', cleanEmail, '| existingRole:', existingUser?.role ?? 'NOT_FOUND');
 
-    // Server-side Super Admin Determination:
-    // 1. Server environment variable ADMIN_EMAIL matches
-    // 2. User in PostgreSQL DB already has role === 'SUPER_ADMIN'
-    const isSuperAdmin =
-      Boolean(configuredAdminEmail && cleanEmail === configuredAdminEmail) ||
-      existingUser?.role === 'SUPER_ADMIN';
+    // CRITICAL: Never downgrade a SUPER_ADMIN role.
+    // The Render backend (via ADMIN_EMAIL env var) bootstraps SUPER_ADMIN into PostgreSQL DB at startup.
+    // Vercel frontend just reads role from DB — no ADMIN_EMAIL env var needed on Vercel.
+    const roleToSave = existingUser?.role === 'SUPER_ADMIN'
+      ? 'SUPER_ADMIN'
+      : (existingUser?.role || 'USER');
 
-    console.log('[auth/sync] isSuperAdmin:', isSuperAdmin, '| finalRole will be:', isSuperAdmin ? 'SUPER_ADMIN' : (existingUser?.role || 'USER'));
-
-    const finalRole = isSuperAdmin ? 'SUPER_ADMIN' : (existingUser?.role || 'USER');
+    console.log('[auth/sync] roleToSave:', roleToSave);
 
     const user = await prisma.user.upsert({
       where: { email: cleanEmail },
@@ -42,7 +36,7 @@ export async function POST(req: NextRequest) {
         fullName: cleanName,
         phone: phone || undefined,
         avatarUrl: avatar || undefined,
-        role: finalRole,
+        role: roleToSave, // ← never overwrites SUPER_ADMIN with USER
       },
       create: {
         id: crypto.randomUUID(),
@@ -50,7 +44,7 @@ export async function POST(req: NextRequest) {
         fullName: cleanName,
         phone: phone || null,
         avatarUrl: avatar || null,
-        role: finalRole,
+        role: roleToSave,
       },
     });
 
