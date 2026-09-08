@@ -279,8 +279,8 @@ export default function MobileDashboard() {
         console.warn('Next.js /api/auth/sync call failed:', e);
       }
 
-      // Direct fallback to Render backend if Vercel route didn't return user
-      if (!authData?.user) {
+      // Direct check to Render backend if Vercel route didn't return SUPER_ADMIN
+      if (!authData?.user || authData.user.role !== 'SUPER_ADMIN') {
         try {
           const directRes = await fetch('https://seelibrarybackend.onrender.com/api/v1/auth/sync', {
             method: 'POST',
@@ -288,7 +288,10 @@ export default function MobileDashboard() {
             body: JSON.stringify({ email: userEmail, fullName: currentUser?.fullName || '' }),
           });
           if (directRes.ok) {
-            authData = await directRes.json();
+            const renderData = await directRes.json();
+            if (renderData?.user) {
+              authData = renderData;
+            }
           }
         } catch (e) {
           console.warn('Render direct sync fallback failed:', e);

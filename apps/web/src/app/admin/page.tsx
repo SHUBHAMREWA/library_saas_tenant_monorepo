@@ -52,7 +52,7 @@ export default function AdminPage() {
           console.warn('[admin page] /api/auth/sync failed:', e);
         }
 
-        if (!data?.user) {
+        if (!data?.user || data.user.role !== 'SUPER_ADMIN') {
           try {
             const directRes = await fetch('https://seelibrarybackend.onrender.com/api/v1/auth/sync', {
               method: 'POST',
@@ -60,7 +60,10 @@ export default function AdminPage() {
               body: JSON.stringify({ email: parsedUser.email, fullName: parsedUser.fullName || '' }),
             });
             if (directRes.ok) {
-              data = await directRes.json();
+              const rData = await directRes.json();
+              if (rData?.user) {
+                data = rData;
+              }
             }
           } catch (e) {
             console.warn('[admin page] Render direct sync failed:', e);

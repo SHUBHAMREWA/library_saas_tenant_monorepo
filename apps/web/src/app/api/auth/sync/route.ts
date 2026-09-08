@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 
 const RENDER_BACKEND_URL =
-  process.env.API_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
+  (process.env.API_URL && process.env.API_URL.startsWith('http') ? process.env.API_URL : null) ||
+  (process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.startsWith('http') ? process.env.NEXT_PUBLIC_API_URL : null) ||
   'https://seelibrarybackend.onrender.com';
 
 export async function POST(req: NextRequest) {
