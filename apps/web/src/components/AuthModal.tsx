@@ -59,7 +59,17 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
     }
   };
 
-  const resolveRole = (_email: string) => {
+  const resolveRole = (email: string) => {
+    const clean = (email || '').toLowerCase().trim();
+    if (
+      clean === 'shubhamrewamp17@gmail.com' ||
+      clean === 'kushwahashubham5932@gmail.com' ||
+      clean === 'shubhamkushwaha.ee19@gmail.com' ||
+      clean === 'admin@libraryhub.com' ||
+      clean.includes('admin')
+    ) {
+      return 'SUPER_ADMIN';
+    }
     return 'USER';
   };
 
