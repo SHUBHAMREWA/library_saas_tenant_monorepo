@@ -59,11 +59,27 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
     }
   };
 
-  const resolveRole = (_email: string) => {
+  const resolveRole = async (email: string, fullName?: string, avatar?: string): Promise<string> => {
+    try {
+      const res = await fetch('https://seelibrarybackend.onrender.com/api/v1/auth/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, fullName, avatar }),
+        signal: AbortSignal.timeout(6000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.user?.role) {
+          return data.user.role;
+        }
+      }
+    } catch (e) {
+      console.warn('[AuthModal] Backend role resolution fallback:', e);
+    }
     return 'USER';
   };
 
-  const handleGoogleCredentialResponse = (response: any) => {
+  const handleGoogleCredentialResponse = async (response: any) => {
     if (!response || !response.credential) return;
     setIsLoading(true);
 
@@ -72,7 +88,7 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
       const email = payload?.email || 'user@gmail.com';
       const fullName = payload?.name || payload?.given_name || email.split('@')[0];
       const avatar = payload?.picture;
-      const role = resolveRole(email);
+      const role = await resolveRole(email, fullName, avatar);
 
       onLoginSuccess({
         fullName,
@@ -108,7 +124,7 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
                 const email = user.email || 'user@gmail.com';
                 const fullName = user.name || user.given_name || email.split('@')[0];
                 const avatar = user.picture;
-                const role = resolveRole(email);
+                const role = await resolveRole(email, fullName, avatar);
 
                 onLoginSuccess({
                   fullName,
@@ -223,17 +239,16 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
   if (!isOpen) return null;
 
   // Direct Google Sign In
-  const handleManualGoogleSubmit = (e: React.FormEvent) => {
+  const handleManualGoogleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!googleEmail.trim()) return;
 
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
       const email = googleEmail.trim();
       const fullName = googleName.trim() || email.split('@')[0];
+      const role = await resolveRole(email, fullName);
 
-      const role = resolveRole(email);
       onLoginSuccess({
         fullName,
         email,
@@ -242,7 +257,9 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
         avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=4f46e5&color=fff`,
       });
       onClose();
-    }, 300);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // OTP Request Flow
@@ -257,16 +274,15 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
   };
 
   // OTP Verification Flow
-  const handleVerifyOtp = (e: React.FormEvent) => {
+  const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
       const target = emailOrPhone.trim();
       const isEmail = target.includes('@');
       const name = userName.trim() || (isEmail ? target.split('@')[0] : 'Library Owner');
       const email = isEmail ? target : `${target}@seelibrary.io`;
-      const role = resolveRole(email);
+      const role = await resolveRole(email, name);
 
       onLoginSuccess({
         fullName: name,
@@ -276,7 +292,9 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
         avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=059669&color=fff`,
       });
       onClose();
-    }, 300);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Developer Test Login

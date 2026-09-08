@@ -73,6 +73,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    let debugInfo: any = {
+      RENDER_BACKEND_URL,
+      databaseUrlPresent: Boolean(process.env.DATABASE_URL),
+    };
+
     // Strategy 2: Forward to Render backend (which has Neon PostgreSQL DB + ADMIN_EMAIL env)
     if (!canonicalUser) {
       try {
@@ -83,14 +88,20 @@ export async function POST(req: NextRequest) {
           signal: AbortSignal.timeout(10000),
         });
 
+        debugInfo.renderStatus = renderRes.status;
+        debugInfo.renderOk = renderRes.ok;
+
         if (renderRes.ok) {
           const renderData = await renderRes.json();
           if (renderData.user) {
             canonicalUser = renderData.user;
             console.log('[auth/sync] Successfully synced via Render backend:', canonicalUser?.role);
           }
+        } else {
+          debugInfo.renderText = await renderRes.text();
         }
-      } catch (renderErr) {
+      } catch (renderErr: any) {
+        debugInfo.renderError = renderErr?.message || String(renderErr);
         console.warn('[auth/sync] Render backend sync request failed:', renderErr);
       }
     }
@@ -110,6 +121,7 @@ export async function POST(req: NextRequest) {
     const res = NextResponse.json({
       success: true,
       user: canonicalUser,
+      _debug: debugInfo,
     });
 
     // Set role cookie for middleware and client navigation
