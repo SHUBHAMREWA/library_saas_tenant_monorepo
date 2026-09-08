@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   LayoutDashboard,
   Armchair,
@@ -32,6 +32,7 @@ import {
   Sun,
   Moon,
   FlaskConical,
+  TrendingUp,
 } from 'lucide-react';
 import type { SeatStatus } from '@library/types';
 import dynamic from 'next/dynamic';
@@ -529,6 +530,35 @@ export default function MobileDashboard() {
   const availableCount = seats.filter((s) => s.status === 'AVAILABLE').length;
   const occupancyPercentage = totalSeats > 0 ? Math.round((occupiedCount / totalSeats) * 100) : 0;
   const expiringSoonCount = students.filter((s) => Boolean(s.seatNumber) && s.membershipEndsInDays <= 5 && s.status === 'ACTIVE').length;
+
+  // Financial and Operational metrics for Home Tab
+  const thisMonthFeeCollected = useMemo(() => {
+    if (!activeLibrary?.feeTransactions) return 0;
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    return activeLibrary.feeTransactions.reduce((acc, tx) => {
+      let isThisMonth = false;
+      if (tx.paymentDate) {
+        const txDate = new Date(tx.paymentDate);
+        if (!isNaN(txDate.getTime())) {
+          isThisMonth =
+            txDate.getMonth() + 1 === currentMonth && txDate.getFullYear() === currentYear;
+        }
+      }
+      return isThisMonth ? acc + (Number(tx.amount) || 0) : acc;
+    }, 0);
+  }, [activeLibrary?.feeTransactions]);
+
+  const totalPendingDuesAmount = useMemo(() => {
+    return students.reduce((acc, s) => acc + (Number(s.remainingFee) || 0), 0);
+  }, [students]);
+
+  const studentsWithDuesList = useMemo(() => {
+    return students
+      .filter((s) => (Number(s.remainingFee) || 0) > 0 || (s.membershipEndsInDays <= 5 && s.status === 'ACTIVE'))
+      .sort((a, b) => (Number(b.remainingFee) || 0) - (Number(a.remainingFee) || 0));
+  }, [students]);
 
   // Mutators for active library
   const updateActiveLibrary = (updater: (prevLib: LibraryBranch) => LibraryBranch) => {
@@ -1978,89 +2008,360 @@ export default function MobileDashboard() {
               />
             )}
 
-            {/* Dashboard Visual Chart (Occupancy, Attendance trends, Shifts) */}
-            <DashboardChart
-              students={students}
-              seats={seats}
-              totalSeats={totalSeats}
-              occupiedSeats={occupiedCount}
-            />
-
-            {/* Quick Glance Metrics (computed from real state) */}
-            <section className="grid grid-cols-2 gap-3">
-              <div className="bg-white dark:bg-[#121212] p-4 rounded-xl border border-slate-200 dark:border-[#262626] shadow-xs transition-colors">
-                <span className="text-xs text-slate-500 dark:text-neutral-400 font-medium">Active Students</span>
-                <div className="text-2xl font-bold text-slate-900 dark:text-[#f5f5f5] mt-1">
-                  {students.filter((s) => s.status === 'ACTIVE').length}
-                </div>
-                <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium mt-1 flex items-center gap-1">
-                  <span>●</span> {occupiedCount} occupied seats
-                </div>
-              </div>
-
-              <div className="bg-white dark:bg-[#121212] p-4 rounded-xl border border-slate-200 dark:border-[#262626] shadow-xs transition-colors">
-                <span className="text-xs text-slate-500 dark:text-neutral-400 font-medium">Available Seats</span>
-                <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 mt-1">
-                  {availableCount} <span className="text-xs font-normal text-slate-400 dark:text-neutral-500">/ {totalSeats}</span>
-                </div>
-                <div className="text-[11px] text-slate-500 dark:text-neutral-400 font-medium mt-1">
-                  {occupancyPercentage}% occupancy rate
-                </div>
-              </div>
-            </section>
-
-            {/* Action Needed Banner: Memberships Expiring */}
-            {expiringSoonCount > 0 && (
-              <section
+            {/* Top 4-Pillar High-Density Metric Deck */}
+            <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Pillar 1: Total Students */}
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => {
-                  setStudentFilterTab('EXPIRING_5_DAYS');
+                  setStudentFilterTab('ALL');
                   setStudentSubTab('directory');
                   setActiveTab('students');
                 }}
-                className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-xl p-3 flex items-center justify-between cursor-pointer hover:bg-amber-100/80 dark:hover:bg-amber-950/40 transition-all shadow-2xs group"
+                className="bg-white dark:bg-[#121212] p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-[#262626] shadow-xs hover:border-indigo-400 dark:hover:border-indigo-600 transition-all cursor-pointer group flex flex-col justify-between"
               >
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded-lg">
-                    <Clock className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-200 group-hover:text-amber-950 dark:group-hover:text-amber-100">
-                      {expiringSoonCount} Membership{expiringSoonCount > 1 ? 's' : ''} Ending Soon
-                    </h4>
-                    <p className="text-xs text-amber-700 dark:text-amber-300/80">Expiring within the next 5 days — click to view & collect fees</p>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-neutral-400 uppercase tracking-wider">
+                    Total Students
+                  </span>
+                  <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Users className="w-4 h-4" />
                   </div>
                 </div>
-                <div className="flex items-center gap-1 text-xs font-bold text-amber-800 dark:text-amber-200 bg-amber-200/60 dark:bg-amber-900/40 group-hover:bg-amber-200 dark:group-hover:bg-amber-900/60 px-2.5 py-1.5 rounded-lg transition-colors">
-                  <span>View Due</span>
-                  <ChevronRight className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                <div className="mt-2 flex items-baseline justify-between">
+                  <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+                    {students.length}
+                  </div>
+                  <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md">
+                    {students.filter((s) => s.status === 'ACTIVE').length} Active
+                  </span>
                 </div>
-              </section>
-            )}
+                <div className="mt-2 text-[11px] text-slate-500 dark:text-neutral-400 flex items-center justify-between border-t border-slate-100 dark:border-[#202020] pt-2">
+                  <span>{students.filter((s) => !s.seatNumber).length} Unassigned</span>
+                  <span className="text-indigo-600 dark:text-indigo-400 font-semibold group-hover:translate-x-0.5 transition-transform flex items-center">
+                    Directory &rarr;
+                  </span>
+                </div>
+              </div>
 
-            {/* Quick Actions Bar */}
-            <section className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => requireSubscription('Enroll Students', () => setIsStudentModalOpen(true))}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-medium py-2.5 px-3 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              {/* Pillar 2: Seat Occupancy */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setActiveTab('seats')}
+                className="bg-white dark:bg-[#121212] p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-[#262626] shadow-xs hover:border-indigo-400 dark:hover:border-indigo-600 transition-all cursor-pointer group flex flex-col justify-between"
               >
-                <Plus className="w-4 h-4" /> Add Student
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsRoomModalOpen(true)}
-                className="flex-1 bg-white dark:bg-[#121212] hover:bg-slate-50 dark:hover:bg-[#1c1c1e] active:bg-slate-100 dark:active:bg-[#262626] text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] font-medium py-2.5 px-3 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-neutral-400 uppercase tracking-wider">
+                    Occupancy Rate
+                  </span>
+                  <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Armchair className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="mt-2 flex items-baseline justify-between">
+                  <div className="text-2xl sm:text-3xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight">
+                    {occupancyPercentage}%
+                  </div>
+                  <span className="text-[11px] font-extrabold text-slate-700 dark:text-neutral-300">
+                    {occupiedCount}/{totalSeats}
+                  </span>
+                </div>
+                <div className="mt-2 text-[11px] text-slate-500 dark:text-neutral-400 flex items-center justify-between border-t border-slate-100 dark:border-[#202020] pt-2">
+                  <span className="text-emerald-600 dark:text-emerald-400 font-bold">{availableCount} Available</span>
+                  <span className="text-indigo-600 dark:text-indigo-400 font-semibold group-hover:translate-x-0.5 transition-transform flex items-center">
+                    Layout &rarr;
+                  </span>
+                </div>
+              </div>
+
+              {/* Pillar 3: This Month Collections */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setActiveTab('transactions')}
+                className="bg-white dark:bg-[#121212] p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-[#262626] shadow-xs hover:border-emerald-400 dark:hover:border-emerald-600 transition-all cursor-pointer group flex flex-col justify-between"
               >
-                <Building2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> Add Room/Rows
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsBatchModalOpen(true)}
-                className="flex-1 bg-white dark:bg-[#121212] hover:bg-slate-50 dark:hover:bg-[#1c1c1e] active:bg-slate-100 dark:active:bg-[#262626] text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] font-medium py-2.5 px-3 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-neutral-400 uppercase tracking-wider">
+                    This Month
+                  </span>
+                  <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <IndianRupee className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="mt-2 flex items-baseline justify-between">
+                  <div className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">
+                    ₹{thisMonthFeeCollected.toLocaleString('en-IN')}
+                  </div>
+                  <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100/60 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded">
+                    Collected
+                  </span>
+                </div>
+                <div className="mt-2 text-[11px] text-slate-500 dark:text-neutral-400 flex items-center justify-between border-t border-slate-100 dark:border-[#202020] pt-2">
+                  <span>{(activeLibrary?.feeTransactions || []).length} Total Txs</span>
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold group-hover:translate-x-0.5 transition-transform flex items-center">
+                    Ledger &rarr;
+                  </span>
+                </div>
+              </div>
+
+              {/* Pillar 4: Pending Due Fees */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  setStudentFilterTab('FEE_DUE');
+                  setStudentSubTab('directory');
+                  setActiveTab('students');
+                }}
+                className={`bg-white dark:bg-[#121212] p-3.5 sm:p-4 rounded-2xl border shadow-xs transition-all cursor-pointer group flex flex-col justify-between ${
+                  totalPendingDuesAmount > 0
+                    ? 'border-amber-300/80 dark:border-amber-900/50 hover:border-amber-500 dark:hover:border-amber-500'
+                    : 'border-slate-200 dark:border-[#262626] hover:border-indigo-400'
+                }`}
               >
-                <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> Batch Seats
-              </button>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-neutral-400 uppercase tracking-wider">
+                    Pending Dues
+                  </span>
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform ${
+                    totalPendingDuesAmount > 0
+                      ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400'
+                      : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400'
+                  }`}>
+                    {totalPendingDuesAmount > 0 ? <Clock className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+                  </div>
+                </div>
+                <div className="mt-2 flex items-baseline justify-between">
+                  <div className={`text-2xl sm:text-3xl font-black tracking-tight ${
+                    totalPendingDuesAmount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
+                  }`}>
+                    ₹{totalPendingDuesAmount.toLocaleString('en-IN')}
+                  </div>
+                  {totalPendingDuesAmount > 0 ? (
+                    <span className="text-[10px] font-extrabold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 px-1.5 py-0.5 rounded">
+                      {studentsWithDuesList.length} Due
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-extrabold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded">
+                      All Clear
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 text-[11px] text-slate-500 dark:text-neutral-400 flex items-center justify-between border-t border-slate-100 dark:border-[#202020] pt-2">
+                  <span>{expiringSoonCount > 0 ? `${expiringSoonCount} ending soon` : 'Zero overdue'}</span>
+                  <span className="text-amber-600 dark:text-amber-400 font-semibold group-hover:translate-x-0.5 transition-transform flex items-center">
+                    Collect &rarr;
+                  </span>
+                </div>
+              </div>
             </section>
+
+            {/* 2-Column Responsive Hub: Analytics Chart (Left) + Quick Actions & Live Due Feed (Right) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              {/* Left Column: Interactive Analytics Visual Chart */}
+              <div className="lg:col-span-7">
+                <DashboardChart
+                  students={students}
+                  seats={seats}
+                  totalSeats={totalSeats}
+                  occupiedSeats={occupiedCount}
+                  transactions={activeLibrary?.feeTransactions || []}
+                  rooms={displayRooms}
+                  onNavigateTab={setActiveTab}
+                  onOpenCollectFee={() => {
+                    requireSubscription('Collect Fees', () => {
+                      setStudentForFeeCollection(null);
+                      setIsCollectFeeModalOpen(true);
+                    });
+                  }}
+                />
+              </div>
+
+              {/* Right Column: Operations Hub & Live Attention Feed */}
+              <div className="lg:col-span-5 space-y-3.5 flex flex-col justify-between">
+                {/* 2x2 Quick Action Command Center */}
+                <div className="bg-white dark:bg-[#121212] rounded-2xl border border-slate-200/90 dark:border-[#262626] p-4 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#262626] pb-2.5">
+                    <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-neutral-400 flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                      Quick Operations Hub
+                    </h3>
+                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-full">
+                      1-Click
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {/* Enroll Student */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        requireSubscription('Enroll Students', () => {
+                          setPreselectedSeatNumberForNewStudent(null);
+                          setIsStudentModalOpen(true);
+                        })
+                      }
+                      className="p-3 rounded-xl bg-gradient-to-br from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 active:scale-[0.98] text-white shadow-xs flex flex-col items-start justify-between min-h-[76px] transition-all cursor-pointer group"
+                    >
+                      <div className="w-6 h-6 rounded-lg bg-white/20 flex items-center justify-center text-white group-hover:scale-110 transition-transform">
+                        <Plus className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold block leading-tight">Enroll Student</span>
+                        <span className="text-[10px] text-indigo-100/80 font-medium">Add new admission</span>
+                      </div>
+                    </button>
+
+                    {/* Collect Fee */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        requireSubscription('Collect Fees', () => {
+                          setStudentForFeeCollection(null);
+                          setIsCollectFeeModalOpen(true);
+                        })
+                      }
+                      className="p-3 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 active:scale-[0.98] text-white shadow-xs flex flex-col items-start justify-between min-h-[76px] transition-all cursor-pointer group"
+                    >
+                      <div className="w-6 h-6 rounded-lg bg-white/20 flex items-center justify-center text-white group-hover:scale-110 transition-transform">
+                        <IndianRupee className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold block leading-tight">Collect Fee</span>
+                        <span className="text-[10px] text-emerald-100/80 font-medium">Record payment</span>
+                      </div>
+                    </button>
+
+                    {/* Seat Inventory */}
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('seats')}
+                      className="p-3 rounded-xl bg-slate-50 dark:bg-[#181818] hover:bg-slate-100 dark:hover:bg-[#222222] border border-slate-200 dark:border-[#262626] text-slate-800 dark:text-neutral-200 active:scale-[0.98] shadow-2xs flex flex-col items-start justify-between min-h-[76px] transition-all cursor-pointer group"
+                    >
+                      <div className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <Armchair className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold block leading-tight">Seat Layout</span>
+                        <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-medium">{availableCount} desks free</span>
+                      </div>
+                    </button>
+
+                    {/* Add Room & Rows */}
+                    <button
+                      type="button"
+                      onClick={() => setIsRoomModalOpen(true)}
+                      className="p-3 rounded-xl bg-slate-50 dark:bg-[#181818] hover:bg-slate-100 dark:hover:bg-[#222222] border border-slate-200 dark:border-[#262626] text-slate-800 dark:text-neutral-200 active:scale-[0.98] shadow-2xs flex flex-col items-start justify-between min-h-[76px] transition-all cursor-pointer group"
+                    >
+                      <div className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <Building2 className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold block leading-tight">Add Hall/Room</span>
+                        <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-medium">Create room & rows</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Live Due Fees & Attention Feed */}
+                <div className="bg-white dark:bg-[#121212] rounded-2xl border border-slate-200/90 dark:border-[#262626] p-4 shadow-xs space-y-2.5 flex-1 flex flex-col justify-between">
+                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#262626] pb-2">
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-500" />
+                      <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                        Action Needed: Overdue & Expiring
+                      </h4>
+                    </div>
+                    {studentsWithDuesList.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStudentFilterTab('FEE_DUE');
+                          setStudentSubTab('directory');
+                          setActiveTab('students');
+                        }}
+                        className="text-[11px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer"
+                      >
+                        View All ({studentsWithDuesList.length})
+                      </button>
+                    )}
+                  </div>
+
+                  {studentsWithDuesList.length === 0 ? (
+                    <div className="py-4 text-center space-y-1">
+                      <div className="w-8 h-8 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
+                        <Check className="w-4 h-4" />
+                      </div>
+                      <p className="text-xs font-bold text-slate-800 dark:text-neutral-200">No Pending Dues!</p>
+                      <p className="text-[10px] text-slate-400 dark:text-neutral-500">All student fees are up-to-date.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {studentsWithDuesList.slice(0, 3).map((std) => (
+                        <div
+                          key={std.id}
+                          className="flex items-center justify-between p-2 rounded-xl bg-slate-50/80 dark:bg-[#181818] border border-slate-100 dark:border-[#262626] text-xs hover:bg-slate-100 dark:hover:bg-[#202020] transition-colors"
+                        >
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => {
+                              setSelectedStudentForProfile(std);
+                              setProfileInitialTab('feeHistory');
+                            }}
+                            className="min-w-0 pr-2 cursor-pointer"
+                          >
+                            <p className="font-bold text-slate-900 dark:text-white truncate text-xs hover:text-indigo-600">
+                              {std.fullName}
+                            </p>
+                            <div className="flex items-center gap-1 text-[10px] text-slate-400 dark:text-neutral-500">
+                              <span>Seat: {std.seatNumber || 'None'}</span>
+                              <span>•</span>
+                              <span className="text-rose-600 dark:text-rose-400 font-bold">
+                                ₹{std.remainingFee || 0} Due
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              requireSubscription('Collect Fees', () => {
+                                setStudentForFeeCollection(std);
+                                setIsCollectFeeModalOpen(true);
+                              });
+                            }}
+                            className="shrink-0 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-lg text-[10px] transition-colors cursor-pointer shadow-2xs flex items-center gap-1"
+                          >
+                            <IndianRupee className="w-3 h-3" />
+                            <span>Collect</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="pt-2 border-t border-slate-100 dark:border-[#262626] flex items-center justify-between text-[11px] text-slate-500 dark:text-neutral-400">
+                    <span>Expiring in 5 days: <b>{expiringSoonCount}</b></span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStudentFilterTab('EXPIRING_5_DAYS');
+                        setStudentSubTab('directory');
+                        setActiveTab('students');
+                      }}
+                      className="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline cursor-pointer"
+                    >
+                      Inspect &rarr;
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
 
             {/* Room-First Visual Section */}
             {!currentSelectedRoom ? (
