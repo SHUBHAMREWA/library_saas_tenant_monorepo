@@ -196,9 +196,13 @@ interface AdminDashboardProps {
   onLogout?: () => void;
 }
 
-const RENDER_BACKEND_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
+const rawBackendUrl =
+  (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL) ||
   'https://seelibrarybackend.onrender.com';
+
+const RENDER_BACKEND_ORIGIN = rawBackendUrl
+  .replace(/\/api\/v1\/?$/, '')
+  .replace(/\/$/, '');
 
 async function adminApiFetch(path: string, options: RequestInit = {}, userEmail?: string): Promise<Response> {
   const headers = new Headers(options.headers || {});
@@ -209,9 +213,13 @@ async function adminApiFetch(path: string, options: RequestInit = {}, userEmail?
 
   let directUrl: string;
   if (path.startsWith('/api/admin')) {
-    directUrl = `${RENDER_BACKEND_URL}/api/v1/admin${path.slice('/api/admin'.length)}`;
+    const subpath = path.slice('/api/admin'.length).replace(/^\/+/, '');
+    directUrl = `${RENDER_BACKEND_ORIGIN}/api/v1/admin/${subpath}`;
+  } else if (path.startsWith('/api/v1/admin')) {
+    const subpath = path.slice('/api/v1/admin'.length).replace(/^\/+/, '');
+    directUrl = `${RENDER_BACKEND_ORIGIN}/api/v1/admin/${subpath}`;
   } else {
-    directUrl = `${RENDER_BACKEND_URL}${path}`;
+    directUrl = path;
   }
 
   try {

@@ -3,6 +3,14 @@ import { prisma } from '@library/database';
 
 export async function GET(req: NextRequest) {
   try {
+    if (!process.env.DATABASE_URL) {
+      return NextResponse.json({
+        success: true,
+        unreadCount: 0,
+        notifications: [],
+      });
+    }
+
     const { searchParams } = new URL(req.url);
     const libraryId = searchParams.get('libraryId');
     const userEmail = searchParams.get('userEmail');
@@ -48,11 +56,12 @@ export async function GET(req: NextRequest) {
       })),
     });
   } catch (error: any) {
-    console.error('API GET /api/notifications error:', error);
-    return NextResponse.json(
-      { error: error.message || 'Failed to fetch notifications' },
-      { status: 500 }
-    );
+    console.warn('API GET /api/notifications database fallback:', error?.message);
+    return NextResponse.json({
+      success: true,
+      unreadCount: 0,
+      notifications: [],
+    });
   }
 }
 
