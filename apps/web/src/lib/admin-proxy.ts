@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const RENDER_BACKEND_URL =
+const rawBackendUrl =
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.RENDER_BACKEND_URL ||
   'https://seelibrarybackend.onrender.com';
 
+const RENDER_BACKEND_ORIGIN = rawBackendUrl
+  .replace(/\/api\/v1\/?$/, '')
+  .replace(/\/$/, '');
+
 export async function proxyAdminRequest(req: NextRequest, subpath: string): Promise<NextResponse> {
   const url = new URL(req.url);
-  const targetUrl = `${RENDER_BACKEND_URL}/api/v1/admin/${subpath}${url.search}`;
+  const cleanSubpath = subpath.replace(/^\/+/, '');
+  const targetUrl = `${RENDER_BACKEND_ORIGIN}/api/v1/admin/${cleanSubpath}${url.search}`;
 
   const forwardHeaders: Record<string, string> = {
     'content-type': req.headers.get('content-type') || 'application/json',

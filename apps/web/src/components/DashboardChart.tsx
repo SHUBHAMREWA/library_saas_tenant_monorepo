@@ -447,14 +447,20 @@ export const DashboardChart: React.FC<DashboardChartProps> = ({
             </div>
 
             {/* 6-Month Visual Bars */}
-            <div className="grid grid-cols-6 gap-2 pt-3 pb-1 items-end h-28 border-b border-slate-200 dark:border-[#262626]">
+            <div className="grid grid-cols-6 gap-2 pt-6 pb-1 items-end h-32 border-b border-slate-200 dark:border-[#262626]">
               {revenueStats.monthlyBars.map((bar, idx) => {
                 const heightPct = Math.max(10, Math.round((bar.amount / revenueStats.maxMonthlyAmt) * 100));
                 return (
-                  <div key={idx} className="flex flex-col items-center gap-1.5 h-full justify-end group">
-                    <span className="text-[9px] font-bold text-slate-500 dark:text-neutral-400 opacity-0 group-hover:opacity-100 transition-opacity truncate max-w-full">
-                      ₹{bar.amount > 999 ? `${(bar.amount / 1000).toFixed(1)}k` : bar.amount}
-                    </span>
+                  <div key={idx} className="relative flex flex-col items-center gap-1.5 h-full justify-end group">
+                    {/* Hover Rupee Tooltip - lifted cleanly above the bar */}
+                    <div className="absolute -top-7 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all duration-150 pointer-events-none z-20 whitespace-nowrap">
+                      <div className="px-1.5 py-0.5 rounded-md bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-[10px] font-black shadow-md flex items-center gap-0.5">
+                        <span>₹{bar.amount > 999 ? `${(bar.amount / 1000).toFixed(1)}k` : bar.amount}</span>
+                      </div>
+                      {/* Tooltip caret / arrow */}
+                      <div className="w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-slate-900 dark:border-t-slate-100 mx-auto" />
+                    </div>
+
                     <div className="w-full max-w-[28px] bg-slate-200 dark:bg-[#262626] rounded-t-md relative flex items-end overflow-hidden h-full">
                       <div
                         className={`w-full rounded-t-md transition-all duration-700 ${
