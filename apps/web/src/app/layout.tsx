@@ -57,7 +57,7 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className={`${plusJakartaSans.className} font-sans antialiased min-h-screen bg-slate-50 dark:bg-black text-slate-900 dark:text-white transition-colors duration-150`} suppressHydrationWarning>
+      <body className={`${plusJakartaSans.className} font-sans antialiased min-h-screen bg-slate-50 dark:bg-black text-slate-900 dark:text-white transition-colors duration-150 overflow-x-hidden w-full max-w-full`} suppressHydrationWarning>
         <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" />
         <ThemeProvider>
           {children}

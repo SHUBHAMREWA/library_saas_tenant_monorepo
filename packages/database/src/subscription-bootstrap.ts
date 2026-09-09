@@ -67,21 +67,18 @@ export async function ensureDefaultSubscriptionPlans(client: PrismaClient) {
           },
         });
       } else {
-        // Ensure features have durationMonths and badge
+        // If existing plan lacks durationMonths in features, populate only missing metadata without overwriting prices
         const currentFeatures = (existingPlan.features || {}) as Record<string, any>;
-        if (!currentFeatures.durationMonths || existingPlan.name !== p.name) {
+        if (!currentFeatures.durationMonths) {
           await client.subscriptionPlan.update({
             where: { id: existingPlan.id },
             data: {
-              name: p.name,
-              priceMonthly: p.priceMonthly,
-              priceYearly: p.priceYearly,
               features: {
                 ...currentFeatures,
                 durationMonths: p.durationMonths,
-                originalPrice: p.priceYearly,
-                badge: p.badge,
-                description: p.description,
+                originalPrice: currentFeatures.originalPrice !== undefined ? currentFeatures.originalPrice : p.priceYearly,
+                badge: currentFeatures.badge || p.badge,
+                description: currentFeatures.description || p.description,
                 allFeatures: true,
               },
             },

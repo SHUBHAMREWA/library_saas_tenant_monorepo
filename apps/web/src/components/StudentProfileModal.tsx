@@ -8,6 +8,7 @@ import {
   Calendar,
   BookOpen,
   Clock,
+  Check,
   CheckCircle2,
   AlertCircle,
   ArrowRight,
@@ -27,6 +28,11 @@ import {
   FileText,
   History,
   Send,
+  CalendarDays,
+  Sparkles,
+  UserX,
+  AlertTriangle,
+  ArrowUpRight,
 } from 'lucide-react';
 import { StudentItem, StudentFeeRecord, formatShift, MONTH_NAMES } from './StudentList';
 import { WhatsAppIcon } from './WhatsAppIcon';
@@ -52,6 +58,54 @@ function formatFriendlyDate(dateStr?: string): string {
   });
 }
 
+function formatFriendlyPeriod(validFromStr?: string, validToStr?: string): string {
+  if (!validFromStr) return '';
+  const dFrom = new Date(validFromStr);
+  if (isNaN(dFrom.getTime())) return validFromStr;
+
+  const fromDay = dFrom.getDate();
+  const fromMonth = dFrom.toLocaleDateString('en-IN', { month: 'short' });
+  const fromYear = dFrom.getFullYear();
+
+  if (!validToStr) {
+    return `${fromDay} ${fromMonth} ${fromYear}`;
+  }
+
+  const dTo = new Date(validToStr);
+  if (isNaN(dTo.getTime())) {
+    return `${fromDay} ${fromMonth} ${fromYear}`;
+  }
+
+  const toDay = dTo.getDate();
+  const toMonth = dTo.toLocaleDateString('en-IN', { month: 'short' });
+  const toYear = dTo.getFullYear();
+
+  if (fromYear === toYear) {
+    return `${fromDay} ${fromMonth} – ${toDay} ${toMonth} ${toYear}`;
+  }
+  return `${fromDay} ${fromMonth} ${fromYear} – ${toDay} ${toMonth} ${toYear}`;
+}
+
+function formatShiftDetailed(shift?: string): string {
+  if (!shift) return 'Full Day (24/7 Unlimited)';
+  switch (shift.toUpperCase()) {
+    case 'FOUR_HOURS':
+      return '4 Hours / Day';
+    case 'HALF_DAY':
+      return 'Half Day (6–8 Hours / Day)';
+    case 'FULL_DAY':
+      return 'Full Day (24/7 Unlimited)';
+    case 'MORNING':
+      return 'Morning Shift';
+    case 'EVENING':
+      return 'Evening Shift';
+    case 'NIGHT':
+      return 'Night Shift';
+    default:
+      return shift;
+  }
+}
+
 interface StudentProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -64,7 +118,7 @@ interface StudentProfileModalProps {
   onViewReceipt?: (transaction: StudentFeeRecord) => void;
   libraryName?: string;
   libraryPhone?: string;
-  initialTab?: 'profile' | 'feeHistory' | 'kyc';
+  initialTab?: 'profile' | 'feeHistory' | 'kyc' | 'enrollmentTimeline';
 }
 
 const STANDARD_PURPOSES = [
@@ -89,7 +143,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   libraryPhone,
   initialTab = 'profile',
 }) => {
-  const [profileTab, setProfileTab] = useState<'profile' | 'feeHistory' | 'kyc'>(initialTab);
+  const [profileTab, setProfileTab] = useState<'profile' | 'feeHistory' | 'kyc' | 'enrollmentTimeline'>(initialTab);
   const [isChangingSeat, setIsChangingSeat] = useState(false);
   const [selectedSeat, setSelectedSeat] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
@@ -156,6 +210,54 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
     return Math.max(student.monthlyFee || 0, student.totalFee || 0, maxTxTotal, highestMonthSum);
   }, [student]);
 
+  const nowVal = useMemo(() => new Date(), []);
+  const currentMonthNameStr = useMemo(() => nowVal.toLocaleString('en-US', { month: 'long' }), [nowVal]);
+  const currentYearNumVal = useMemo(() => nowVal.getFullYear(), [nowVal]);
+
+  // Transaction matching current calendar month/year or valid range covering current date
+  const currentMonthTx = useMemo(() => {
+    if (!student?.transactions || student.transactions.length === 0) return null;
+    return student.transactions.find((tx) => {
+      if (tx.validFrom && tx.validTo) {
+        const dFrom = new Date(tx.validFrom);
+        const dTo = new Date(tx.validTo);
+        if (!isNaN(dFrom.getTime()) && !isNaN(dTo.getTime())) {
+          if (dFrom <= nowVal && dTo >= nowVal) return true;
+          if (dFrom.getMonth() === nowVal.getMonth() && dFrom.getFullYear() === currentYearNumVal) return true;
+        }
+      }
+      if (tx.paidForMonth) {
+        if (tx.paidForMonth.toLowerCase().includes(currentMonthNameStr.toLowerCase()) &&
+            tx.paidForMonth.includes(currentYearNumVal.toString())) {
+          return true;
+        }
+      }
+      if (tx.paymentDate) {
+        const pDate = new Date(tx.paymentDate);
+        if (pDate.getMonth() === nowVal.getMonth() && pDate.getFullYear() === currentYearNumVal) return true;
+      }
+      return false;
+    }) || null;
+  }, [student?.transactions, currentMonthNameStr, currentYearNumVal, nowVal]);
+
+  const hasCurrentMonthEnrollment = Boolean(
+    currentMonthTx ||
+    (student?.status === 'ACTIVE' && student?.seatNumber && (student?.membershipEndsInDays ?? 0) > 0)
+  );
+
+  const currentPeriodSpan = useMemo(() => {
+    if (currentMonthTx?.validFrom) {
+      return formatFriendlyPeriod(currentMonthTx.validFrom, currentMonthTx.validTo);
+    }
+    if (student?.transactions && student.transactions.length > 0) {
+      const latestWithPeriod = student.transactions.find((t) => t.validFrom);
+      if (latestWithPeriod?.validFrom) {
+        return formatFriendlyPeriod(latestWithPeriod.validFrom, latestWithPeriod.validTo);
+      }
+    }
+    return null;
+  }, [currentMonthTx, student?.transactions]);
+
   // Fee History Filter states (Month & Year) - Defaults to current date's Year & Month
   const currentYearStr = new Date().getFullYear().toString();
   const currentMonthName = new Date().toLocaleString('en-US', { month: 'long' });
@@ -163,11 +265,12 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   const [feeHistoryYear, setFeeHistoryYear] = useState<string>(currentYearStr);
   const [feeHistoryMonth, setFeeHistoryMonth] = useState<string>(currentMonthName);
 
-  // Derive available years from student transactions
+  // Derive available years from student transactions (including 2024 to 2050)
   const availableFeeHistoryYears = useMemo(() => {
     const years = new Set<string>();
-    const currentYear = new Date().getFullYear().toString();
-    years.add(currentYear);
+    for (let yr = 2024; yr <= 2050; yr++) {
+      years.add(yr.toString());
+    }
     (student?.transactions || []).forEach((tx) => {
       if (tx.paymentDate) {
         const yr = new Date(tx.paymentDate).getFullYear().toString();
@@ -182,7 +285,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
         if (match) years.add(match[1]);
       }
     });
-    return Array.from(years).sort((a, b) => b.localeCompare(a));
+    return Array.from(years).sort((a, b) => Number(a) - Number(b));
   }, [student?.transactions]);
 
   // Filter transactions for this student by month & year
@@ -217,6 +320,115 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
     return filteredFeeHistoryTransactions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
   }, [filteredFeeHistoryTransactions]);
 
+  // Timeline Year State
+  const [timelineYear, setTimelineYear] = useState<string>(new Date().getFullYear().toString());
+
+  // 12 Months Enrollment Matrix for Selected Year
+  const monthlyEnrollmentList = useMemo(() => {
+    if (!student) return [];
+    const now = new Date();
+    const currentCalYear = now.getFullYear();
+    const currentCalMonthIdx = now.getMonth(); // 0 to 11
+    const targetYearNum = parseInt(timelineYear, 10) || currentCalYear;
+
+    return MONTH_NAMES.map((mName, mIdx) => {
+      const isCurrentMonth = targetYearNum === currentCalYear && mIdx === currentCalMonthIdx;
+      const isFutureMonth = targetYearNum > currentCalYear || (targetYearNum === currentCalYear && mIdx > currentCalMonthIdx);
+      const isPastMonth = targetYearNum < currentCalYear || (targetYearNum === currentCalYear && mIdx < currentCalMonthIdx);
+
+      // Search all transactions for this student matching this start month and year
+      const matchingTxs = (student.transactions || []).filter((tx) => {
+        // If validFrom is specified, transaction strictly belongs to validFrom's start month & year
+        if (tx.validFrom) {
+          const vFrom = new Date(tx.validFrom);
+          if (!isNaN(vFrom.getTime())) {
+            return vFrom.getFullYear() === targetYearNum && vFrom.getMonth() === mIdx;
+          }
+        }
+
+        // Fallback for legacy transactions without validFrom
+        let matchY = false;
+        if (tx.paidForMonth && tx.paidForMonth.includes(targetYearNum.toString())) matchY = true;
+        if (tx.paymentDate && new Date(tx.paymentDate).getFullYear() === targetYearNum) matchY = true;
+
+        let matchM = false;
+        if (tx.paidForMonth && tx.paidForMonth.toLowerCase().includes(mName.toLowerCase())) matchM = true;
+        if (tx.paymentDate && new Date(tx.paymentDate).getMonth() === mIdx && new Date(tx.paymentDate).getFullYear() === targetYearNum) matchM = true;
+
+        return matchY && matchM;
+      });
+
+      const totalPaid = matchingTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+      const totalDue = matchingTxs.reduce((sum, t) => sum + (Number(t.remainingFee) || 0), 0);
+      const hasFullPaid = matchingTxs.some((t) => t.status === 'PAID' && (!t.remainingFee || t.remainingFee === 0));
+      const hasPartialPaid = matchingTxs.some((t) => t.status === 'PARTIAL' || (t.remainingFee && t.remainingFee > 0));
+
+      // Representative period span if transaction exists
+      let periodSpan: string | undefined = undefined;
+      const txWithPeriod = matchingTxs.find((t) => t.validFrom) || matchingTxs[0];
+      if (txWithPeriod?.validFrom) {
+        periodSpan = formatFriendlyPeriod(txWithPeriod.validFrom, txWithPeriod.validTo);
+      }
+
+      // Determine Enrollment Status
+      // 1. ACTIVE / PRESENT (GREEN): Student enrolled/attended and paid or active during this month
+      // 2. INACTIVE / ABSENT (ORANGE): Month has passed/occurred but student didn't enroll or pay (inactive period)
+      // 3. UPCOMING (LIGHT BLUE): Future month not reached yet
+      let statusType: 'ACTIVE' | 'PARTIAL' | 'INACTIVE' | 'UPCOMING' = 'UPCOMING';
+      let statusLabel = 'Upcoming Month';
+
+      if (isFutureMonth) {
+        if (matchingTxs.length > 0) {
+          statusType = hasFullPaid ? 'ACTIVE' : 'PARTIAL';
+          statusLabel = hasFullPaid ? 'Advance Enrolled' : 'Advance Partial';
+        } else {
+          statusType = 'UPCOMING';
+          statusLabel = 'Upcoming';
+        }
+      } else if (isCurrentMonth) {
+        if (hasFullPaid || (matchingTxs.length > 0 && totalPaid > 0 && totalDue === 0)) {
+          statusType = 'ACTIVE';
+          statusLabel = 'Enrolled & Active';
+        } else if (hasPartialPaid || totalDue > 0) {
+          statusType = 'PARTIAL';
+          statusLabel = `Partial Due (₹${totalDue})`;
+        } else if (student.status === 'ACTIVE' && student.seatNumber) {
+          statusType = 'ACTIVE';
+          statusLabel = 'Active in Library';
+        } else {
+          statusType = 'INACTIVE';
+          statusLabel = 'Inactive / Unpaid';
+        }
+      } else if (isPastMonth) {
+        if (hasFullPaid || totalPaid > 0) {
+          statusType = 'ACTIVE';
+          statusLabel = 'Enrolled & Attended';
+        } else if (matchingTxs.length > 0) {
+          statusType = 'PARTIAL';
+          statusLabel = 'Partial Fee Paid';
+        } else {
+          statusType = 'INACTIVE';
+          statusLabel = 'Inactive (Did Not Attend)';
+        }
+      }
+
+      return {
+        monthName: mName,
+        monthIdx: mIdx,
+        year: targetYearNum,
+        isCurrentMonth,
+        isFutureMonth,
+        isPastMonth,
+        statusType,
+        statusLabel,
+        periodSpan,
+        matchingTxs,
+        totalPaid,
+        totalDue,
+      };
+    });
+  }, [student, timelineYear]);
+
   // Reset or populate fields when modal opens or student changes
   useEffect(() => {
     if (student) {
@@ -246,6 +458,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
       setStatusMsg(null);
       setFeeHistoryYear(new Date().getFullYear().toString());
       setFeeHistoryMonth(new Date().toLocaleString('en-US', { month: 'long' }));
+      setTimelineYear(new Date().getFullYear().toString());
       if (initialTab) {
         setProfileTab(initialTab);
       }
@@ -264,6 +477,12 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
       setStatusMsg(selectedSeat === 'UNASSIGN' ? 'Seat unassigned successfully' : `Assigned to Seat ${selectedSeat}`);
       setIsChangingSeat(false);
       setSelectedSeat('');
+
+      if (selectedSeat !== 'UNASSIGN' && (student.membershipEndsInDays <= 0 || student.status === 'INACTIVE' || student.status === 'EXPIRED')) {
+        if (onCollectFee) {
+          onCollectFee(student);
+        }
+      }
     } catch {
       setStatusMsg('Failed to update seat assignment');
     } finally {
@@ -646,52 +865,6 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
               </div>
             )}
 
-            {/* Preferred Shift / Stay Plan */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                Stay Duration / Plan
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: 'FOUR_HOURS', label: '4 Hours', time: '4h / day slot' },
-                  { id: 'HALF_DAY', label: 'Half Day', time: '6-8h / day slot' },
-                  { id: 'FULL_DAY', label: 'Full Day', time: '24/7 Unlimited' },
-                ].map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => setEditShift(s.id)}
-                    className={`p-2 rounded-xl border text-center transition-all cursor-pointer ${
-                      editShift === s.id
-                        ? 'border-indigo-600 dark:border-indigo-500 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-900 dark:text-indigo-200 font-semibold shadow-xs'
-                        : 'border-slate-200 dark:border-[#262626] bg-white dark:bg-[#1c1c1e] text-slate-600 dark:text-neutral-300 hover:bg-slate-50 dark:hover:bg-[#262626]'
-                    }`}
-                  >
-                    <div className="text-xs">{s.label}</div>
-                    <div className="text-[10px] text-slate-400 dark:text-neutral-500 mt-0.5">{s.time}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Monthly Fee Rate */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                Monthly Fee Rate (₹)
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-2.5 text-slate-400 dark:text-neutral-500 font-bold text-xs">₹</span>
-                <input
-                  type="number"
-                  min="0"
-                  value={editMonthlyFee}
-                  onChange={(e) => setEditMonthlyFee(e.target.value === '' ? '' : Number(e.target.value))}
-                  placeholder="1200"
-                  className="w-full pl-7 pr-3 py-2 border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#1c1c1e] rounded-xl text-sm font-semibold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-            </div>
-
             {/* KYC & Aadhaar Edit */}
             <div className="p-3 bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl space-y-3">
               <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-neutral-200">
@@ -823,34 +996,47 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
           /* ================= VIEW MODE ================= */
           <>
             {/* View Mode Segmented Tab Selector */}
-            <div className="grid grid-cols-3 gap-1 bg-slate-100 dark:bg-[#1c1c1e] p-1 rounded-xl text-xs font-bold">
+            <div className="grid grid-cols-4 gap-1 bg-slate-100 dark:bg-[#1c1c1e] p-1 rounded-xl text-[11px] font-bold">
               <button
                 type="button"
                 onClick={() => setProfileTab('profile')}
-                className={`py-2 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                className={`py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
                   profileTab === 'profile'
                     ? 'bg-white dark:bg-[#262626] text-indigo-700 dark:text-indigo-300 shadow-2xs'
                     : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
                 }`}
               >
-                <User className="w-3.5 h-3.5" />
-                <span>Profile</span>
+                <User className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Profile</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setProfileTab('enrollmentTimeline')}
+                className={`py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                  profileTab === 'enrollmentTimeline'
+                    ? 'bg-white dark:bg-[#262626] text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                    : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
+                }`}
+              >
+                <CalendarDays className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                <span className="truncate">Enrollment</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setProfileTab('feeHistory')}
-                className={`py-2 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                className={`py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
                   profileTab === 'feeHistory'
                     ? 'bg-white dark:bg-[#262626] text-emerald-700 dark:text-emerald-300 shadow-2xs'
                     : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
                 }`}
               >
-                <IndianRupee className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>Fee History</span>
+                <IndianRupee className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="truncate">Fees</span>
                 {(student.transactions?.length || 0) > 0 && (
                   <span
-                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    className={`text-[9px] px-1 py-0.2 rounded-full font-bold shrink-0 ${
                       profileTab === 'feeHistory'
                         ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200'
                         : 'bg-slate-200 dark:bg-[#363636] text-slate-700 dark:text-neutral-300'
@@ -864,14 +1050,14 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
               <button
                 type="button"
                 onClick={() => setProfileTab('kyc')}
-                className={`py-2 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                className={`py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
                   profileTab === 'kyc'
                     ? 'bg-white dark:bg-[#262626] text-indigo-700 dark:text-indigo-300 shadow-2xs'
                     : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
                 }`}
               >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>KYC</span>
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">KYC</span>
                 {student.kycPhotoUrl && (
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
                 )}
@@ -931,79 +1117,92 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                     )}
                   </div>
 
-                  {!isChangingSeat ? (
-                    <div className="flex gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => setIsChangingSeat(true)}
-                        className="flex-1 py-2 px-3 bg-white dark:bg-[#121212] border border-indigo-200 dark:border-indigo-800/50 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <UserCheck className="w-3.5 h-3.5" />
-                        <span>{student.seatNumber ? 'Change / Reassign Seat' : 'Assign a Seat Now'}</span>
-                      </button>
-
-                      {student.seatNumber && (
+                  {hasCurrentMonthEnrollment ? (
+                    !isChangingSeat ? (
+                      <div className="flex gap-2 pt-1">
                         <button
                           type="button"
-                          onClick={handleUnassign}
-                          disabled={isLoading}
-                          className="py-2 px-3 bg-white dark:bg-[#121212] border border-rose-200 dark:border-rose-800/50 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-700 dark:text-rose-400 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1 cursor-pointer"
-                          title="Free up this seat"
+                          onClick={() => setIsChangingSeat(true)}
+                          className="flex-1 py-2 px-3 bg-white dark:bg-[#121212] border border-indigo-200 dark:border-indigo-800/50 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>Unassign</span>
+                          <UserCheck className="w-3.5 h-3.5" />
+                          <span>{student.seatNumber ? 'Change / Reassign Seat' : 'Assign a Seat Now'}</span>
                         </button>
-                      )}
-                    </div>
-                  ) : (
-                    <form onSubmit={handleSeatSubmit} className="space-y-3 pt-1 border-t border-slate-200 dark:border-[#262626]">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                          Choose Available Seat
-                        </label>
-                        <select
-                          value={selectedSeat}
-                          onChange={(e) => setSelectedSeat(e.target.value)}
-                          required
-                          className="w-full px-3 py-2 bg-white dark:bg-[#121212] border border-slate-300 dark:border-[#363636] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                        >
-                          <option value="" className="dark:bg-[#121212] dark:text-neutral-100">-- Select an Available Seat --</option>
-                          {availableSeats.map((s) => (
-                            <option key={s.id} value={s.seatNumber} className="dark:bg-[#121212] dark:text-neutral-100">
-                              Seat {s.seatNumber} ({s.rowName || 'Main Hall'})
-                            </option>
-                          ))}
-                          {student.seatNumber && (
-                            <option value="UNASSIGN" className="dark:bg-[#121212] dark:text-neutral-100">Remove Seat (Make Unassigned)</option>
-                          )}
-                        </select>
-                        {availableSeats.length === 0 && (
-                          <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
-                            No free seats available in this library right now.
-                          </p>
+
+                        {student.seatNumber && (
+                          <button
+                            type="button"
+                            onClick={handleUnassign}
+                            disabled={isLoading}
+                            className="py-2 px-3 bg-white dark:bg-[#121212] border border-rose-200 dark:border-rose-800/50 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-700 dark:text-rose-400 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                            title="Free up this seat"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Unassign</span>
+                          </button>
                         )}
                       </div>
+                    ) : (
+                      <form onSubmit={handleSeatSubmit} className="space-y-3 pt-1 border-t border-slate-200 dark:border-[#262626]">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
+                            Choose Available Seat
+                          </label>
+                          <select
+                            value={selectedSeat}
+                            onChange={(e) => setSelectedSeat(e.target.value)}
+                            required
+                            className="w-full px-3 py-2 bg-white dark:bg-[#121212] border border-slate-300 dark:border-[#363636] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                          >
+                            <option value="" className="dark:bg-[#121212] dark:text-neutral-100">-- Select an Available Seat --</option>
+                            {availableSeats.map((s) => (
+                              <option key={s.id} value={s.seatNumber} className="dark:bg-[#121212] dark:text-neutral-100">
+                                Seat {s.seatNumber} ({s.rowName || 'Main Hall'})
+                              </option>
+                            ))}
+                            {student.seatNumber && (
+                              <option value="UNASSIGN" className="dark:bg-[#121212] dark:text-neutral-100">Remove Seat (Make Unassigned)</option>
+                            )}
+                          </select>
+                          {availableSeats.length === 0 && (
+                            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                              No free seats available in this library right now.
+                            </p>
+                          )}
+                        </div>
 
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsChangingSeat(false);
-                            setSelectedSeat('');
-                          }}
-                          className="flex-1 py-2 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] text-slate-600 dark:text-neutral-400 text-xs font-semibold rounded-xl hover:bg-slate-100 dark:hover:bg-[#262626] cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="submit"
-                          disabled={isLoading || !selectedSeat}
-                          className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          {isLoading ? 'Saving...' : 'Confirm Assignment'}
-                        </button>
-                      </div>
-                    </form>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsChangingSeat(false);
+                              setSelectedSeat('');
+                            }}
+                            className="flex-1 py-2 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] text-slate-600 dark:text-neutral-400 text-xs font-semibold rounded-xl hover:bg-slate-100 dark:hover:bg-[#262626] cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={isLoading || !selectedSeat}
+                            className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1 cursor-pointer"
+                          >
+                            {isLoading ? 'Saving...' : 'Confirm Assignment'}
+                          </button>
+                        </div>
+                      </form>
+                    )
+                  ) : (
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={() => onCollectFee?.(student)}
+                        className="w-full py-2.5 px-3 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-xs font-bold rounded-xl shadow-2xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Re-Enroll Student to Assign / Change Seat</span>
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -1016,59 +1215,95 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                     <span className="font-semibold text-slate-900 dark:text-white">{student.studyPurpose || 'General Study'}</span>
                   </div>
 
-                  <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-[#262626] text-slate-600 dark:text-neutral-400">
-                    <span className="flex items-center gap-1.5 font-medium">
-                      <Clock className="w-3.5 h-3.5 text-slate-400 dark:text-neutral-500" /> Stay Duration / Plan
-                    </span>
-                    <span className="font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/80 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
-                      {formatShift(student.shift)}
-                    </span>
-                  </div>
+                  {hasCurrentMonthEnrollment ? (
+                    <>
+                      {/* Current Period Date Range */}
+                      {currentPeriodSpan && (
+                        <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-[#262626] text-slate-600 dark:text-neutral-400">
+                          <span className="flex items-center gap-1.5 font-medium">
+                            <CalendarDays className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Current Period Range
+                          </span>
+                          <span className="font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/80 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
+                            {currentPeriodSpan}
+                          </span>
+                        </div>
+                      )}
 
-                  <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-[#262626] text-slate-600 dark:text-neutral-400">
-                    <span className="flex items-center gap-1.5 font-medium">
-                      <IndianRupee className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Monthly Fee Rate
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {computedMonthlyRate > 0 ? (
-                        <span className="font-extrabold text-emerald-700 dark:text-emerald-400">
-                          ₹{computedMonthlyRate} / month
+                      {/* Stay Duration / Plan */}
+                      <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-[#262626] text-slate-600 dark:text-neutral-400">
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <Clock className="w-3.5 h-3.5 text-slate-400 dark:text-neutral-500" /> Stay Duration / Plan
                         </span>
-                      ) : (
-                        <span className="font-semibold text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-800/50 px-2 py-0.5 rounded-md text-[11px]">
-                          Not Collected (Fee Due)
+                        <span className="font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/80 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
+                          {formatShiftDetailed((currentMonthTx as any)?.shift || student.shift)}
                         </span>
-                      )}
-                      {Boolean(student.remainingFee && student.remainingFee > 0) && (
-                        <span className="font-bold text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md text-[11px]">
-                          Due: ₹{student.remainingFee}
+                      </div>
+
+                      {/* Monthly Fee Rate */}
+                      <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-[#262626] text-slate-600 dark:text-neutral-400">
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <IndianRupee className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Monthly Fee Rate
                         </span>
-                      )}
+                        <div className="flex items-center gap-2">
+                          <span className="font-extrabold text-emerald-700 dark:text-emerald-400">
+                            ₹{currentMonthTx?.totalFee || computedMonthlyRate || 1000} / month
+                          </span>
+                          {Boolean(student.remainingFee && student.remainingFee > 0) && (
+                            <span className="font-bold text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md text-[11px]">
+                              Due: ₹{student.remainingFee}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Membership Remaining */}
+                      <div className="flex items-center justify-between py-2 text-slate-600 dark:text-neutral-400">
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <Calendar className="w-3.5 h-3.5 text-slate-400 dark:text-neutral-500" /> Membership Remaining
+                        </span>
+                        {!student.seatNumber || student.status === 'INACTIVE' ? (
+                          <span className="font-bold text-slate-700 dark:text-neutral-300 bg-slate-100 dark:bg-[#262626] border border-slate-200 dark:border-neutral-700 px-2 py-0.5 rounded-md">
+                            Inactive (No Seat Assigned)
+                          </span>
+                        ) : student.membershipEndsInDays <= 0 ? (
+                          <span className="font-bold text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 px-2 py-0.5 rounded-md">
+                            Expired / Fee Due
+                          </span>
+                        ) : student.membershipEndsInDays <= 5 ? (
+                          <span className="font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 px-2 py-0.5 rounded-md">
+                            {student.membershipEndsInDays} days left (Expiring Soon)
+                          </span>
+                        ) : (
+                          <span className="font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
+                            {student.membershipEndsInDays} days left
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    /* No Active Enrollment Notice for Current Month */
+                    <div className="p-3.5 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl space-y-2.5 my-2">
+                      <div className="flex items-start gap-2.5">
+                        <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div>
+                          <h5 className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                            No Active Enrollment for {currentMonthName} {currentYearStr}
+                          </h5>
+                          <p className="text-[11px] text-amber-700 dark:text-amber-300/90 leading-snug">
+                            This student has no active enrollment or fee transaction logged for the current month.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onCollectFee?.(student)}
+                        className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Re-Enroll for {currentMonthName}</span>
+                      </button>
                     </div>
-                  </div>
-
-                  <div className="flex items-center justify-between py-2 text-slate-600 dark:text-neutral-400">
-                    <span className="flex items-center gap-1.5 font-medium">
-                      <Calendar className="w-3.5 h-3.5 text-slate-400 dark:text-neutral-500" /> Membership Remaining
-                    </span>
-                    {!student.seatNumber || student.status === 'INACTIVE' ? (
-                      <span className="font-bold text-slate-700 dark:text-neutral-300 bg-slate-100 dark:bg-[#262626] border border-slate-200 dark:border-neutral-700 px-2 py-0.5 rounded-md">
-                        Inactive (No Seat Assigned)
-                      </span>
-                    ) : student.membershipEndsInDays <= 0 ? (
-                      <span className="font-bold text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 px-2 py-0.5 rounded-md">
-                        Expired / Fee Due
-                      </span>
-                    ) : student.membershipEndsInDays <= 5 ? (
-                      <span className="font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 px-2 py-0.5 rounded-md">
-                        {student.membershipEndsInDays} days left (Expiring Soon)
-                      </span>
-                    ) : (
-                      <span className="font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
-                        {student.membershipEndsInDays} days left
-                      </span>
-                    )}
-                  </div>
+                  )}
                 </div>
 
                 {/* Quick Fee Snapshot Banner linking to Fee History tab */}
@@ -1475,6 +1710,190 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                       )}
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* TAB: MONTH ENROLLMENT TIMELINE (Green = Enrolled/Attended, Orange = Inactive/Absent, Light Blue = Upcoming) */}
+            {profileTab === 'enrollmentTimeline' && (
+              <div className="space-y-4 animate-in fade-in duration-150">
+                {/* Header & Year Switcher */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-1 border-b border-slate-100 dark:border-[#262626]">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <CalendarDays className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                      <span>Monthly Enrollment Status</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500 dark:text-neutral-400">
+                      Attendance &amp; enrollment track across billing months
+                    </p>
+                  </div>
+
+                  {/* Year Dropdown */}
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#333] px-2.5 py-1 rounded-xl shadow-2xs">
+                      <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      <select
+                        value={timelineYear}
+                        onChange={(e) => setTimelineYear(e.target.value)}
+                        className="bg-transparent text-xs font-bold text-slate-900 dark:text-white focus:outline-hidden cursor-pointer"
+                      >
+                        {availableFeeHistoryYears.map((yr) => (
+                          <option key={yr} value={yr}>
+                            Year {yr}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status Legend (Green, Orange, Light Blue) */}
+                <div className="bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200/80 dark:border-[#262626] p-2.5 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-[10px] font-semibold">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-xs shadow-emerald-500/50 shrink-0" />
+                    <span className="text-emerald-800 dark:text-emerald-300 font-bold">Green: Enrolled / Present</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-xs shadow-amber-500/50 shrink-0" />
+                    <span className="text-amber-800 dark:text-amber-300 font-bold">Orange: Inactive / Absent</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-sky-400 shadow-xs shadow-sky-400/50 shrink-0" />
+                    <span className="text-sky-800 dark:text-sky-300 font-bold">Light Blue: Upcoming Month</span>
+                  </div>
+                </div>
+
+                {/* 12-Month Interactive Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[360px] overflow-y-auto pr-0.5">
+                  {monthlyEnrollmentList.map((m) => {
+                    const isGreen = m.statusType === 'ACTIVE';
+                    const isOrange = m.statusType === 'INACTIVE' || m.statusType === 'PARTIAL';
+                    const isLightBlue = m.statusType === 'UPCOMING';
+
+                    return (
+                      <div
+                        key={m.monthIdx}
+                        className={`p-3 rounded-2xl border transition-all relative overflow-hidden flex flex-col justify-between group shadow-2xs ${
+                          isGreen
+                            ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800/60 hover:border-emerald-400 hover:shadow-md'
+                            : isOrange
+                            ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800/60 hover:border-amber-400 hover:shadow-md'
+                            : 'bg-sky-50/60 dark:bg-sky-950/20 border-sky-200 dark:border-sky-800/50 hover:border-sky-300 hover:shadow-md'
+                        }`}
+                      >
+                        {/* Current Month Highlight Dot */}
+                        {m.isCurrentMonth && (
+                          <div className="absolute top-2.5 right-2.5 flex items-center gap-1 bg-white/90 dark:bg-[#121212] px-1.5 py-0.5 rounded-full border border-slate-200 dark:border-[#333] shadow-2xs">
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
+                            <span className="text-[9px] font-extrabold text-indigo-600 dark:text-indigo-400 leading-none">NOW</span>
+                          </div>
+                        )}
+
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-slate-900 dark:text-white">
+                              {m.monthName}
+                            </span>
+                          </div>
+
+                          <div className="mt-1.5 flex items-center gap-1.5">
+                            {isGreen && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold shadow-2xs">
+                                <Check className="w-3 h-3" />
+                                <span>Enrolled</span>
+                              </span>
+                            )}
+                            {isOrange && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-bold shadow-2xs">
+                                <UserX className="w-3 h-3" />
+                                <span>{m.statusType === 'PARTIAL' ? 'Due' : 'Inactive'}</span>
+                              </span>
+                            )}
+                            {isLightBlue && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500 text-white text-[10px] font-bold shadow-2xs">
+                                <Clock className="w-3 h-3" />
+                                <span>Upcoming</span>
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Period Date Span (e.g. 8 Sep – 8 Oct 2026) */}
+                          {m.periodSpan && (
+                            <div className="mt-1.5 flex items-center gap-1 text-[10px] font-semibold text-slate-700 dark:text-neutral-300 bg-white/80 dark:bg-black/40 px-1.5 py-0.5 rounded-md border border-slate-200/70 dark:border-white/10 shadow-2xs">
+                              <CalendarDays className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                              <span className="truncate">{m.periodSpan}</span>
+                            </div>
+                          )}
+
+                          <p className="text-[10px] text-slate-600 dark:text-neutral-400 mt-1.5 leading-snug">
+                            {m.statusLabel}
+                          </p>
+
+                          {/* Paid / Due metrics */}
+                          {m.totalPaid > 0 && (
+                            <p className="text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400 mt-1">
+                              Paid: ₹{m.totalPaid}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Action Link / Enroll Trigger */}
+                        <div className="mt-2.5 pt-2 border-t border-slate-200/60 dark:border-[#2a2a2d] flex items-center justify-between">
+                          {isGreen ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFeeHistoryYear(m.year.toString());
+                                setFeeHistoryMonth(m.monthName);
+                                setProfileTab('feeHistory');
+                              }}
+                              className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+                            >
+                              <span>View Receipts ({m.matchingTxs.length})</span>
+                              <ArrowUpRight className="w-2.5 h-2.5" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => onCollectFee?.(student)}
+                              className={`text-[10px] font-bold flex items-center gap-0.5 hover:underline cursor-pointer ${
+                                isOrange
+                                  ? 'text-amber-800 dark:text-amber-300'
+                                  : 'text-sky-700 dark:text-sky-300'
+                              }`}
+                            >
+                              <span>Enroll / Pay Fee</span>
+                              <ArrowRight className="w-2.5 h-2.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Annual Attendance Summary Card */}
+                <div className="p-3 bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200/80 dark:border-[#262626] rounded-2xl flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                    <span className="text-slate-700 dark:text-neutral-300">
+                      <strong>{student.fullName}</strong> was active in{' '}
+                      <strong className="text-emerald-600 dark:text-emerald-400">
+                        {monthlyEnrollmentList.filter((m) => m.statusType === 'ACTIVE').length} / 12
+                      </strong>{' '}
+                      months in {timelineYear}.
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => onCollectFee?.(student)}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shrink-0 shadow-xs cursor-pointer active:scale-95 transition-all flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Enroll Month</span>
+                  </button>
                 </div>
               </div>
             )}

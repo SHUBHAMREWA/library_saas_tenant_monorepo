@@ -204,7 +204,7 @@ export default function MobileDashboard() {
   const [isCollectFeeModalOpen, setIsCollectFeeModalOpen] = useState(false);
   const [studentForFeeCollection, setStudentForFeeCollection] = useState<StudentItem | null>(null);
   const [returnToStudentProfileId, setReturnToStudentProfileId] = useState<string | null>(null);
-  const [profileInitialTab, setProfileInitialTab] = useState<'profile' | 'feeHistory' | 'kyc'>('profile');
+  const [profileInitialTab, setProfileInitialTab] = useState<'profile' | 'feeHistory' | 'kyc' | 'enrollmentTimeline'>('profile');
 
   // User Authentication State - ZERO dummy user initially
   const [currentUser, setCurrentUser] = useState<{
@@ -1196,16 +1196,19 @@ export default function MobileDashboard() {
 
     // 1. Optimistic UI update
     updateActiveLibrary((lib) => {
-      const updatedStudents = lib.students.map((std) =>
-        std.id === studentId
-          ? {
-              ...std,
-              seatNumber,
-              shift: shift || std.shift,
-              status: (seatNumber ? (std.status === 'INACTIVE' ? 'ACTIVE' : std.status) : 'INACTIVE') as any,
-            }
-          : std
-      );
+      const updatedStudents = lib.students.map((std) => {
+        if (std.id === studentId) {
+          const hasValidMembership = std.membershipEndsInDays > 0 && std.status !== 'EXPIRED' && std.status !== 'INACTIVE';
+          return {
+            ...std,
+            seatNumber,
+            shift: shift || std.shift,
+            status: (seatNumber ? (hasValidMembership ? std.status : 'INACTIVE') : 'INACTIVE') as any,
+            membershipEndsInDays: seatNumber ? (hasValidMembership ? std.membershipEndsInDays : 0) : 0,
+          };
+        }
+        return std;
+      });
 
       const updatedSeats = lib.seats.map((seat) => {
         // Free old seat if previously occupied by this student
@@ -1798,7 +1801,7 @@ export default function MobileDashboard() {
 
   // 3. AUTHENTICATED DASHBOARD (With created libraries)
   return (
-    <div className="flex flex-col min-h-screen pb-20 md:pb-8 select-none bg-slate-50 dark:bg-black text-slate-900 dark:text-[#f5f5f5] md:pl-64 transition-colors">
+    <div className="flex flex-col min-h-screen pb-20 md:pb-8 select-none bg-slate-50 dark:bg-black text-slate-900 dark:text-[#f5f5f5] md:pl-64 transition-colors overflow-x-hidden w-full max-w-full">
       <PWACompanion />
 
       {/* Desktop Sidebar (visible on md: screens and above) */}
@@ -1832,37 +1835,37 @@ export default function MobileDashboard() {
       />
 
       {/* Mobile Top Navigation Header (Mobile only - hidden on desktop where sidebar is present) */}
-      <header className="md:hidden sticky top-0 z-30 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-slate-200 dark:border-[#262626] px-4 py-3 flex items-center justify-between shadow-xs transition-colors">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-800 text-white flex items-center justify-center font-black text-sm shadow-sm tracking-tight">
+      <header className="md:hidden sticky top-0 z-30 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-slate-200 dark:border-[#262626] px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between shadow-xs transition-colors w-full max-w-full overflow-hidden">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-800 text-white flex items-center justify-center font-black text-xs sm:text-sm shadow-sm tracking-tight shrink-0">
             sL
           </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-[#f5f5f5] tracking-tight">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1 sm:gap-1.5 min-w-0">
+              <h1 className="text-sm sm:text-lg font-black text-slate-900 dark:text-[#f5f5f5] tracking-tight truncate">
                 see<span className="text-indigo-600 dark:text-indigo-400">Library</span>
               </h1>
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 border border-indigo-100/60 dark:border-indigo-900/50">
+              <span className="text-[9px] sm:text-[10px] font-bold px-1 sm:px-1.5 py-0.2 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 border border-indigo-100/60 dark:border-indigo-900/50 shrink-0">
                 SaaS
               </span>
             </div>
 
             {/* Branch Switcher Dropdown */}
             {activeLibrary && (
-              <div className="relative mt-0.5">
+              <div className="relative mt-0.5 min-w-0">
                 <button
                   type="button"
                   onClick={() => setIsBranchDropdownOpen((prev) => !prev)}
-                  className="flex items-center gap-1 text-[11px] text-slate-700 dark:text-neutral-300 font-bold hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                  className="flex items-center gap-1 text-[11px] text-slate-700 dark:text-neutral-300 font-bold hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors max-w-full"
                 >
-                  <span className="truncate max-w-[130px] sm:max-w-[200px]">
+                  <span className="truncate max-w-[90px] xs:max-w-[130px] sm:max-w-[200px]">
                     {activeLibrary.name}
                   </span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 dark:text-neutral-500" />
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 dark:text-neutral-500 shrink-0" />
                 </button>
 
                 {isBranchDropdownOpen && (
-                  <div className="absolute top-full left-0 mt-1.5 w-64 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-xl shadow-xl z-50 p-1 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="absolute top-full left-0 mt-1.5 w-64 max-w-[calc(100vw-32px)] bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-xl shadow-xl z-50 p-1 animate-in fade-in zoom-in-95 duration-150">
                     <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-slate-400 dark:text-neutral-500 border-b border-slate-100 dark:border-[#262626]">
                       Select Library Branch ({libraries.length})
                     </div>
@@ -1924,9 +1927,9 @@ export default function MobileDashboard() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0 min-w-0">
           {isTestMode && (
-            <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1">
+            <span className="hidden xs:flex text-[10px] sm:text-[11px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 items-center gap-1 shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
               <span>Test Mode</span>
             </span>
@@ -1940,10 +1943,11 @@ export default function MobileDashboard() {
                 } catch {}
                 router.push('/admin');
               }}
-              className="px-3 py-1.5 bg-slate-900 hover:bg-black text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+              className="p-1.5 sm:px-3 sm:py-1.5 bg-slate-900 hover:bg-black text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold flex items-center gap-1 shadow-sm transition-all cursor-pointer shrink-0"
+              title="Admin Portal"
             >
-              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">Admin Portal</span>
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="hidden sm:inline">Admin</span>
             </button>
           )}
 
@@ -1951,43 +1955,43 @@ export default function MobileDashboard() {
           <button
             type="button"
             onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-            className="p-2 rounded-xl text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] transition-colors cursor-pointer"
+            className="p-1.5 sm:p-2 rounded-xl text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] transition-colors cursor-pointer shrink-0"
             aria-label="Toggle theme"
             title={resolvedTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           >
             {resolvedTheme === 'dark' ? (
-              <Sun className="w-5 h-5 text-amber-400" />
+              <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
             ) : (
-              <Moon className="w-5 h-5" />
+              <Moon className="w-4 h-4 sm:w-5 sm:h-5" />
             )}
           </button>
 
           <button
             type="button"
             onClick={() => setIsNotificationCenterOpen(true)}
-            className="p-2 rounded-full text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] relative transition-colors cursor-pointer"
+            className="p-1.5 sm:p-2 rounded-full text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] relative transition-colors cursor-pointer shrink-0"
             aria-label="Notifications"
             title="Open Notification Center"
           >
-            <Bell className="w-5 h-5" />
+            <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
             {unreadNotificationCount > 0 ? (
-              <span className="absolute top-1 right-1 px-1.5 py-0.2 bg-rose-500 text-white text-[9px] font-black rounded-full shadow-xs">
+              <span className="absolute top-0.5 right-0.5 px-1 py-0.2 bg-rose-500 text-white text-[8px] sm:text-[9px] font-black rounded-full shadow-xs">
                 {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
               </span>
             ) : expiringSoonCount > 0 ? (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-500 rounded-full" />
+              <span className="absolute top-1 right-1 w-2 h-2 bg-amber-500 rounded-full" />
             ) : null}
           </button>
 
           {currentUser && (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsAuthModalOpen(true)}
-                className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-100 dark:bg-[#1c1c1e] hover:bg-slate-200 dark:hover:bg-[#262626] rounded-xl text-xs font-semibold text-slate-700 dark:text-neutral-200 transition-colors"
+                className="flex items-center gap-1.5 p-1 sm:px-2.5 sm:py-1.5 bg-slate-100 dark:bg-[#1c1c1e] hover:bg-slate-200 dark:hover:bg-[#262626] rounded-xl text-xs font-semibold text-slate-700 dark:text-neutral-200 transition-colors shrink-0"
                 title="Click to view profile or sign out"
               >
-                <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center overflow-hidden">
+                <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center overflow-hidden shrink-0">
                   {currentUser.avatar ? (
                     <img src={currentUser.avatar} alt={currentUser.fullName} className="w-full h-full object-cover" />
                   ) : (
@@ -1995,16 +1999,6 @@ export default function MobileDashboard() {
                   )}
                 </div>
                 <span className="hidden sm:inline font-bold">{currentUser.fullName}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleUserLogout}
-                className="px-2.5 py-1.5 text-xs font-bold text-rose-600 dark:text-rose-400 hover:text-rose-700 bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-900/40 border border-rose-200 dark:border-rose-900/50 rounded-xl transition-colors flex items-center gap-1"
-                title="Sign out of seeLibrary"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span className="hidden md:inline">Sign Out</span>
               </button>
             </div>
           )}
@@ -2064,7 +2058,7 @@ export default function MobileDashboard() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 p-4 md:p-6 max-w-5xl mx-auto w-full space-y-4">
+      <main className="flex-1 p-3 sm:p-4 md:p-6 max-w-5xl mx-auto w-full max-w-full overflow-x-hidden space-y-4">
         {/* Tab 1: Home Dashboard */}
         {activeTab === 'home' && (
           <>
@@ -2906,6 +2900,12 @@ export default function MobileDashboard() {
                 initialFilterTab={studentFilterTab}
                 libraryName={activeLibrary?.name}
                 libraryPhone={activeLibrary?.contactPhone}
+                isRefreshing={isSyncingData}
+                onRefresh={async () => {
+                  if (currentUser?.email) {
+                    await loadUserLibrariesFromDb(currentUser.email, libraries);
+                  }
+                }}
                 onAddStudent={() => {
                   requireSubscription('Enroll Students', () => {
                     setPreselectedSeatNumberForNewStudent(null);
@@ -2915,6 +2915,12 @@ export default function MobileDashboard() {
                 onStudentClick={(student, tab) => {
                   setProfileInitialTab(tab || 'profile');
                   setSelectedStudentForProfile(student);
+                }}
+                onCollectFee={(student) => {
+                  requireSubscription('Collect Fees', () => {
+                    setStudentForFeeCollection(student);
+                    setIsCollectFeeModalOpen(true);
+                  });
                 }}
                 onAssignSeat={(student) => {
                   setProfileInitialTab('profile');
@@ -3236,6 +3242,8 @@ export default function MobileDashboard() {
           }}
           students={activeLibrary?.students || []}
           preselectedStudent={studentForFeeCollection}
+          availableSeats={seats.filter((s) => s.status === 'AVAILABLE')}
+          onAssignSeat={handleAssignSeat}
           onRecordPayment={handleRecordFeePayment}
         />
       )}
@@ -3305,7 +3313,7 @@ export default function MobileDashboard() {
       )}
 
       {/* Mobile Bottom Navigation Bar (Thumb-Friendly, Fixed at bottom, hidden on desktop) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-black/95 backdrop-blur-md border-t border-slate-200 dark:border-[#262626] px-2 py-1.5 flex justify-around items-center shadow-lg transition-colors">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-black/95 backdrop-blur-md border-t border-slate-200 dark:border-[#262626] px-1 sm:px-2 py-1.5 flex justify-around items-center shadow-lg transition-colors w-full max-w-full overflow-x-hidden">
         {[
           { id: 'home', label: 'Dashboard', icon: LayoutDashboard },
           { id: 'seats', label: 'Seats', icon: Armchair },

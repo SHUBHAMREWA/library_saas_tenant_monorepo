@@ -93,11 +93,21 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
   const [coupon, setCoupon] = useState('');
   const [discount, setDiscount] = useState<number | null>(null);
   const [couponFeedback, setCouponFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [celebrationSavings, setCelebrationSavings] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [paymentsHistory, setPaymentsHistory] = useState<SubscriptionPaymentRecord[]>([]);
   const [availablePlans, setAvailablePlans] = useState<AvailablePlanItem[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<'ALL' | 'SUCCESS' | 'PENDING' | 'FAILED'>('ALL');
+
+  const triggerCelebration = (savings: number) => {
+    setCelebrationSavings(savings);
+    setShowCelebration(true);
+    setTimeout(() => {
+      setShowCelebration(false);
+    }, 400);
+  };
   
   // Autopay States
   const [isAutopaySelected, setIsAutopaySelected] = useState(true);
@@ -172,6 +182,31 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
     } finally {
       setIsLoadingHistory(false);
     }
+
+    // Always fetch latest live plans from /api/plans
+    try {
+      const pRes = await fetch('/api/plans');
+      if (pRes.ok) {
+        const pData = await pRes.json();
+        const livePlans = pData.plans || pData.data;
+        if (Array.isArray(livePlans) && livePlans.length > 0) {
+          const mapped: AvailablePlanItem[] = livePlans.map((p: any) => ({
+            id: p.id,
+            code: p.code,
+            name: p.name,
+            price: Number(p.price ?? p.priceMonthly),
+            originalPrice: Number(p.originalPrice ?? p.priceYearly),
+            durationMonths: Number(p.durationMonths || 1),
+            badge: p.badge || '',
+            description: p.description || '',
+          }));
+          setAvailablePlans(mapped);
+          if (!mapped.some((p) => p.code === selectedPlanCode)) {
+            setSelectedPlanCode(mapped[0].code);
+          }
+        }
+      }
+    } catch {}
   };
 
   const handleCancelAutopay = async () => {
@@ -240,6 +275,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
         type: 'success',
         message: `Coupon '${clean}' applied! You saved ₹${disc.toLocaleString('en-IN')}.`,
       });
+      triggerCelebration(disc);
       return;
     }
 
@@ -257,6 +293,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
           type: 'success',
           message: `Coupon '${clean}' applied! You saved ₹${data.discountAmount.toLocaleString('en-IN')}.`,
         });
+        triggerCelebration(data.discountAmount);
       } else {
         setDiscount(null);
         setCouponFeedback({
@@ -923,17 +960,6 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
               </div>
             </div>
 
-            {/* Test Mode Helper Banner */}
-            <div className="p-3 bg-amber-50/80 dark:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200 space-y-1">
-              <div className="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-300 text-[11px]">
-                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                <span>Test Mode Simulation Guide</span>
-              </div>
-              <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-snug">
-                For test success, choose <strong>Netbanking</strong> (SBI / HDFC) or <strong>Cards</strong> (Indian RuPay: <code className="bg-amber-100 dark:bg-amber-900/60 font-mono px-1 py-0.5 rounded text-amber-900 dark:text-amber-200 font-bold">6527 6589 0000 1005</code>, CVV: 123).
-              </p>
-            </div>
-
             <button
               type="button"
               disabled={isSubmitting}
@@ -948,6 +974,21 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
               <span>100% Secured by Razorpay • UPI, Cards & NetBanking</span>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 400ms Celebration Pop-up Effect */}
+      {showCelebration && (
+        <div className="fixed inset-0 z-[100] pointer-events-none flex items-center justify-center p-4 animate-in fade-in zoom-in-90 duration-150">
+          <div className="relative bg-white dark:bg-[#18181b] border-2 border-emerald-500 rounded-3xl px-8 py-5 shadow-2xl shadow-emerald-500/40 flex flex-col items-center gap-2 text-center max-w-xs animate-bounce">
+            <div className="text-4xl">🎉</div>
+            <span className="text-base font-black text-emerald-600 dark:text-emerald-400">
+              Coupon Applied!
+            </span>
+            <p className="text-xs font-bold text-slate-700 dark:text-neutral-300">
+              Saved <span className="text-emerald-600 dark:text-emerald-400 font-black text-sm">₹{celebrationSavings.toLocaleString('en-IN')}</span> on your plan!
+            </p>
           </div>
         </div>
       )}

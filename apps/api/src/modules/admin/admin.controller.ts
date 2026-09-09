@@ -306,11 +306,15 @@ export class AdminController {
         return;
       }
 
+      const origPriceVal = originalPrice !== undefined && originalPrice !== null
+        ? Number(originalPrice)
+        : (priceYearly !== undefined && priceYearly !== null ? Number(priceYearly) : undefined);
+
       const currentFeats = (existing.features || {}) as Record<string, any>;
       const updatedFeats = {
         ...currentFeats,
         ...(durationMonths !== undefined && { durationMonths: Number(durationMonths) }),
-        ...(originalPrice !== undefined && { originalPrice: Number(originalPrice) }),
+        ...(origPriceVal !== undefined && { originalPrice: origPriceVal }),
         ...(badge !== undefined && { badge }),
         ...(description !== undefined && { description }),
       };
@@ -320,21 +324,25 @@ export class AdminController {
         data: {
           ...(name && { name: name.trim() }),
           ...(priceMonthly !== undefined && { priceMonthly: Number(priceMonthly) }),
-          ...(priceYearly !== undefined && { priceYearly: Number(priceYearly) }),
+          ...(origPriceVal !== undefined && { priceYearly: origPriceVal }),
           ...(isActive !== undefined && { isActive: Boolean(isActive) }),
           features: updatedFeats,
         },
       });
 
       const feats = (updated.features || {}) as Record<string, any>;
+      const finalOrigPrice = feats.originalPrice !== undefined && feats.originalPrice !== null
+        ? Number(feats.originalPrice)
+        : Number(updated.priceYearly);
+
       const formatted = {
         id: updated.id,
         code: updated.code,
         name: updated.name,
         priceMonthly: Number(updated.priceMonthly),
-        priceYearly: Number(updated.priceYearly),
+        priceYearly: finalOrigPrice,
         durationMonths: feats.durationMonths || 1,
-        originalPrice: feats.originalPrice ? Number(feats.originalPrice) : null,
+        originalPrice: finalOrigPrice,
         badge: feats.badge || '',
         description: feats.description || '',
         isActive: updated.isActive,

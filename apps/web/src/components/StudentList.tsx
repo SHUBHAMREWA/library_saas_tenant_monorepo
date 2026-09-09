@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Phone, Search, Armchair, Shield, Check, Clock, Plus, Bell, Calendar, Filter } from 'lucide-react';
+import { Phone, Search, Armchair, Shield, Check, Clock, Plus, Bell, Calendar, Filter, RefreshCw } from 'lucide-react';
 import { WhatsAppIcon } from './WhatsAppIcon';
 import { generateWhatsAppFeeReminderText } from '@/lib/receipt-utils';
 import { formatMonthPeriod } from '@/lib/billing-periods';
@@ -65,6 +65,7 @@ export interface StudentMonthPaymentInfo {
   isPartialDue: boolean;
   isUnpaid: boolean;
   hasActiveSeat: boolean;
+  isEnrolledInMonth: boolean;
   transactions: StudentFeeRecord[];
 }
 
@@ -76,6 +77,14 @@ export function getStudentMonthPaymentInfo(
   const isNoSeat = !student.seatNumber || student.status === 'INACTIVE';
   const hasActiveSeat = !isNoSeat;
 
+  // Check if selectedMonth and selectedYear match current real-world month & year
+  const now = new Date();
+  const currentMonthFull = now.toLocaleString('en-US', { month: 'long' });
+  const currentYearStr = now.getFullYear().toString();
+  const isCurrentMonthSelected =
+    (selectedMonth === 'ALL' || selectedMonth.toLowerCase() === currentMonthFull.toLowerCase()) &&
+    (selectedYear === 'ALL' || selectedYear === currentYearStr);
+
   // Filter transactions for the chosen month and year
   const monthTxs = (student.transactions || []).filter((tx) => {
     if (selectedMonth === 'ALL') {
@@ -86,6 +95,17 @@ export function getStudentMonthPaymentInfo(
         (tx.validFrom && tx.validFrom.includes(selectedYear)) ||
         (tx.validTo && tx.validTo.includes(selectedYear));
       return dMatch || pMatch || vMatch;
+    }
+
+    if (tx.validFrom) {
+      const vFrom = new Date(tx.validFrom);
+      if (!isNaN(vFrom.getTime())) {
+        const vMonthName = vFrom.toLocaleString('en-US', { month: 'long' });
+        const vYearStr = vFrom.getFullYear().toString();
+        const monthMatch = vMonthName.toLowerCase() === selectedMonth.toLowerCase();
+        const yearMatch = selectedYear === 'ALL' || vYearStr === selectedYear;
+        if (monthMatch && yearMatch) return true;
+      }
     }
 
     const pMatch =
@@ -108,6 +128,28 @@ export function getStudentMonthPaymentInfo(
   });
 
   const paidAmount = monthTxs.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
+  // Determine if the student was actually enrolled/active in this specific selected month
+  const isEnrolledInMonth =
+    selectedMonth === 'ALL' ||
+    monthTxs.length > 0 ||
+    (isCurrentMonthSelected && hasActiveSeat);
+
+  if (!isEnrolledInMonth) {
+    return {
+      monthName: selectedMonth,
+      yearStr: selectedYear,
+      totalFee: 0,
+      paidAmount: 0,
+      remainingDue: 0,
+      isPaid: false,
+      isPartialDue: false,
+      isUnpaid: false,
+      hasActiveSeat,
+      isEnrolledInMonth: false,
+      transactions: [],
+    };
+  }
 
   // Find max totalFee across these transactions
   let maxTxTotalFee = 0;
@@ -149,31 +191,23 @@ export function getStudentMonthPaymentInfo(
 
   // Remaining due calculation:
   let remainingDue = 0;
-  if (hasActiveSeat) {
-    if (monthTxs.length > 0) {
-      const latestTx = monthTxs[0];
-      if (latestTx.remainingFee !== undefined && Number(latestTx.remainingFee) >= 0) {
-        remainingDue = Number(latestTx.remainingFee);
-      } else {
-        remainingDue = Math.max(0, totalFee - paidAmount);
-      }
+  if (monthTxs.length > 0) {
+    const latestTx = monthTxs[0];
+    if (latestTx.remainingFee !== undefined && Number(latestTx.remainingFee) >= 0) {
+      remainingDue = Number(latestTx.remainingFee);
     } else {
-      // No payment recorded yet for this active student in this month
-      remainingDue = totalFee;
+      remainingDue = Math.max(0, totalFee - paidAmount);
     }
+  } else if (hasActiveSeat) {
+    // Current active month without payment recorded yet
+    remainingDue = totalFee;
   } else {
-    // Inactive student without seat
-    if (monthTxs.length > 0) {
-      const latestTx = monthTxs[0];
-      remainingDue = latestTx.remainingFee !== undefined ? Number(latestTx.remainingFee) : Math.max(0, totalFee - paidAmount);
-    } else {
-      remainingDue = 0;
-    }
+    remainingDue = 0;
   }
 
   const isPaid = (paidAmount >= totalFee || (paidAmount > 0 && remainingDue === 0)) && remainingDue === 0 && paidAmount > 0;
   const isPartialDue = paidAmount > 0 && remainingDue > 0;
-  const isUnpaid = paidAmount === 0 && hasActiveSeat && remainingDue > 0;
+  const isUnpaid = paidAmount === 0 && remainingDue > 0;
 
   return {
     monthName: selectedMonth,
@@ -185,6 +219,7 @@ export function getStudentMonthPaymentInfo(
     isPartialDue,
     isUnpaid,
     hasActiveSeat,
+    isEnrolledInMonth: true,
     transactions: monthTxs,
   };
 }
@@ -194,6 +229,9 @@ interface StudentListProps {
   onAddStudent: () => void;
   onStudentClick?: (student: StudentItem, initialTab?: 'profile' | 'feeHistory' | 'kyc') => void;
   onAssignSeat?: (student: StudentItem) => void;
+  onCollectFee?: (student: StudentItem) => void;
+  onRefresh?: () => Promise<void> | void;
+  isRefreshing?: boolean;
   initialFilterTab?: StudentFilterTab;
   libraryName?: string;
   libraryPhone?: string;
@@ -239,12 +277,27 @@ export const StudentList: React.FC<StudentListProps> = ({
   onAddStudent,
   onStudentClick,
   onAssignSeat,
+  onCollectFee,
+  onRefresh,
+  isRefreshing = false,
   initialFilterTab = 'ALL',
   libraryName,
   libraryPhone,
 }) => {
   const [search, setSearch] = useState('');
   const [filterTab, setFilterTab] = useState<StudentFilterTab>(initialFilterTab);
+  const [localRefreshing, setLocalRefreshing] = useState(false);
+
+  const handleRefreshClick = async () => {
+    if (onRefresh) {
+      setLocalRefreshing(true);
+      try {
+        await onRefresh();
+      } finally {
+        setTimeout(() => setLocalRefreshing(false), 500);
+      }
+    }
+  };
 
   const currentYearStr = new Date().getFullYear().toString();
   const currentMonthName = new Date().toLocaleString('en-US', { month: 'long' });
@@ -289,21 +342,20 @@ export const StudentList: React.FC<StudentListProps> = ({
     let dueCount = 0;
     let partialCount = 0;
     let unpaidCount = 0;
+    let enrolledInMonthCount = 0;
 
     students.forEach((s) => {
       const info = studentMonthMap.get(s.id);
-      if (!info) return;
-      if (info.hasActiveSeat) {
-        billed += info.totalFee;
-        collected += info.paidAmount;
-        due += info.remainingDue;
-        if (info.isPaid) paidCount++;
-        if (info.remainingDue > 0) dueCount++;
-        if (info.isPartialDue) partialCount++;
-        if (info.isUnpaid) unpaidCount++;
-      } else if (info.paidAmount > 0) {
-        collected += info.paidAmount;
-      }
+      if (!info || !info.isEnrolledInMonth) return;
+
+      enrolledInMonthCount++;
+      billed += info.totalFee;
+      collected += info.paidAmount;
+      due += info.remainingDue;
+      if (info.isPaid) paidCount++;
+      if (info.remainingDue > 0) dueCount++;
+      if (info.isPartialDue) partialCount++;
+      if (info.isUnpaid) unpaidCount++;
     });
 
     return {
@@ -314,6 +366,7 @@ export const StudentList: React.FC<StudentListProps> = ({
       dueCount,
       partialCount,
       unpaidCount,
+      enrolledInMonthCount,
     };
   }, [students, studentMonthMap]);
 
@@ -339,11 +392,12 @@ export const StudentList: React.FC<StudentListProps> = ({
       s.status !== 'EXPIRED'
   ).length;
 
-  // Available distinct years across students' transaction records
+  // Available distinct years across students' transaction records (spanning 2024 to 2050)
   const availableYears = useMemo(() => {
     const years = new Set<string>();
-    const currentYear = new Date().getFullYear().toString();
-    years.add(currentYear);
+    for (let yr = 2024; yr <= 2050; yr++) {
+      years.add(yr.toString());
+    }
     students.forEach((s) => {
       (s.transactions || []).forEach((tx) => {
         if (tx.paymentDate) {
@@ -360,7 +414,7 @@ export const StudentList: React.FC<StudentListProps> = ({
         }
       });
     });
-    return Array.from(years).sort((a, b) => b.localeCompare(a));
+    return Array.from(years).sort((a, b) => Number(a) - Number(b));
   }, [students]);
 
   const filtered = students.filter((s) => {
@@ -378,7 +432,9 @@ export const StudentList: React.FC<StudentListProps> = ({
     }
 
     if (selectedMonth !== 'ALL') {
-      if (filterTab === 'MONTH_PAID') {
+      if (filterTab === 'ALL') {
+        if (!monthInfo?.isEnrolledInMonth) return false;
+      } else if (filterTab === 'MONTH_PAID') {
         if (!monthInfo?.isPaid) return false;
       } else if (filterTab === 'FEE_DUE') {
         if (!monthInfo || monthInfo.remainingDue <= 0) return false;
@@ -387,9 +443,9 @@ export const StudentList: React.FC<StudentListProps> = ({
       } else if (filterTab === 'MONTH_UNPAID') {
         if (!monthInfo?.isUnpaid) return false;
       } else if (filterTab === 'INACTIVE') {
-        if (!isNoSeat) return false;
+        if (!isNoSeat || !monthInfo?.isEnrolledInMonth) return false;
       } else if (filterTab === 'ACTIVE') {
-        if (isNoSeat) return false;
+        if (isNoSeat || !monthInfo?.isEnrolledInMonth) return false;
       }
       return true;
     }
@@ -406,7 +462,7 @@ export const StudentList: React.FC<StudentListProps> = ({
       }
     }
 
-    if (selectedYear !== 'ALL') {
+    if (filterTab !== 'ALL' && selectedYear !== 'ALL') {
       const matchYear = (s.transactions || []).some((tx) => {
         const dMatch = tx.paymentDate && new Date(tx.paymentDate).getFullYear().toString() === selectedYear;
         const pMatch = tx.paidForMonth && tx.paidForMonth.includes(selectedYear);
@@ -420,8 +476,8 @@ export const StudentList: React.FC<StudentListProps> = ({
   });
 
   return (
-    <div className="space-y-3">
-      {/* Search & Add Action */}
+    <div className="space-y-3 w-full max-w-full overflow-x-hidden">
+      {/* Search, Refresh & Add Action */}
       <div className="flex gap-2">
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 dark:text-[#737373] absolute left-3 top-3" />
@@ -433,6 +489,21 @@ export const StudentList: React.FC<StudentListProps> = ({
             className="w-full pl-9 pr-3 py-2 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-xl text-xs sm:text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-[#737373] focus:outline-hidden focus:ring-2 focus:ring-indigo-500 shadow-xs"
           />
         </div>
+
+        {/* Refresh Student Data Button */}
+        {onRefresh && (
+          <button
+            type="button"
+            onClick={handleRefreshClick}
+            disabled={isRefreshing || localRefreshing}
+            className="bg-white dark:bg-[#1c1c1e] hover:bg-slate-50 dark:hover:bg-[#262626] active:bg-slate-100 text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 shrink-0 shadow-xs cursor-pointer transition-colors disabled:opacity-60"
+            title="Refresh latest student records from database"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 ${(isRefreshing || localRefreshing) ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">{(isRefreshing || localRefreshing) ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
+        )}
+
         <button
           type="button"
           onClick={onAddStudent}
@@ -513,7 +584,7 @@ export const StudentList: React.FC<StudentListProps> = ({
                 <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <span>{selectedMonth} {selectedYear !== 'ALL' ? selectedYear : ''} Fee Overview</span>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
-                    {students.filter((s) => s.seatNumber && s.status !== 'INACTIVE').length} Active Members
+                    {monthStats.enrolledInMonthCount} Enrolled Members
                   </span>
                 </h4>
                 <p className="text-[11px] text-slate-500 dark:text-[#a8a8a8]">
@@ -600,7 +671,7 @@ export const StudentList: React.FC<StudentListProps> = ({
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
         {selectedMonth !== 'ALL'
           ? [
-              { id: 'ALL', label: `All in ${selectedMonth} (${students.length})` },
+              { id: 'ALL', label: `All in ${selectedMonth} (${monthStats.enrolledInMonthCount})` },
               {
                 id: 'MONTH_PAID',
                 label: `Paid (${monthStats.paidCount})`,
@@ -807,14 +878,16 @@ export const StudentList: React.FC<StudentListProps> = ({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (onAssignSeat) {
+                        if (onCollectFee) {
+                          onCollectFee(student);
+                        } else if (onAssignSeat) {
                           onAssignSeat(student);
                         } else {
                           onStudentClick?.(student, 'profile');
                         }
                       }}
                       className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 px-2.5 py-0.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
-                      title="Assign Seat / Re-Enroll Student"
+                      title="Record Fee Payment & Re-Enroll Student"
                     >
                       <Plus className="w-2.5 h-2.5" />
                       <span>Re-Enroll</span>

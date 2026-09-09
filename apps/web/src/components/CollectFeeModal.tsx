@@ -12,6 +12,8 @@ interface CollectFeeModalProps {
   onClose: () => void;
   students: StudentItem[];
   preselectedStudent?: StudentItem | null;
+  availableSeats?: { id: string; seatNumber: string; rowName?: string }[];
+  onAssignSeat?: (studentId: string, seatNumber: string | null) => Promise<void> | void;
   libraryName?: string;
   libraryPhone?: string;
   onRecordPayment: (paymentData: {
@@ -28,6 +30,7 @@ interface CollectFeeModalProps {
     extendDays: number;
     shift?: string;
     isSettlingDue?: boolean;
+    assignedSeatNumber?: string;
   }) => Promise<any> | any;
 }
 
@@ -60,6 +63,8 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
   onClose,
   students,
   preselectedStudent,
+  availableSeats = [],
+  onAssignSeat,
   libraryName = 'seeLibrary Study Center',
   libraryPhone,
   onRecordPayment,
@@ -68,6 +73,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
   const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
   const [selectedStudentId, setSelectedStudentId] = useState<string>('');
+  const [assignedSeatNumber, setAssignedSeatNumber] = useState<string>('');
   const [paymentType, setPaymentType] = useState<'REMAINING_DUE' | 'NEW_MONTH'>('NEW_MONTH');
   const [totalFee, setTotalFee] = useState<number | ''>(1200);
   const [amount, setAmount] = useState<number | ''>(1200); // Get Fee / Collected
@@ -101,6 +107,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
 
       if (activeStudent) {
         setSelectedStudentId(activeStudent.id);
+        setAssignedSeatNumber(activeStudent.seatNumber || '');
         const shiftVal = activeStudent.shift || 'FULL_DAY';
         setPlanDuration(shiftVal);
 
@@ -137,6 +144,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
     setSelectedStudentId(stdId);
     const found = students.find((s) => s.id === stdId);
     if (found) {
+      setAssignedSeatNumber(found.seatNumber || '');
       const shiftVal = found.shift || 'FULL_DAY';
       setPlanDuration(shiftVal);
       const hasDue = Boolean(found.remainingFee && found.remainingFee > 0);
@@ -190,6 +198,14 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
       ? Math.max(1, Math.round((new Date(validTo).getTime() - new Date(validFrom).getTime()) / (1000 * 60 * 60 * 24)))
       : 30;
 
+    if (assignedSeatNumber && assignedSeatNumber !== currentStudent?.seatNumber && onAssignSeat) {
+      try {
+        await onAssignSeat(selectedStudentId, assignedSeatNumber);
+      } catch (err) {
+        console.error('Failed to assign seat during fee collection:', err);
+      }
+    }
+
     setIsLoading(true);
     try {
       const res = await onRecordPayment({
@@ -206,6 +222,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         extendDays: calculatedDays,
         shift: planDuration,
         isSettlingDue,
+        assignedSeatNumber: assignedSeatNumber || currentStudent?.seatNumber || undefined,
       });
 
       const receiptNum = res?.receiptNumber || `REC-${Date.now().toString().slice(-6)}`;
@@ -443,6 +460,41 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
               </select>
             )}
           </div>
+
+          {/* Seat Allocation Selector */}
+          {availableSeats && availableSeats.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Armchair className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span>Assign / Confirm Seat</span>
+                </span>
+                {currentStudent?.seatNumber ? (
+                  <span className="text-[10px] text-emerald-700 dark:text-emerald-300 font-bold bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 px-1.5 py-0.5 rounded-md">
+                    Seat {currentStudent.seatNumber}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-amber-700 dark:text-amber-300 font-bold bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 px-1.5 py-0.5 rounded-md">
+                    Seat Required
+                  </span>
+                )}
+              </label>
+              <select
+                value={assignedSeatNumber}
+                onChange={(e) => setAssignedSeatNumber(e.target.value)}
+                className="w-full px-3 py-2 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">
+                  {currentStudent?.seatNumber ? `Keep Current (Seat ${currentStudent.seatNumber})` : '-- Select Seat to Assign --'}
+                </option>
+                {availableSeats.map((seat) => (
+                  <option key={seat.id} value={seat.seatNumber}>
+                    Seat {seat.seatNumber} {seat.rowName ? `(${seat.rowName})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* DUAL MODE SELECTOR (Only when student has existing remaining fee) */}
           {Boolean(currentStudent?.remainingFee && currentStudent.remainingFee > 0) && (

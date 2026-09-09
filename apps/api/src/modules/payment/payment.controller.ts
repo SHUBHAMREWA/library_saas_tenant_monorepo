@@ -9,10 +9,45 @@ import {
 export class PaymentController {
   async listPlans(_req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
+      const { prisma } = await import('@library/database');
+      const dbPlans = await prisma.subscriptionPlan.findMany({
+        where: { isActive: true },
+        orderBy: { priceMonthly: 'asc' },
+      });
+
+      if (dbPlans && dbPlans.length > 0) {
+        const formatted = dbPlans.map((p) => {
+          const feats = (p.features || {}) as Record<string, any>;
+          const origPrice = feats.originalPrice !== undefined ? Number(feats.originalPrice) : Number(p.priceYearly);
+          return {
+            id: p.id,
+            code: p.code,
+            name: p.name,
+            price: Number(p.priceMonthly),
+            priceMonthly: Number(p.priceMonthly),
+            priceYearly: origPrice,
+            originalPrice: origPrice,
+            durationMonths: feats.durationMonths || (p.code === 'PRO' ? 12 : p.code === 'ADVANCE' ? 3 : 1),
+            badge: feats.badge || '',
+            description: feats.description || '',
+            allFeatures: true,
+            isActive: p.isActive,
+          };
+        });
+
+        res.status(200).json({ success: true, plans: formatted, data: formatted, availablePlans: formatted });
+        return;
+      }
+
       const plans = paymentService.listPlans();
-      res.status(200).json({ success: true, data: plans });
-    } catch (err) {
-      next(err);
+      res.status(200).json({ success: true, plans, data: plans, availablePlans: plans });
+    } catch {
+      try {
+        const plans = paymentService.listPlans();
+        res.status(200).json({ success: true, plans, data: plans, availablePlans: plans });
+      } catch (err) {
+        next(err);
+      }
     }
   }
 
