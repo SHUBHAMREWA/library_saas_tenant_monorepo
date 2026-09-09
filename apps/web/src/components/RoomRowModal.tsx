@@ -71,26 +71,26 @@ export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
-      <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] w-full max-w-md rounded-2xl shadow-2xl border border-slate-100 dark:border-[#262626] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        <div className="bg-slate-900 dark:bg-[#1c1c1e] p-5 text-white relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs overflow-y-auto">
+      <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] w-full max-w-md rounded-2xl shadow-2xl border border-slate-100 dark:border-[#262626] overflow-hidden my-auto max-h-[92vh] sm:max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+        <div className="bg-slate-900 dark:bg-[#1c1c1e] p-4 sm:p-5 text-white relative shrink-0">
           <button
             type="button"
             onClick={onClose}
-            className="absolute top-4 right-4 p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+            className="absolute top-3.5 sm:top-4 right-3.5 sm:right-4 p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2 mb-1">
-            <Layers className="w-6 h-6 text-indigo-400" />
-            <h3 className="text-xl font-bold">Add Room & Rows</h3>
+            <Layers className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-400" />
+            <h3 className="text-lg sm:text-xl font-bold">Add Room & Rows</h3>
           </div>
           <p className="text-xs text-slate-300 dark:text-neutral-400">
             Define study halls, rows, and auto-generate seat inventory
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1 overscroll-contain">
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1">
               Room / Hall Name
@@ -249,7 +249,7 @@ export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) 
             </span>
           </div>
 
-          <div className="pt-2">
+          <div className="pt-2 sticky bottom-0 bg-white dark:bg-[#121212] pb-1">
             <button
               type="submit"
               disabled={isLoading}

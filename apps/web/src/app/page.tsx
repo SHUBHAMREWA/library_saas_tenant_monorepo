@@ -2479,11 +2479,43 @@ export default function MobileDashboard() {
                     </button>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {displayRooms.map((rm) => {
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {displayRooms.map((rm, rIndex) => {
                       const rmSeats = getSeatsForRoom(rm);
                       const rmOccupied = rmSeats.filter((s) => s.status === 'OCCUPIED').length;
+                      const rmAvailable = rmSeats.length - rmOccupied;
                       const rmRate = rmSeats.length > 0 ? Math.round((rmOccupied / rmSeats.length) * 100) : 0;
+                      const hasLockers = rmSeats.some((s) => s.hasLocker);
+
+                      // Curated theme gradients for each room card
+                      const colorVariants = [
+                        {
+                          borderHover: 'hover:border-indigo-500/70 dark:hover:border-indigo-500/70',
+                          badge: 'from-indigo-600 to-indigo-700 text-white shadow-indigo-500/25',
+                          bar: 'bg-gradient-to-r from-indigo-500 to-indigo-600',
+                          softBg: 'bg-indigo-500/5 group-hover:bg-indigo-500/10',
+                          iconBg: 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white',
+                          accentText: 'text-indigo-600 dark:text-indigo-400',
+                        },
+                        {
+                          borderHover: 'hover:border-purple-500/70 dark:hover:border-purple-500/70',
+                          badge: 'from-purple-600 to-purple-700 text-white shadow-purple-500/25',
+                          bar: 'bg-gradient-to-r from-purple-500 to-purple-600',
+                          softBg: 'bg-purple-500/5 group-hover:bg-purple-500/10',
+                          iconBg: 'bg-purple-50 text-purple-600 dark:bg-purple-950/60 dark:text-purple-400 group-hover:bg-purple-600 group-hover:text-white',
+                          accentText: 'text-purple-600 dark:text-purple-400',
+                        },
+                        {
+                          borderHover: 'hover:border-sky-500/70 dark:hover:border-sky-500/70',
+                          badge: 'from-sky-600 to-blue-700 text-white shadow-sky-500/25',
+                          bar: 'bg-gradient-to-r from-sky-500 to-blue-600',
+                          softBg: 'bg-sky-500/5 group-hover:bg-sky-500/10',
+                          iconBg: 'bg-sky-50 text-sky-600 dark:bg-sky-950/60 dark:text-sky-400 group-hover:bg-sky-600 group-hover:text-white',
+                          accentText: 'text-sky-600 dark:text-sky-400',
+                        },
+                      ];
+                      const style = colorVariants[rIndex % colorVariants.length];
+
                       return (
                         <div
                           key={rm.id}
@@ -2496,16 +2528,31 @@ export default function MobileDashboard() {
                               setSelectedRoomId(rm.id);
                             }
                           }}
-                          className="relative group text-left p-4 rounded-xl border border-slate-200 dark:border-[#262626] hover:border-indigo-500 dark:hover:border-indigo-500 hover:shadow-md bg-white dark:bg-[#161616] hover:bg-indigo-50/10 dark:hover:bg-indigo-950/20 transition-all cursor-pointer flex flex-col justify-between"
+                          className={`group text-left p-5 rounded-2xl border-2 border-slate-200/80 dark:border-[#262626] ${style.borderHover} hover:shadow-xl bg-white dark:bg-[#161616] relative transition-all duration-200 cursor-pointer flex flex-col justify-between overflow-hidden shadow-xs hover:-translate-y-1`}
                         >
-                          <div className="space-y-2">
+                          {/* Top Decorative Subtle Glow */}
+                          <div className={`absolute -top-12 -right-12 w-28 h-28 rounded-full blur-2xl pointer-events-none transition-opacity opacity-40 group-hover:opacity-100 ${style.softBg}`} />
+
+                          <div className="space-y-3 relative z-10">
+                            {/* Card Top Row: Icon + Badges + Menu */}
                             <div className="flex items-center justify-between">
-                              <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                                <Building2 className="w-4 h-4" />
+                              <div className="flex items-center gap-2.5">
+                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 shadow-xs ${style.iconBg}`}>
+                                  <Building2 className="w-5 h-5" />
+                                </div>
+                                <div>
+                                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
+                                    Study Hall
+                                  </span>
+                                  <h4 className="font-extrabold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 text-lg leading-tight transition-colors">
+                                    {rm.name}
+                                  </h4>
+                                </div>
                               </div>
+
                               <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-100/60 dark:border-indigo-900/50">
-                                  {rmSeats.length} {rmSeats.length === 1 ? 'Seat' : 'Seats'}
+                                <span className={`text-[11px] font-black px-2.5 py-1 rounded-lg bg-gradient-to-r ${style.badge} shadow-xs tracking-tight`}>
+                                  {rmSeats.length} Seats
                                 </span>
                                 <div className="relative">
                                   <button
@@ -2514,7 +2561,7 @@ export default function MobileDashboard() {
                                       e.stopPropagation();
                                       setActiveRoomMenuId(activeRoomMenuId === rm.id ? null : rm.id);
                                     }}
-                                    className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-[#262626] text-slate-400 dark:text-neutral-500 hover:text-slate-700 dark:hover:text-neutral-200 transition-colors cursor-pointer"
+                                    className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-[#262626] text-slate-400 dark:text-neutral-500 hover:text-slate-700 dark:hover:text-neutral-200 transition-colors cursor-pointer"
                                     title="Room Options"
                                   >
                                     <MoreVertical className="w-4 h-4" />
@@ -2524,7 +2571,7 @@ export default function MobileDashboard() {
                                   {activeRoomMenuId === rm.id && (
                                     <div
                                       onClick={(e) => e.stopPropagation()}
-                                      className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl shadow-lg py-1 z-30 animate-in fade-in zoom-in-95 duration-100"
+                                      className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl shadow-xl py-1 z-30 animate-in fade-in zoom-in-95 duration-100"
                                     >
                                       <button
                                         type="button"
@@ -2553,37 +2600,52 @@ export default function MobileDashboard() {
                               </div>
                             </div>
 
-                            <div>
-                              <h4 className="font-bold text-slate-900 dark:text-[#f5f5f5] group-hover:text-indigo-600 dark:group-hover:text-indigo-400 text-base transition-colors">
-                                {rm.name}
-                              </h4>
-                              <p className="text-[11px] text-slate-500 dark:text-neutral-400 mt-0.5">
-                                {rmSeats.length} Total Seats
+                            {/* Tags: Row count & Lockers info */}
+                            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#262626] text-slate-700 dark:text-neutral-300 border border-slate-200/60 dark:border-neutral-700/60">
+                                {rm.rows && rm.rows.length > 0 ? `${rm.rows.length} ${rm.rows.length === 1 ? 'Row' : 'Rows'} (${rm.rows.join(', ')})` : 'No Rows'}
+                              </span>
+                              {hasLockers && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200/70 dark:border-amber-800/60 flex items-center gap-1">
+                                  <span>🔐</span> Includes Lockers
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Middle Stat Pills */}
+                          <div className="mt-4 grid grid-cols-2 gap-2 bg-slate-50/80 dark:bg-[#1f1f22] p-2.5 rounded-xl border border-slate-100 dark:border-[#2a2a2d]">
+                            <div className="text-left">
+                              <p className="text-[10px] font-semibold text-slate-400 dark:text-neutral-400">Available</p>
+                              <p className="text-sm font-black text-emerald-600 dark:text-emerald-400">
+                                {rmAvailable} <span className="text-[10px] font-medium text-slate-400">seats</span>
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[10px] font-semibold text-slate-400 dark:text-neutral-400">Occupied</p>
+                              <p className="text-sm font-black text-slate-800 dark:text-neutral-200">
+                                {rmOccupied} <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">({rmRate}%)</span>
                               </p>
                             </div>
                           </div>
 
-                          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-[#262626] space-y-2">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="font-bold text-slate-800 dark:text-neutral-200">
-                                {rmSeats.length} Seats
-                              </span>
-                              <span className="text-[11px] text-slate-500 dark:text-neutral-400 font-medium">
-                                {rmOccupied} Occupied ({rmRate}%)
-                              </span>
-                            </div>
-
-                            {/* Mini progress bar */}
-                            <div className="w-full h-1.5 bg-slate-100 dark:bg-[#262626] rounded-full overflow-hidden">
+                          {/* Bottom: Progress bar & Action button */}
+                          <div className="mt-3.5 space-y-2.5">
+                            {/* Visual Progress Bar */}
+                            <div className="w-full h-2 bg-slate-100 dark:bg-[#262626] rounded-full overflow-hidden p-0.5">
                               <div
-                                className="h-full bg-indigo-600 dark:bg-indigo-500 rounded-full transition-all"
-                                style={{ width: `${rmRate}%` }}
+                                className={`h-full ${style.bar} rounded-full transition-all duration-500`}
+                                style={{ width: `${Math.max(rmRate, rmSeats.length > 0 ? 4 : 0)}%` }}
                               />
                             </div>
 
-                            <div className="pt-1 flex items-center justify-between text-xs font-bold text-indigo-600 dark:text-indigo-400 group-hover:translate-x-0.5 transition-transform">
-                              <span>Open Room & Seats</span>
-                              <ArrowRight className="w-3.5 h-3.5" />
+                            <div className="flex items-center justify-between pt-1">
+                              <span className="text-xs font-bold text-slate-600 dark:text-neutral-400 group-hover:text-slate-900 dark:group-hover:text-white transition-colors">
+                                View Layout &amp; Desks
+                              </span>
+                              <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${style.softBg} ${style.accentText} group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-2xs group-hover:translate-x-0.5`}>
+                                <ArrowRight className="w-4 h-4" />
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -2594,12 +2656,19 @@ export default function MobileDashboard() {
                     <button
                       type="button"
                       onClick={() => setIsRoomModalOpen(true)}
-                      className="p-4 rounded-xl border-2 border-dashed border-slate-200 dark:border-[#262626] hover:border-indigo-400 dark:hover:border-indigo-500 bg-slate-50/50 dark:bg-[#161616]/50 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 text-slate-500 dark:text-neutral-400 hover:text-indigo-600 dark:hover:text-indigo-400 flex flex-col items-center justify-center min-h-[140px] text-center gap-2 transition-all cursor-pointer"
+                      className="group p-5 rounded-2xl border-2 border-dashed border-indigo-200 dark:border-indigo-900/50 hover:border-indigo-500 dark:hover:border-indigo-400 bg-gradient-to-b from-indigo-50/40 via-white to-indigo-50/20 dark:from-indigo-950/20 dark:via-[#161616] dark:to-indigo-950/10 hover:shadow-lg text-slate-600 dark:text-neutral-300 hover:text-indigo-600 dark:hover:text-indigo-400 flex flex-col items-center justify-center min-h-[190px] text-center gap-3 transition-all duration-200 cursor-pointer hover:-translate-y-1"
                     >
-                      <div className="p-2 rounded-full bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] text-slate-400 dark:text-neutral-400 shadow-2xs">
-                        <Plus className="w-4 h-4" />
+                      <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-900/40 group-hover:bg-indigo-600 text-indigo-600 dark:text-indigo-400 group-hover:text-white flex items-center justify-center shadow-sm group-hover:scale-110 transition-all duration-200">
+                        <Plus className="w-6 h-6" />
                       </div>
-                      <span className="text-xs font-bold">Add Another Room</span>
+                      <div>
+                        <span className="text-sm font-extrabold block text-slate-800 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                          Add Another Room
+                        </span>
+                        <p className="text-[11px] text-slate-400 dark:text-neutral-500 mt-0.5">
+                          Create quiet halls, AC zones, or locker rows
+                        </p>
+                      </div>
                     </button>
                   </div>
                 )}

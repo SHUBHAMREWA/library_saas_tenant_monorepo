@@ -196,7 +196,40 @@ interface AdminDashboardProps {
   onLogout?: () => void;
 }
 
+const RENDER_BACKEND_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  'https://seelibrarybackend.onrender.com';
+
+async function adminApiFetch(path: string, options: RequestInit = {}, userEmail?: string): Promise<Response> {
+  const headers = new Headers(options.headers || {});
+  if (userEmail && !headers.has('x-admin-email')) {
+    headers.set('x-admin-email', userEmail);
+  }
+  options.headers = headers;
+
+  let directUrl: string;
+  if (path.startsWith('/api/admin')) {
+    directUrl = `${RENDER_BACKEND_URL}/api/v1/admin${path.slice('/api/admin'.length)}`;
+  } else {
+    directUrl = `${RENDER_BACKEND_URL}${path}`;
+  }
+
+  try {
+    const res = await fetch(directUrl, options);
+    if (res.status < 500) {
+      return res;
+    }
+  } catch {
+    // Network or CORS error, fall back to relative proxy path
+  }
+
+  return fetch(path, options);
+}
+
 export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }: AdminDashboardProps) {
+  const adminFetch = (path: string, options: RequestInit = {}) => {
+    return adminApiFetch(path, options, currentUser.email);
+  };
   const { resolvedTheme, toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<'overview' | 'plans' | 'coupons' | 'users' | 'audit' | 'payments' | 'broadcast'>('overview');
   const [payments, setPayments] = useState<AdminPaymentItem[]>([]);
@@ -268,7 +301,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
     setUpdatingUserId(targetUser.id);
 
     try {
-      const res = await fetch(`/api/admin/users/${targetUser.id}/role`, {
+      const res = await adminFetch(`/api/admin/users/${targetUser.id}/role`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -308,7 +341,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
     if (!selectedLibForSubAdjust) return;
     setIsAdjustingSub(true);
     try {
-      const res = await fetch('/api/admin/subscriptions/adjust', {
+      const res = await adminFetch('/api/admin/subscriptions/adjust', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -385,7 +418,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
     setIsBroadcasting(true);
     setStatusMessage(null);
     try {
-      const res = await fetch('/api/admin/notifications/broadcast', {
+      const res = await adminFetch('/api/admin/notifications/broadcast', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -422,13 +455,13 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
       const headers = { 'x-admin-email': currentUser.email };
 
       const [metricsRes, libsRes, plansRes, couponsRes, usersRes, auditRes, paymentsRes] = await Promise.all([
-        fetch('/api/admin/metrics', { headers }),
-        fetch('/api/admin/libraries', { headers }),
-        fetch('/api/admin/plans', { headers }),
-        fetch('/api/admin/coupons', { headers }),
-        fetch('/api/admin/users', { headers }),
-        fetch('/api/admin/audit-logs?limit=30', { headers }),
-        fetch('/api/admin/payments', { headers }),
+        adminFetch('/api/admin/metrics', { headers }),
+        adminFetch('/api/admin/libraries', { headers }),
+        adminFetch('/api/admin/plans', { headers }),
+        adminFetch('/api/admin/coupons', { headers }),
+        adminFetch('/api/admin/users', { headers }),
+        adminFetch('/api/admin/audit-logs?limit=30', { headers }),
+        adminFetch('/api/admin/payments', { headers }),
       ]);
 
       if (metricsRes.ok) {
@@ -483,7 +516,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
     if (!planToEdit) return;
     setPlanSaving(true);
     try {
-      const res = await fetch(`/api/admin/plans/${planToEdit.id}`, {
+      const res = await adminFetch(`/api/admin/plans/${planToEdit.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'x-admin-email': currentUser.email },
         body: JSON.stringify({
@@ -501,7 +534,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
         setStatusMessage({ type: 'success', text: `Plan '${editPlanName}' updated successfully!` });
         setIsEditPlanModalOpen(false);
         setPlanToEdit(null);
-        const pRes = await fetch('/api/admin/plans', { headers: { 'x-admin-email': currentUser.email } });
+        const pRes = await adminFetch('/api/admin/plans', { headers: { 'x-admin-email': currentUser.email } });
         if (pRes.ok) {
           const d = await pRes.json();
           if (d.plans) setPlans(d.plans);
@@ -523,7 +556,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
     if (!newPlanCode.trim() || !newPlanName.trim() || !newPlanPrice) return;
     setPlanSaving(true);
     try {
-      const res = await fetch('/api/admin/plans', {
+      const res = await adminFetch('/api/admin/plans', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-admin-email': currentUser.email },
         body: JSON.stringify({
@@ -542,7 +575,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
         setIsCreatePlanModalOpen(false);
         setNewPlanCode('');
         setNewPlanName('');
-        const pRes = await fetch('/api/admin/plans', { headers: { 'x-admin-email': currentUser.email } });
+        const pRes = await adminFetch('/api/admin/plans', { headers: { 'x-admin-email': currentUser.email } });
         if (pRes.ok) {
           const d = await pRes.json();
           if (d.plans) setPlans(d.plans);
@@ -561,7 +594,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
 
   const handleTogglePlan = async (plan: AdminPlanItem) => {
     try {
-      const res = await fetch(`/api/admin/plans/${plan.id}`, {
+      const res = await adminFetch(`/api/admin/plans/${plan.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'x-admin-email': currentUser.email },
         body: JSON.stringify({ isActive: !plan.isActive }),
@@ -586,7 +619,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
     const newStatus = !selectedLibForToggle.isActive;
 
     try {
-      const res = await fetch(`/api/admin/libraries/${selectedLibForToggle.id}/status`, {
+      const res = await adminFetch(`/api/admin/libraries/${selectedLibForToggle.id}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'x-admin-email': currentUser.email },
         body: JSON.stringify({ isActive: newStatus, adminEmail: currentUser.email }),
@@ -626,7 +659,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
     setCouponSubmitting(true);
 
     try {
-      const res = await fetch('/api/admin/coupons', {
+      const res = await adminFetch('/api/admin/coupons', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-admin-email': currentUser.email },
         body: JSON.stringify({
@@ -642,7 +675,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
         setStatusMessage({ type: 'success', text: `Coupon code '${data.coupon.code}' created successfully!` });
         setIsCreateCouponOpen(false);
         setCouponCode('');
-        const cRes = await fetch('/api/admin/coupons', { headers: { 'x-admin-email': currentUser.email } });
+        const cRes = await adminFetch('/api/admin/coupons', { headers: { 'x-admin-email': currentUser.email } });
         if (cRes.ok) {
           const c = await cRes.json();
           if (c.coupons) setCoupons(c.coupons);
@@ -661,7 +694,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
 
   const handleToggleCoupon = async (couponId: string) => {
     try {
-      const res = await fetch(`/api/admin/coupons/${couponId}/toggle`, {
+      const res = await adminFetch(`/api/admin/coupons/${couponId}/toggle`, {
         method: 'PUT',
         headers: { 'x-admin-email': currentUser.email },
       });

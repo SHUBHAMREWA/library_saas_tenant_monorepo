@@ -112,8 +112,8 @@ export const BatchSeatModal: React.FC<BatchSeatModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 dark:bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 shadow-xl space-y-4 animate-in slide-in-from-bottom duration-200 border border-slate-100 dark:border-[#262626]">
+    <div className="fixed inset-0 z-50 bg-black/60 dark:bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+      <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 shadow-xl space-y-4 animate-in slide-in-from-bottom duration-200 border border-slate-100 dark:border-[#262626] max-h-[92vh] sm:max-h-[90vh] overflow-y-auto my-auto overscroll-contain">
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#262626] pb-3">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-lg">
