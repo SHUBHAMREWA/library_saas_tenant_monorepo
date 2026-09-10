@@ -102,6 +102,7 @@ export async function POST(
       notes,
       extendDays,
       shift,
+      stayDuration,
       isSettlingDue,
     } = body;
 
@@ -308,6 +309,7 @@ export async function POST(
         remainingFee: remainingFee !== undefined ? Number(remainingFee) : 0,
         membershipEndsInDays: newDaysRemaining,
         shift: shift || activeMembership?.shift || 'FULL_DAY',
+        stayDuration: stayDuration || (shift === 'FULL_DAY' ? 'FULL_DAY' : 'FOUR_HOURS'),
       },
     });
   } catch (error: any) {

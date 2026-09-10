@@ -36,6 +36,11 @@ import {
   LogOut,
   Sun,
   Moon,
+  Trash2,
+  GraduationCap,
+  Filter,
+  UserCheck,
+  FileText,
 } from 'lucide-react';
 import { AdminSkeleton } from './Skeleton';
 import { useTheme } from './ThemeProvider';
@@ -61,6 +66,9 @@ interface AdminPaymentItem {
   ownerName: string;
   ownerEmail: string;
   amount: number;
+  originalAmount?: number;
+  discountApplied?: number;
+  couponCode?: string | null;
   currency: string;
   status: string;
   provider: string;
@@ -113,10 +121,10 @@ interface AdminLibrary {
     cancellationReason: string | null;
     validUntil: string;
   } | null;
-  counts: {
-    rooms: number;
-    seats: number;
-    students: number;
+  counts?: {
+    rooms?: number;
+    seats?: number;
+    students?: number;
   };
 }
 
@@ -157,6 +165,44 @@ interface AuditLogEntry {
   libraryName?: string | null;
   diffPayload?: any;
   createdAt: string;
+}
+
+interface AdminStudentItem {
+  id: string;
+  fullName: string;
+  phone: string;
+  email?: string | null;
+  fatherName?: string | null;
+  motherName?: string | null;
+  address?: string | null;
+  studyPurpose?: string | null;
+  photoUrl?: string | null;
+  kycDocId?: string | null;
+  kycDocType?: string;
+  kycPhotoUrl?: string | null;
+  isActive: boolean;
+  createdAt: string;
+  libraryId: string;
+  libraryName: string;
+  librarySlug: string;
+  ownerName?: string;
+  ownerEmail?: string;
+  membership?: {
+    id: string;
+    status: string;
+    shift: string;
+    startDate: string | null;
+    endDate: string | null;
+    feeAmount: number;
+  } | null;
+  seat?: {
+    seatNumber: string;
+    roomName?: string | null;
+    rowName?: string | null;
+    shift?: string;
+  } | null;
+  remainingDue?: number;
+  lastPaymentDate?: string | null;
 }
 
 interface FloorPlanSeat {
@@ -202,7 +248,8 @@ const rawBackendUrl =
 
 const RENDER_BACKEND_ORIGIN = rawBackendUrl
   .replace(/\/api\/v1\/?$/, '')
-  .replace(/\/$/, '');
+  .replace(/\/$/, '')
+  .replace('://localhost:', '://127.0.0.1:');
 
 async function adminApiFetch(path: string, options: RequestInit = {}, userEmail?: string): Promise<Response> {
   const headers = new Headers(options.headers || {});
@@ -223,7 +270,11 @@ async function adminApiFetch(path: string, options: RequestInit = {}, userEmail?
   }
 
   try {
-    const res = await fetch(directUrl, options);
+    const directOptions: RequestInit = {
+      ...options,
+      signal: options.signal || AbortSignal.timeout(5000),
+    };
+    const res = await fetch(directUrl, directOptions);
     if (res.status < 500) {
       return res;
     }
@@ -231,7 +282,11 @@ async function adminApiFetch(path: string, options: RequestInit = {}, userEmail?
     // Network or CORS error, fall back to relative proxy path
   }
 
-  return fetch(path, options);
+  const proxyOptions: RequestInit = {
+    ...options,
+    signal: options.signal || AbortSignal.timeout(8000),
+  };
+  return fetch(path, proxyOptions);
 }
 
 export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }: AdminDashboardProps) {
@@ -239,7 +294,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
     return adminApiFetch(path, options, currentUser.email);
   };
   const { resolvedTheme, toggleTheme } = useTheme();
-  const [activeTab, setActiveTab] = useState<'overview' | 'plans' | 'coupons' | 'users' | 'audit' | 'payments' | 'broadcast'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'plans' | 'coupons' | 'users' | 'audit' | 'payments' | 'broadcast'>('overview');
   const [payments, setPayments] = useState<AdminPaymentItem[]>([]);
   const [adminPaymentFilter, setAdminPaymentFilter] = useState<'ALL' | 'SUCCESS' | 'PENDING' | 'FAILED' | 'CANCELLED_AUTOPAY'>('ALL');
   const [metrics, setMetrics] = useState<PlatformMetrics | null>(null);
@@ -248,6 +303,14 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
   const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  
+  // Platform Students Directory States
+  const [studentsList, setStudentsList] = useState<AdminStudentItem[]>([]);
+  const [studentSearchQuery, setStudentSearchQuery] = useState('');
+  const [studentLibraryFilter, setStudentLibraryFilter] = useState('ALL');
+  const [studentStatusFilter, setStudentStatusFilter] = useState<'ALL' | 'ACTIVE' | 'EXPIRED' | 'DUE' | 'MORNING' | 'EVENING' | 'FULL_DAY'>('ALL');
+  const [selectedStudentForInspect, setSelectedStudentForInspect] = useState<AdminStudentItem | null>(null);
+  const [isInspectStudentModalOpen, setIsInspectStudentModalOpen] = useState(false);
   
   // Push Broadcast States
   const [broadcastTitle, setBroadcastTitle] = useState('');
@@ -282,13 +345,32 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
   const [newPlanBadge, setNewPlanBadge] = useState('');
   const [newPlanDesc, setNewPlanDesc] = useState('');
 
-  // Modal States
+  // Coupon Modal States
   const [isCreateCouponOpen, setIsCreateCouponOpen] = useState(false);
   const [couponCode, setCouponCode] = useState('');
   const [couponType, setCouponType] = useState<'PERCENTAGE' | 'FIXED'>('PERCENTAGE');
   const [couponValue, setCouponValue] = useState('20');
   const [couponMaxRedemptions, setCouponMaxRedemptions] = useState('100');
+  const [couponMinOrderAmount, setCouponMinOrderAmount] = useState('');
+  const [couponMaxDiscountAmount, setCouponMaxDiscountAmount] = useState('');
+  const [couponValidUntil, setCouponValidUntil] = useState('');
   const [couponSubmitting, setCouponSubmitting] = useState(false);
+
+  // Coupon Edit / Delete States
+  const [isEditCouponOpen, setIsEditCouponOpen] = useState(false);
+  const [couponToEdit, setCouponToEdit] = useState<AdminCoupon | null>(null);
+  const [editCouponCode, setEditCouponCode] = useState('');
+  const [editCouponType, setEditCouponType] = useState<'PERCENTAGE' | 'FIXED'>('PERCENTAGE');
+  const [editCouponValue, setEditCouponValue] = useState('20');
+  const [editCouponMaxRedemptions, setEditCouponMaxRedemptions] = useState('');
+  const [editCouponMinOrderAmount, setEditCouponMinOrderAmount] = useState('');
+  const [editCouponMaxDiscountAmount, setEditCouponMaxDiscountAmount] = useState('');
+  const [editCouponValidUntil, setEditCouponValidUntil] = useState('');
+  const [editCouponActive, setEditCouponActive] = useState(true);
+  const [couponSaving, setCouponSaving] = useState(false);
+
+  const [selectedCouponForDelete, setSelectedCouponForDelete] = useState<AdminCoupon | null>(null);
+  const [isDeletingCoupon, setIsDeletingCoupon] = useState(false);
 
   // Library Toggle Confirmation
   const [selectedLibForToggle, setSelectedLibForToggle] = useState<AdminLibrary | null>(null);
@@ -462,7 +544,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
     try {
       const headers = { 'x-admin-email': currentUser.email };
 
-      const [metricsRes, libsRes, plansRes, couponsRes, usersRes, auditRes, paymentsRes] = await Promise.all([
+      const [metricsRes, libsRes, plansRes, couponsRes, usersRes, auditRes, paymentsRes, studentsRes] = await Promise.all([
         adminFetch('/api/admin/metrics', { headers }),
         adminFetch('/api/admin/libraries', { headers }),
         adminFetch('/api/admin/plans', { headers }),
@@ -470,6 +552,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
         adminFetch('/api/admin/users', { headers }),
         adminFetch('/api/admin/audit-logs?limit=30', { headers }),
         adminFetch('/api/admin/payments', { headers }),
+        adminFetch('/api/admin/students', { headers }),
       ]);
 
       if (metricsRes.ok) {
@@ -478,7 +561,22 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
       }
       if (libsRes.ok) {
         const l = await libsRes.json();
-        if (l.libraries) setLibraries(l.libraries);
+        const rawLibs = l.libraries || l.data || [];
+        const normalized = rawLibs.map((lib: any) => ({
+          ...lib,
+          owner: lib.owner || {
+            id: lib.ownerId || '',
+            fullName: lib.ownerName || 'Owner',
+            email: lib.ownerEmail || '',
+            phone: lib.contactPhone || '',
+          },
+          counts: {
+            seats: lib.counts?.seats ?? lib.seatCount ?? lib.totalSeats ?? 0,
+            students: lib.counts?.students ?? lib.studentCount ?? lib.totalStudents ?? 0,
+            rooms: lib.counts?.rooms ?? lib.roomCount ?? 0,
+          },
+        }));
+        setLibraries(normalized);
       }
       if (plansRes.ok) {
         const p = await plansRes.json();
@@ -492,16 +590,79 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
         const u = await usersRes.json();
         if (u.users) setUsers(u.users);
       }
+      if (studentsRes && studentsRes.ok) {
+        const sData = await studentsRes.json();
+        const rawStudents = sData.students || sData.data || [];
+        setStudentsList(rawStudents);
+      }
       if (paymentsRes && paymentsRes.ok) {
         const pData = await paymentsRes.json();
-        if (pData.payments) setPayments(pData.payments);
+        const rawPayments = pData.payments || pData.data || [];
+        const normalizedPayments: AdminPaymentItem[] = rawPayments.map((p: any) => {
+          const amount = Number(p.amount ?? 0);
+          const discountApplied = Number(p.discountApplied ?? p.metadata?.discountApplied ?? 0);
+          const originalAmount = Number(p.originalAmount ?? (amount + discountApplied));
+          const couponCode = p.couponCode || p.metadata?.couponCode || null;
+
+          return {
+            id: p.id,
+            libraryId: p.libraryId || p.library?.id || '',
+            libraryName: p.libraryName || p.library?.name || 'Library',
+            ownerName: p.ownerName || p.user?.fullName || p.library?.owner?.fullName || 'Owner',
+            ownerEmail: p.ownerEmail || p.user?.email || p.library?.owner?.email || p.library?.contactEmail || '',
+            amount,
+            originalAmount,
+            discountApplied,
+            couponCode,
+            currency: p.currency || 'INR',
+            status: p.status || 'PENDING',
+            provider: p.provider || 'RAZORPAY',
+            paymentId: p.paymentId || p.providerPaymentId || p.metadata?.razorpay_payment_id || p.id,
+            orderId: p.orderId || p.providerOrderId || p.metadata?.razorpay_order_id || p.metadata?.orderId || '',
+            createdAt: p.createdAt || new Date().toISOString(),
+            planCode: p.planCode || p.metadata?.planCode || 'BASIC',
+            planName: p.planName || p.metadata?.planName || 'Basic Plan',
+            durationMonths: Number(p.durationMonths || p.metadata?.durationMonths || 1),
+            adjustmentAction: p.adjustmentAction || p.metadata?.adjustmentAction,
+            daysAdjusted: p.daysAdjusted !== undefined ? p.daysAdjusted : p.metadata?.daysAdjusted,
+            isAutopay: Boolean(p.isAutopay ?? p.metadata?.isAutopay),
+            isCancelled: Boolean(p.isCancelled ?? p.metadata?.isCancelled),
+            cancellationReason: p.cancellationReason || p.metadata?.cancellationReason,
+            cancelledAt: p.cancelledAt || p.metadata?.cancelledAt,
+            failureReason: p.failureReason || p.metadata?.failureReason,
+            statusDetail: p.statusDetail || p.metadata?.statusDetail,
+          };
+        });
+        setPayments(normalizedPayments);
       }
       if (auditRes.ok) {
         const a = await auditRes.json();
         if (a.logs) setAuditLogs(a.logs);
       }
+
+      // Guarantee metrics state is not null so skeleton unlocks even if API is empty
+      setMetrics((prev) => prev || {
+        totalLibraries: 0,
+        activeLibraries: 0,
+        suspendedLibraries: 0,
+        totalStudents: 0,
+        totalSeats: 0,
+        totalUsers: 1,
+        activeSubscriptions: 0,
+        totalRevenue: 0,
+      });
     } catch (err) {
       console.error('Failed to load admin data:', err);
+      setMetrics((prev) => prev || {
+        totalLibraries: 0,
+        activeLibraries: 0,
+        suspendedLibraries: 0,
+        totalStudents: 0,
+        totalSeats: 0,
+        totalUsers: 1,
+        activeSubscriptions: 0,
+        totalRevenue: 0,
+      });
     } finally {
       setIsLoading(false);
     }
@@ -676,15 +837,21 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
           code: couponCode.trim().toUpperCase(),
           discountType: couponType,
           discountValue: parseFloat(couponValue),
-          maxRedemptions: couponMaxRedemptions ? parseInt(couponMaxRedemptions, 10) : null,
+          maxUses: couponMaxRedemptions ? parseInt(couponMaxRedemptions, 10) : null,
+          minOrderAmount: couponMinOrderAmount ? parseFloat(couponMinOrderAmount) : null,
+          maxDiscount: couponMaxDiscountAmount ? parseFloat(couponMaxDiscountAmount) : null,
+          validUntil: couponValidUntil ? new Date(couponValidUntil).toISOString() : null,
         }),
       });
 
       if (res.ok) {
         const data = await res.json();
-        setStatusMessage({ type: 'success', text: `Coupon code '${data.coupon.code}' created successfully!` });
+        setStatusMessage({ type: 'success', text: `Coupon code '${data.coupon?.code || couponCode}' created successfully!` });
         setIsCreateCouponOpen(false);
         setCouponCode('');
+        setCouponMinOrderAmount('');
+        setCouponMaxDiscountAmount('');
+        setCouponValidUntil('');
         const cRes = await adminFetch('/api/admin/coupons', { headers: { 'x-admin-email': currentUser.email } });
         if (cRes.ok) {
           const c = await cRes.json();
@@ -698,6 +865,92 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
       setStatusMessage({ type: 'error', text: err.message || 'Network error' });
     } finally {
       setCouponSubmitting(false);
+      setTimeout(() => setStatusMessage(null), 4000);
+    }
+  };
+
+  const handleOpenEditCoupon = (coupon: AdminCoupon) => {
+    setCouponToEdit(coupon);
+    setEditCouponCode(coupon.code);
+    setEditCouponType(coupon.discountType);
+    setEditCouponValue(coupon.discountValue.toString());
+    setEditCouponMaxRedemptions(coupon.maxRedemptions ? coupon.maxRedemptions.toString() : '');
+    setEditCouponMinOrderAmount(coupon.minOrderAmount ? coupon.minOrderAmount.toString() : '');
+    setEditCouponMaxDiscountAmount(coupon.maxDiscountAmount ? coupon.maxDiscountAmount.toString() : '');
+    setEditCouponValidUntil(coupon.validUntil ? coupon.validUntil.split('T')[0] : '');
+    setEditCouponActive(coupon.isActive);
+    setIsEditCouponOpen(true);
+  };
+
+  const handleUpdateCoupon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!couponToEdit || !editCouponCode.trim() || !editCouponValue) return;
+    setCouponSaving(true);
+
+    try {
+      const res = await adminFetch(`/api/admin/coupons/${couponToEdit.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-admin-email': currentUser.email },
+        body: JSON.stringify({
+          code: editCouponCode.trim().toUpperCase(),
+          discountType: editCouponType,
+          discountValue: parseFloat(editCouponValue),
+          maxUses: editCouponMaxRedemptions ? parseInt(editCouponMaxRedemptions, 10) : null,
+          minOrderAmount: editCouponMinOrderAmount ? parseFloat(editCouponMinOrderAmount) : null,
+          maxDiscount: editCouponMaxDiscountAmount ? parseFloat(editCouponMaxDiscountAmount) : null,
+          validUntil: editCouponValidUntil ? new Date(editCouponValidUntil).toISOString() : null,
+          isActive: editCouponActive,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setStatusMessage({ type: 'success', text: `Coupon '${data.coupon?.code || editCouponCode}' updated successfully!` });
+        setIsEditCouponOpen(false);
+        setCouponToEdit(null);
+
+        const cRes = await adminFetch('/api/admin/coupons', { headers: { 'x-admin-email': currentUser.email } });
+        if (cRes.ok) {
+          const c = await cRes.json();
+          if (c.coupons) setCoupons(c.coupons);
+        }
+      } else {
+        const err = await res.json();
+        setStatusMessage({ type: 'error', text: err.error || 'Failed to update coupon' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ type: 'error', text: err.message || 'Network error' });
+    } finally {
+      setCouponSaving(false);
+      setTimeout(() => setStatusMessage(null), 4000);
+    }
+  };
+
+  const handleDeleteCoupon = async () => {
+    if (!selectedCouponForDelete) return;
+    setIsDeletingCoupon(true);
+
+    try {
+      const res = await adminFetch(`/api/admin/coupons/${selectedCouponForDelete.id}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-email': currentUser.email },
+      });
+
+      if (res.ok) {
+        setCoupons((prev) => prev.filter((c) => c.id !== selectedCouponForDelete.id));
+        setStatusMessage({
+          type: 'success',
+          text: `Coupon '${selectedCouponForDelete.code}' deleted successfully!`,
+        });
+        setSelectedCouponForDelete(null);
+      } else {
+        const err = await res.json();
+        setStatusMessage({ type: 'error', text: err.error || 'Failed to delete coupon' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ type: 'error', text: err.message || 'Network error' });
+    } finally {
+      setIsDeletingCoupon(false);
       setTimeout(() => setStatusMessage(null), 4000);
     }
   };
@@ -825,15 +1078,24 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
             </div>
           </div>
 
-          <div className="bg-slate-50 dark:bg-[#18181b] rounded-xl p-3.5 border border-slate-200 dark:border-[#2a2a2a]">
+          <div
+            onClick={() => {
+              setStudentLibraryFilter('ALL');
+              setActiveTab('students');
+            }}
+            className="bg-slate-50 dark:bg-[#18181b] rounded-xl p-3.5 border border-slate-200 dark:border-[#2a2a2a] cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-600 transition-all group"
+          >
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-medium">
-              <span>Students</span>
-              <Users className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
+              <span className="group-hover:text-indigo-600 dark:group-hover:text-indigo-400 font-semibold transition-colors">Students</span>
+              <GraduationCap className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
             </div>
             <div className="text-xl font-bold text-slate-900 dark:text-white mt-1">
-              {metrics?.totalStudents ?? 0}
+              {metrics?.totalStudents ?? studentsList.length}
             </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Platform wide</div>
+            <div className="text-[11px] text-indigo-600 dark:text-indigo-400 mt-0.5 font-medium flex items-center gap-1">
+              <span>View all students</span>
+              <ChevronRight className="w-3 h-3" />
+            </div>
           </div>
 
           <div className="bg-slate-50 dark:bg-[#18181b] rounded-xl p-3.5 border border-slate-200 dark:border-[#2a2a2a]">
@@ -916,6 +1178,17 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
           }`}
         >
           All Libraries ({libraries.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('students')}
+          className={`px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-colors flex items-center gap-1.5 cursor-pointer ${
+            activeTab === 'students'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
+              : 'border-transparent text-slate-500 dark:text-neutral-400 hover:text-slate-800 dark:hover:text-neutral-200'
+          }`}
+        >
+          <GraduationCap className="w-4 h-4" />
+          <span>All Students ({studentsList.length})</span>
         </button>
         <button
           onClick={() => setActiveTab('plans')}
@@ -1080,12 +1353,23 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-3 text-xs">
                             <span className="px-2 py-1 rounded bg-slate-100 dark:bg-[#1e1e1e] text-slate-700 dark:text-neutral-300 font-medium">
-                              {lib.counts.seats} Seats
+                              {lib.counts?.seats ?? (lib as any).seatCount ?? (lib as any).totalSeats ?? 0} Seats
                             </span>
-                            <span className="px-2 py-1 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-medium">
-                              {lib.counts.students} Students
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setStudentLibraryFilter(lib.id);
+                                setActiveTab('students');
+                              }}
+                              title="Click to view this library's enrolled students"
+                              className="px-2 py-1 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-medium hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors cursor-pointer inline-flex items-center gap-1"
+                            >
+                              <GraduationCap className="w-3.5 h-3.5" />
+                              <span>{lib.counts?.students ?? (lib as any).studentCount ?? (lib as any).totalStudents ?? 0} Students</span>
+                            </button>
+                            <span className="text-slate-400 dark:text-neutral-500">
+                              {lib.counts?.rooms ?? (lib as any).roomCount ?? 0} Rooms
                             </span>
-                            <span className="text-slate-400 dark:text-neutral-500">{lib.counts.rooms} Rooms</span>
                           </div>
                         </td>
                         <td className="px-5 py-4">
@@ -1137,6 +1421,16 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                         <td className="px-5 py-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             <button
+                              onClick={() => {
+                                setStudentLibraryFilter(lib.id);
+                                setActiveTab('students');
+                              }}
+                              title="View all students enrolled in this library"
+                              className="p-2 text-slate-500 dark:text-neutral-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <GraduationCap className="w-4 h-4" />
+                            </button>
+                            <button
                               onClick={() => openInspectModal(lib.id)}
                               title="Inspect library floor plan"
                               className="p-2 text-slate-500 dark:text-neutral-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer"
@@ -1155,8 +1449,8 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                               onClick={() => setSelectedLibForToggle(lib)}
                               className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors border cursor-pointer ${
                                 lib.isActive
-                                  ? 'text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/50 hover:bg-rose-50 dark:hover:bg-rose-950/30'
-                                  : 'text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
+                                    ? 'text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/50 hover:bg-rose-50 dark:hover:bg-rose-950/30'
+                                    : 'text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
                               }`}
                             >
                               {lib.isActive ? 'Suspend' : 'Activate'}
@@ -1172,6 +1466,304 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
           )}
         </div>
       )}
+
+      {/* TAB 2: ALL STUDENTS DIRECTORY */}
+      {activeTab === 'students' && (() => {
+        const filteredStudents = studentsList.filter((s) => {
+          // Library filter
+          if (studentLibraryFilter !== 'ALL' && s.libraryId !== studentLibraryFilter) {
+            return false;
+          }
+          // Status filter
+          if (studentStatusFilter === 'ACTIVE' && s.membership?.status !== 'ACTIVE') return false;
+          if (studentStatusFilter === 'EXPIRED' && s.membership?.status !== 'EXPIRED') return false;
+          if (studentStatusFilter === 'DUE' && (!s.remainingDue || s.remainingDue <= 0)) return false;
+          if (studentStatusFilter === 'MORNING' && s.seat?.shift !== 'MORNING' && s.membership?.shift !== 'MORNING') return false;
+          if (studentStatusFilter === 'EVENING' && s.seat?.shift !== 'EVENING' && s.membership?.shift !== 'EVENING') return false;
+          if (studentStatusFilter === 'FULL_DAY' && s.seat?.shift !== 'FULL_DAY' && s.membership?.shift !== 'FULL_DAY') return false;
+
+          // Search query
+          if (studentSearchQuery.trim()) {
+            const q = studentSearchQuery.trim().toLowerCase();
+            const matchName = s.fullName.toLowerCase().includes(q);
+            const matchPhone = s.phone.includes(q);
+            const matchEmail = s.email?.toLowerCase().includes(q) || false;
+            const matchFather = s.fatherName?.toLowerCase().includes(q) || false;
+            const matchPurpose = s.studyPurpose?.toLowerCase().includes(q) || false;
+            const matchLib = s.libraryName.toLowerCase().includes(q);
+            const matchSeat = s.seat?.seatNumber?.toLowerCase().includes(q) || false;
+            return matchName || matchPhone || matchEmail || matchFather || matchPurpose || matchLib || matchSeat;
+          }
+          return true;
+        });
+
+        const activeCount = studentsList.filter((s) => s.membership?.status === 'ACTIVE').length;
+        const expiredCount = studentsList.filter((s) => s.membership?.status === 'EXPIRED').length;
+        const dueCount = studentsList.filter((s) => s.remainingDue && s.remainingDue > 0).length;
+
+        return (
+          <div className="space-y-4">
+            <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+              <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                {/* Search */}
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={studentSearchQuery}
+                    onChange={(e) => setStudentSearchQuery(e.target.value)}
+                    placeholder="Search students by name, phone, email, father's name, or study purpose..."
+                    className="w-full pl-10 pr-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-neutral-500 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 shadow-xs"
+                  />
+                </div>
+
+                {/* Library Filter Dropdown */}
+                <div className="relative min-w-[200px]">
+                  <select
+                    value={studentLibraryFilter}
+                    onChange={(e) => setStudentLibraryFilter(e.target.value)}
+                    className="w-full px-3 py-2.5 text-xs font-semibold text-slate-800 dark:text-neutral-200 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 shadow-xs cursor-pointer"
+                  >
+                    <option value="ALL">🏢 All Libraries ({libraries.length})</option>
+                    {libraries.map((lib) => (
+                      <option key={lib.id} value={lib.id}>
+                        {lib.name} ({lib.counts?.students ?? 0} students)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Status Filter Pills */}
+              <div className="flex flex-wrap items-center bg-slate-100 dark:bg-[#1c1c1e] p-1 rounded-xl text-xs font-semibold gap-1 border border-slate-200 dark:border-[#2a2a2a]">
+                <button
+                  type="button"
+                  onClick={() => setStudentStatusFilter('ALL')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                    studentStatusFilter === 'ALL'
+                      ? 'bg-white dark:bg-[#2a2a2a] text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-500 dark:text-neutral-400 hover:text-slate-800 dark:hover:text-white'
+                  }`}
+                >
+                  All ({filteredStudents.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudentStatusFilter('ACTIVE')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                    studentStatusFilter === 'ACTIVE'
+                      ? 'bg-white dark:bg-[#2a2a2a] text-emerald-700 dark:text-emerald-400 shadow-xs font-bold'
+                      : 'text-slate-500 dark:text-neutral-400 hover:text-emerald-700 dark:hover:text-emerald-400'
+                  }`}
+                >
+                  Active ({activeCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudentStatusFilter('EXPIRED')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                    studentStatusFilter === 'EXPIRED'
+                      ? 'bg-white dark:bg-[#2a2a2a] text-rose-700 dark:text-rose-400 shadow-xs font-bold'
+                      : 'text-slate-500 dark:text-neutral-400 hover:text-rose-700 dark:hover:text-rose-400'
+                  }`}
+                >
+                  Expired ({expiredCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudentStatusFilter('DUE')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                    studentStatusFilter === 'DUE'
+                      ? 'bg-white dark:bg-[#2a2a2a] text-amber-700 dark:text-amber-400 shadow-xs font-bold'
+                      : 'text-slate-500 dark:text-neutral-400 hover:text-amber-700 dark:hover:text-amber-400'
+                  }`}
+                >
+                  Due Pending ({dueCount})
+                </button>
+              </div>
+            </div>
+
+            {/* Table */}
+            {filteredStudents.length === 0 ? (
+              <div className="bg-white dark:bg-[#121212] rounded-2xl p-12 text-center border border-slate-200 dark:border-[#262626] shadow-xs">
+                <GraduationCap className="w-12 h-12 text-slate-300 dark:text-neutral-600 mx-auto mb-3" />
+                <h3 className="text-base font-semibold text-slate-800 dark:text-white">No students found</h3>
+                <p className="text-sm text-slate-500 dark:text-neutral-400 mt-1 max-w-sm mx-auto">
+                  {studentSearchQuery || studentLibraryFilter !== 'ALL' || studentStatusFilter !== 'ALL'
+                    ? 'Try adjusting your search query or filters.'
+                    : 'No students enrolled across any library branch yet.'}
+                </p>
+              </div>
+            ) : (
+              <div className="bg-white dark:bg-[#121212] rounded-2xl border border-slate-200 dark:border-[#262626] shadow-xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 dark:bg-[#18181b] border-b border-slate-200 dark:border-[#262626] text-slate-500 dark:text-neutral-400 font-semibold uppercase tracking-wider">
+                      <tr>
+                        <th className="px-5 py-3.5">Student</th>
+                        <th className="px-4 py-3.5">Library / Branch</th>
+                        <th className="px-4 py-3.5">Seat & Shift</th>
+                        <th className="px-4 py-3.5">Membership</th>
+                        <th className="px-4 py-3.5">Fee & Due</th>
+                        <th className="px-4 py-3.5">KYC / Doc</th>
+                        <th className="px-5 py-3.5 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-[#222222] text-slate-700 dark:text-neutral-300">
+                      {filteredStudents.map((std) => (
+                        <tr key={std.id} className="hover:bg-slate-50/70 dark:hover:bg-[#1c1c1e]/60 transition-colors">
+                          {/* Student info */}
+                          <td className="px-5 py-3.5 whitespace-nowrap">
+                            <div className="flex items-center gap-3">
+                              {std.photoUrl ? (
+                                <img
+                                  src={std.photoUrl}
+                                  alt={std.fullName}
+                                  className="w-9 h-9 rounded-full object-cover border border-slate-200 dark:border-neutral-700"
+                                />
+                              ) : (
+                                <div className="w-9 h-9 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold flex items-center justify-center text-xs border border-indigo-200 dark:border-indigo-800">
+                                  {std.fullName.slice(0, 2).toUpperCase()}
+                                </div>
+                              )}
+                              <div>
+                                <span className="font-bold text-slate-900 dark:text-white block">{std.fullName}</span>
+                                <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-neutral-400 mt-0.5">
+                                  <Phone className="w-3 h-3 text-slate-400" />
+                                  <span>{std.phone}</span>
+                                </div>
+                                {std.studyPurpose && (
+                                  <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium block mt-0.5">
+                                    🎯 {std.studyPurpose}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Library / Branch */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <span className="font-bold text-slate-900 dark:text-white block">{std.libraryName}</span>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <span className="font-mono text-[10px] px-1.5 py-0.2 rounded bg-slate-100 dark:bg-[#1e1e1e] text-slate-600 dark:text-neutral-400">
+                                /{std.librarySlug}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 dark:text-neutral-500 block mt-0.5">
+                              Owner: {std.ownerName}
+                            </span>
+                          </td>
+
+                          {/* Seat & Shift */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            {std.seat ? (
+                              <div className="space-y-0.5">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 font-bold text-[11px]">
+                                  <Armchair className="w-3 h-3" />
+                                  Seat {std.seat.seatNumber}
+                                </span>
+                                {std.seat.roomName && (
+                                  <div className="text-[10px] text-slate-400 dark:text-neutral-500">
+                                    {std.seat.roomName} {std.seat.rowName ? `· ${std.seat.rowName}` : ''}
+                                  </div>
+                                )}
+                                <div className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
+                                  {std.seat.shift === 'MORNING' ? 'Morning' : std.seat.shift === 'EVENING' ? 'Evening' : 'Full Day'}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-slate-400 dark:text-neutral-500 italic">No Seat Assigned</span>
+                            )}
+                          </td>
+
+                          {/* Membership */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            {std.membership ? (
+                              <div className="space-y-0.5">
+                                {std.membership.status === 'ACTIVE' ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                    ACTIVE
+                                  </span>
+                                ) : std.membership.status === 'EXPIRED' ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/50">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                                    EXPIRED
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#222] text-slate-600 dark:text-neutral-400 border border-slate-200 dark:border-[#333]">
+                                    {std.membership.status}
+                                  </span>
+                                )}
+                                {std.membership.endDate && (
+                                  <div className="text-[10px] text-slate-400 dark:text-neutral-500">
+                                    Valid till: {new Date(std.membership.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-slate-400 dark:text-neutral-500 italic">No Membership</span>
+                            )}
+                          </td>
+
+                          {/* Fee & Due */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <div className="font-bold text-slate-900 dark:text-white">
+                              ₹{(std.membership?.feeAmount || 0).toLocaleString('en-IN')}/mo
+                            </div>
+                            {std.remainingDue && std.remainingDue > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 mt-0.5">
+                                Due: ₹{std.remainingDue.toLocaleString('en-IN')}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">All Clear</span>
+                            )}
+                          </td>
+
+                          {/* KYC / Doc */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            {std.kycDocId ? (
+                              <div className="space-y-0.5">
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-[#1e1e1e] text-slate-700 dark:text-neutral-300 border border-slate-200 dark:border-[#2a2a2a]">
+                                  <FileText className="w-3 h-3 text-indigo-500" />
+                                  {std.kycDocType || 'AADHAAR'}: {std.kycDocId}
+                                </span>
+                                {std.kycPhotoUrl && (
+                                  <div className="text-[9px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                                    ✓ Document Attached
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 dark:text-neutral-500 italic">Not Submitted</span>
+                            )}
+                          </td>
+
+                          {/* Actions */}
+                          <td className="px-5 py-3.5 whitespace-nowrap text-right">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedStudentForInspect(std);
+                                setIsInspectStudentModalOpen(true);
+                              }}
+                              title="Inspect Student Profile"
+                              className="px-3 py-1.5 text-xs font-bold rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-600 hover:text-white border border-indigo-200 dark:border-indigo-800/50 transition-colors cursor-pointer inline-flex items-center gap-1"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>Profile</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* TAB: SUBSCRIPTION PLANS */}
       {activeTab === 'plans' && (
@@ -1299,20 +1891,38 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                 className="bg-white dark:bg-[#121212] rounded-2xl p-5 border border-slate-200 dark:border-[#262626] shadow-xs relative overflow-hidden flex flex-col justify-between"
               >
                 <div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <div className="font-mono text-lg font-extrabold tracking-wider text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-1 rounded-lg border border-indigo-100 dark:border-indigo-800/50">
                       {coupon.code}
                     </div>
-                    <button
-                      onClick={() => handleToggleCoupon(coupon.id)}
-                      className={`px-2.5 py-1 text-xs font-semibold rounded-full border transition-colors cursor-pointer ${
-                        coupon.isActive
-                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/50 hover:bg-emerald-100 dark:hover:bg-emerald-950/70'
-                          : 'bg-slate-100 dark:bg-[#1e1e1e] text-slate-500 dark:text-neutral-400 border-slate-200 dark:border-[#2a2a2a] hover:bg-slate-200 dark:hover:bg-[#2c2c2e]'
-                      }`}
-                    >
-                      {coupon.isActive ? 'Active' : 'Disabled'}
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleToggleCoupon(coupon.id)}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-full border transition-colors cursor-pointer ${
+                          coupon.isActive
+                            ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/50 hover:bg-emerald-100 dark:hover:bg-emerald-950/70'
+                            : 'bg-slate-100 dark:bg-[#1e1e1e] text-slate-500 dark:text-neutral-400 border-slate-200 dark:border-[#2a2a2a] hover:bg-slate-200 dark:hover:bg-[#2c2c2e]'
+                        }`}
+                      >
+                        {coupon.isActive ? 'Active' : 'Disabled'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditCoupon(coupon)}
+                        className="p-1.5 text-slate-500 hover:text-indigo-600 dark:text-neutral-400 dark:hover:text-indigo-400 bg-slate-100 dark:bg-[#1c1c1e] hover:bg-indigo-50 dark:hover:bg-indigo-950/40 border border-slate-200 dark:border-[#2a2a2a] rounded-lg transition-colors cursor-pointer"
+                        title="Edit Coupon"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCouponForDelete(coupon)}
+                        className="p-1.5 text-slate-500 hover:text-rose-600 dark:text-neutral-400 dark:hover:text-rose-400 bg-slate-100 dark:bg-[#1c1c1e] hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-slate-200 dark:border-[#2a2a2a] rounded-lg transition-colors cursor-pointer"
+                        title="Delete Coupon"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mt-4 space-y-1.5">
@@ -1325,12 +1935,19 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                       Redeemed: <span className="font-semibold text-slate-800 dark:text-neutral-200">{coupon.usageCount}</span>
                       {coupon.maxRedemptions && ` / ${coupon.maxRedemptions} max`}
                     </div>
+                    {(coupon.minOrderAmount || coupon.maxDiscountAmount) && (
+                      <div className="text-[11px] text-slate-400 dark:text-neutral-500 flex items-center gap-2">
+                        {coupon.minOrderAmount && <span>Min: ₹{coupon.minOrderAmount}</span>}
+                        {coupon.minOrderAmount && coupon.maxDiscountAmount && <span>·</span>}
+                        {coupon.maxDiscountAmount && <span>Max: ₹{coupon.maxDiscountAmount}</span>}
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-100 dark:border-[#262626] flex items-center justify-between text-[11px] text-slate-400 dark:text-neutral-500">
-                  <span>Expires {new Date(coupon.validUntil).toLocaleDateString('en-IN')}</span>
-                  <span>Limit: {coupon.perUserLimit}/user</span>
+                  <span>Expires {coupon.validUntil ? new Date(coupon.validUntil).toLocaleDateString('en-IN') : 'No expiry'}</span>
+                  <span>Limit: {coupon.perUserLimit || 1}/user</span>
                 </div>
               </div>
             ))}
@@ -1538,8 +2155,10 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                             </div>
                           </td>
                           <td className="px-4 py-3.5 whitespace-nowrap">
-                            <span className="font-bold text-slate-900 dark:text-white block">{p.libraryName}</span>
-                            <span className="text-[11px] text-slate-500 dark:text-neutral-400 block">{p.ownerName} ({p.ownerEmail || 'No email'})</span>
+                            <span className="font-bold text-slate-900 dark:text-white block">{p.libraryName || 'Library'}</span>
+                            <span className="text-[11px] text-slate-500 dark:text-neutral-400 block">
+                              {p.ownerName} {p.ownerEmail ? `(${p.ownerEmail})` : ''}
+                            </span>
                           </td>
                           <td className="px-4 py-3.5 whitespace-nowrap">
                             <span className="font-semibold text-slate-900 dark:text-white block">{p.planName}</span>
@@ -1561,14 +2180,37 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                               )}
                             </div>
                           </td>
-                          <td className="px-4 py-3.5 whitespace-nowrap font-bold text-slate-900 dark:text-white">
-                            {p.amount > 0 ? `₹${p.amount.toLocaleString('en-IN')}` : '—'}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <div className="font-bold text-slate-900 dark:text-white">
+                              {p.amount > 0 ? `₹${p.amount.toLocaleString('en-IN')}` : '₹0 (Free)'}
+                            </div>
+                            {p.discountApplied && p.discountApplied > 0 ? (
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800/60 inline-flex items-center gap-0.5">
+                                  <Tag className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                                  {p.couponCode ? p.couponCode : 'Coupon'} (-₹{p.discountApplied.toLocaleString('en-IN')})
+                                </span>
+                                {p.originalAmount && p.originalAmount > p.amount && (
+                                  <span className="text-[10px] text-slate-400 dark:text-neutral-500 line-through">
+                                    ₹{p.originalAmount.toLocaleString('en-IN')}
+                                  </span>
+                                )}
+                              </div>
+                            ) : null}
                           </td>
                           <td className="px-4 py-3.5 whitespace-nowrap">
-                            <span className="font-mono text-[11px] text-slate-700 dark:text-neutral-300 block">{p.paymentId}</span>
-                            {p.orderId && (
-                              <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-mono block">Order: {p.orderId}</span>
+                            {p.paymentId ? (
+                              <span className="font-mono text-[11px] text-slate-700 dark:text-neutral-300 block select-all font-medium">
+                                {p.paymentId}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 dark:text-neutral-500 text-[11px] italic block">—</span>
                             )}
+                            {p.orderId ? (
+                              <span className="text-[10px] text-slate-500 dark:text-neutral-400 font-mono block select-all">
+                                Order: {p.orderId}
+                              </span>
+                            ) : null}
                           </td>
                           <td className="px-5 py-3.5 whitespace-nowrap text-right">
                             {p.isCancelled ? (
@@ -1833,16 +2475,54 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">Max Redemptions (Optional)</label>
-                <input
-                  type="number"
-                  min="1"
-                  placeholder="e.g. 100 (leave empty for unlimited)"
-                  value={couponMaxRedemptions}
-                  onChange={(e) => setCouponMaxRedemptions(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-neutral-500 bg-white dark:bg-[#18181b] border border-slate-300 dark:border-[#2e2e2e] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">Max Redemptions</label>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="Unlimited"
+                    value={couponMaxRedemptions}
+                    onChange={(e) => setCouponMaxRedemptions(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-neutral-500 bg-white dark:bg-[#18181b] border border-slate-300 dark:border-[#2e2e2e] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">Expiry Date</label>
+                  <input
+                    type="date"
+                    value={couponValidUntil}
+                    onChange={(e) => setCouponValidUntil(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm font-medium text-slate-900 dark:text-white bg-white dark:bg-[#18181b] border border-slate-300 dark:border-[#2e2e2e] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">Min Order (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Optional"
+                    value={couponMinOrderAmount}
+                    onChange={(e) => setCouponMinOrderAmount(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-neutral-500 bg-white dark:bg-[#18181b] border border-slate-300 dark:border-[#2e2e2e] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">Max Discount (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Optional"
+                    value={couponMaxDiscountAmount}
+                    onChange={(e) => setCouponMaxDiscountAmount(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-neutral-500 bg-white dark:bg-[#18181b] border border-slate-300 dark:border-[#2e2e2e] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                  />
+                </div>
               </div>
 
               <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-[#262626]">
@@ -1862,6 +2542,186 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDIT COUPON */}
+      {isEditCouponOpen && couponToEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] rounded-2xl w-full max-w-md p-6 shadow-2xl border border-slate-200 dark:border-[#262626]">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#262626]">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+                  <Tag className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Edit Coupon Code</h3>
+                  <p className="text-xs text-slate-500 dark:text-neutral-400 font-mono">{couponToEdit.code}</p>
+                </div>
+              </div>
+              <button onClick={() => setIsEditCouponOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateCoupon} className="space-y-4 mt-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">Coupon Code</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. WELCOME50"
+                  value={editCouponCode}
+                  onChange={(e) => setEditCouponCode(e.target.value.toUpperCase())}
+                  className="w-full px-3.5 py-2.5 text-sm font-mono font-bold uppercase text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-neutral-500 bg-white dark:bg-[#18181b] border border-slate-300 dark:border-[#2e2e2e] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">Discount Type</label>
+                  <select
+                    value={editCouponType}
+                    onChange={(e) => setEditCouponType(e.target.value as any)}
+                    className="w-full px-3 py-2.5 text-sm font-medium text-slate-900 dark:text-white bg-white dark:bg-[#18181b] border border-slate-300 dark:border-[#2e2e2e] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs cursor-pointer"
+                  >
+                    <option value="PERCENTAGE">Percentage (%)</option>
+                    <option value="FIXED">Flat Amount (₹)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">Value</label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    placeholder="20"
+                    value={editCouponValue}
+                    onChange={(e) => setEditCouponValue(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-neutral-500 bg-white dark:bg-[#18181b] border border-slate-300 dark:border-[#2e2e2e] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">Max Redemptions</label>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="Unlimited"
+                    value={editCouponMaxRedemptions}
+                    onChange={(e) => setEditCouponMaxRedemptions(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-neutral-500 bg-white dark:bg-[#18181b] border border-slate-300 dark:border-[#2e2e2e] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">Expiry Date</label>
+                  <input
+                    type="date"
+                    value={editCouponValidUntil}
+                    onChange={(e) => setEditCouponValidUntil(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm font-medium text-slate-900 dark:text-white bg-white dark:bg-[#18181b] border border-slate-300 dark:border-[#2e2e2e] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">Min Order (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Optional"
+                    value={editCouponMinOrderAmount}
+                    onChange={(e) => setEditCouponMinOrderAmount(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-neutral-500 bg-white dark:bg-[#18181b] border border-slate-300 dark:border-[#2e2e2e] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">Max Discount (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Optional"
+                    value={editCouponMaxDiscountAmount}
+                    onChange={(e) => setEditCouponMaxDiscountAmount(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-neutral-500 bg-white dark:bg-[#18181b] border border-slate-300 dark:border-[#2e2e2e] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <input
+                  type="checkbox"
+                  id="editCouponActive"
+                  checked={editCouponActive}
+                  onChange={(e) => setEditCouponActive(e.target.checked)}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                />
+                <label htmlFor="editCouponActive" className="text-xs font-semibold text-slate-700 dark:text-neutral-300 cursor-pointer">
+                  Coupon is Active & Redeemable
+                </label>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-[#262626]">
+                <button
+                  type="button"
+                  onClick={() => setIsEditCouponOpen(false)}
+                  className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={couponSaving}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors shadow-xs disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                >
+                  {couponSaving ? 'Saving Changes...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: DELETE COUPON CONFIRMATION */}
+      {selectedCouponForDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] rounded-2xl w-full max-w-sm p-6 shadow-2xl border border-slate-200 dark:border-[#262626]">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto mb-4 border border-rose-100 dark:border-rose-900/40">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <h3 className="text-base font-bold text-center text-slate-900 dark:text-white">
+              Delete Coupon Code?
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-neutral-400 text-center mt-2 leading-relaxed">
+              Are you sure you want to permanently delete coupon <span className="font-mono font-bold text-slate-800 dark:text-white bg-slate-100 dark:bg-[#1e1e1e] px-1.5 py-0.5 rounded">'{selectedCouponForDelete.code}'</span>? Users will no longer be able to apply this discount.
+            </p>
+
+            <div className="mt-6 flex items-center gap-3">
+              <button
+                type="button"
+                disabled={isDeletingCoupon}
+                onClick={() => setSelectedCouponForDelete(null)}
+                className="flex-1 py-2.5 text-xs font-semibold text-slate-700 dark:text-neutral-300 bg-slate-100 dark:bg-[#1c1c1e] hover:bg-slate-200 dark:hover:bg-[#2c2c2e] rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingCoupon}
+                onClick={handleDeleteCoupon}
+                className="flex-1 py-2.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                {isDeletingCoupon ? 'Deleting...' : 'Delete Coupon'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -2541,6 +3401,307 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: INSPECT STUDENT PROFILE */}
+      {isInspectStudentModalOpen && selectedStudentForInspect && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl my-8">
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-slate-100 dark:border-[#262626] flex items-center justify-between bg-slate-50/50 dark:bg-[#18181b]/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 flex items-center justify-center font-bold">
+                  <GraduationCap className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Student Full Profile
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-neutral-400">
+                    Enrolled at <span className="font-semibold text-slate-700 dark:text-neutral-300">{selectedStudentForInspect.libraryName}</span> (/{selectedStudentForInspect.librarySlug})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsInspectStudentModalOpen(false);
+                  setSelectedStudentForInspect(null);
+                }}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
+              {/* Primary Info card */}
+              <div className="flex flex-col sm:flex-row items-start gap-4 p-4 rounded-xl bg-slate-50 dark:bg-[#18181b] border border-slate-100 dark:border-[#262626]">
+                {selectedStudentForInspect.photoUrl ? (
+                  <img
+                    src={selectedStudentForInspect.photoUrl}
+                    alt={selectedStudentForInspect.fullName}
+                    className="w-16 h-16 rounded-2xl object-cover border border-slate-200 dark:border-[#333] shrink-0"
+                  />
+                ) : (
+                  <div className="w-16 h-16 rounded-2xl bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-black text-xl flex items-center justify-center border border-indigo-200 dark:border-indigo-800 shrink-0">
+                    {selectedStudentForInspect.fullName.slice(0, 2).toUpperCase()}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="text-lg font-bold text-slate-900 dark:text-white">
+                      {selectedStudentForInspect.fullName}
+                    </h4>
+                    {selectedStudentForInspect.isActive ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
+                        ACTIVE RECORD
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-[#2a2a2a] text-slate-600 dark:text-neutral-400">
+                        INACTIVE RECORD
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3 text-xs">
+                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-neutral-300">
+                      <Phone className="w-3.5 h-3.5 text-slate-400" />
+                      <span className="font-semibold">{selectedStudentForInspect.phone}</span>
+                    </div>
+                    {selectedStudentForInspect.email && (
+                      <div className="flex items-center gap-1.5 text-slate-600 dark:text-neutral-300 truncate">
+                        <Mail className="w-3.5 h-3.5 text-slate-400" />
+                        <span>{selectedStudentForInspect.email}</span>
+                      </div>
+                    )}
+                    {selectedStudentForInspect.fatherName && (
+                      <div className="text-slate-600 dark:text-neutral-300">
+                        <span className="text-slate-400 dark:text-neutral-500">Father:</span> {selectedStudentForInspect.fatherName}
+                      </div>
+                    )}
+                    {selectedStudentForInspect.studyPurpose && (
+                      <div className="text-slate-600 dark:text-neutral-300">
+                        <span className="text-slate-400 dark:text-neutral-500">Goal:</span> {selectedStudentForInspect.studyPurpose}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Detail Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                {/* Seat & Shift Details */}
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#121212] space-y-2">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-[#262626] pb-2">
+                    <Armchair className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                    <span>Seat & Shift Allocation</span>
+                  </div>
+                  {selectedStudentForInspect.seat ? (
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 dark:text-neutral-400">Seat Number:</span>
+                        <span className="font-bold text-emerald-700 dark:text-emerald-400 font-mono text-sm bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800/50">
+                          {selectedStudentForInspect.seat.seatNumber}
+                        </span>
+                      </div>
+                      {selectedStudentForInspect.seat.roomName && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-500 dark:text-neutral-400">Room / Hall:</span>
+                          <span className="font-semibold text-slate-800 dark:text-neutral-200">
+                            {selectedStudentForInspect.seat.roomName}
+                          </span>
+                        </div>
+                      )}
+                      {selectedStudentForInspect.seat.rowName && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-500 dark:text-neutral-400">Row:</span>
+                          <span className="font-semibold text-slate-800 dark:text-neutral-200">
+                            {selectedStudentForInspect.seat.rowName}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 dark:text-neutral-400">Shift Type:</span>
+                        <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                          {selectedStudentForInspect.seat.shift === 'MORNING'
+                            ? 'Morning Shift'
+                            : selectedStudentForInspect.seat.shift === 'EVENING'
+                            ? 'Evening Shift'
+                            : 'Full Day'}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-slate-400 dark:text-neutral-500 italic pt-2">No seat currently assigned</p>
+                  )}
+                </div>
+
+                {/* Membership & Due Details */}
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#121212] space-y-2">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-[#262626] pb-2">
+                    <IndianRupee className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    <span>Membership & Fees</span>
+                  </div>
+                  {selectedStudentForInspect.membership ? (
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 dark:text-neutral-400">Status:</span>
+                        <span className={`px-2 py-0.5 rounded font-extrabold text-[10px] uppercase ${
+                          selectedStudentForInspect.membership.status === 'ACTIVE'
+                            ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
+                            : selectedStudentForInspect.membership.status === 'EXPIRED'
+                            ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300'
+                            : selectedStudentForInspect.membership.status === 'PAUSED' && selectedStudentForInspect.membership.feeAmount === 0
+                            ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
+                            : 'bg-slate-100 dark:bg-[#222] text-slate-700 dark:text-neutral-300'
+                        }`}>
+                          {selectedStudentForInspect.membership.status === 'PAUSED' && selectedStudentForInspect.membership.feeAmount === 0 ? 'Not Enrolled' : selectedStudentForInspect.membership.status}
+                        </span>
+                      </div>
+                      {selectedStudentForInspect.membership.feeAmount > 0 ? (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500 dark:text-neutral-400">Monthly Fee:</span>
+                            <span className="font-bold text-slate-900 dark:text-white">
+                              ₹{selectedStudentForInspect.membership.feeAmount.toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500 dark:text-neutral-400">Outstanding Due:</span>
+                            <span className={`font-bold ${
+                              selectedStudentForInspect.remainingDue && selectedStudentForInspect.remainingDue > 0
+                                ? 'text-amber-600 dark:text-amber-400'
+                                : 'text-emerald-600 dark:text-emerald-400'
+                            }`}>
+                              {selectedStudentForInspect.remainingDue && selectedStudentForInspect.remainingDue > 0
+                                ? `₹${selectedStudentForInspect.remainingDue.toLocaleString('en-IN')}`
+                                : '₹0 (Paid)'}
+                            </span>
+                          </div>
+                          {selectedStudentForInspect.membership.endDate && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-500 dark:text-neutral-400">Valid Until:</span>
+                              <span className="font-mono text-slate-700 dark:text-neutral-300">
+                                {new Date(selectedStudentForInspect.membership.endDate).toLocaleDateString('en-IN', {
+                                  day: 'numeric',
+                                  month: 'short',
+                                  year: 'numeric',
+                                })}
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-amber-600 dark:text-amber-400 text-xs italic pt-1">
+                          ⚠️ Student has not been enrolled for any month yet. Use <strong>Record Fee</strong> to enroll.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-slate-400 dark:text-neutral-500 italic pt-2">No active membership plan</p>
+                  )}
+                </div>
+              </div>
+
+              {/* KYC & Branch Location Info */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                {/* KYC Card */}
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#121212] space-y-2">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-[#262626] pb-2">
+                    <ShieldCheck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                    <span>Identity Verification (KYC)</span>
+                  </div>
+                  {selectedStudentForInspect.kycDocId ? (
+                    <div className="space-y-2 pt-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 dark:text-neutral-400">Doc Type:</span>
+                        <span className="font-bold text-slate-800 dark:text-neutral-200">
+                          {selectedStudentForInspect.kycDocType || 'AADHAAR'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 dark:text-neutral-400">Document ID:</span>
+                        <span className="font-mono font-semibold text-slate-900 dark:text-white bg-slate-100 dark:bg-[#1c1c1e] px-2 py-0.5 rounded">
+                          {selectedStudentForInspect.kycDocId}
+                        </span>
+                      </div>
+                      {selectedStudentForInspect.kycPhotoUrl && (
+                        <div className="pt-1">
+                          <a
+                            href={selectedStudentForInspect.kycPhotoUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 hover:bg-indigo-100 transition-colors"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>View KYC Document Attachment</span>
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-slate-400 dark:text-neutral-500 italic pt-2">No KYC verification document attached</p>
+                  )}
+                </div>
+
+                {/* Library Branch Owner Card */}
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#121212] space-y-2">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-[#262626] pb-2">
+                    <Building2 className="w-4 h-4 text-slate-600 dark:text-neutral-400" />
+                    <span>Library & Branch Details</span>
+                  </div>
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 dark:text-neutral-400">Library Name:</span>
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        {selectedStudentForInspect.libraryName}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 dark:text-neutral-400">Slug / Route:</span>
+                      <span className="font-mono text-indigo-600 dark:text-indigo-400">
+                        /{selectedStudentForInspect.librarySlug}
+                      </span>
+                    </div>
+                    {selectedStudentForInspect.ownerName && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 dark:text-neutral-400">Branch Owner:</span>
+                        <span className="font-semibold text-slate-800 dark:text-neutral-200">
+                          {selectedStudentForInspect.ownerName}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 dark:text-neutral-400">Joined On:</span>
+                      <span className="text-slate-700 dark:text-neutral-300">
+                        {new Date(selectedStudentForInspect.createdAt).toLocaleDateString('en-IN', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 dark:border-[#262626] bg-slate-50/50 dark:bg-[#18181b]/50 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsInspectStudentModalOpen(false);
+                  setSelectedStudentForInspect(null);
+                }}
+                className="px-5 py-2 text-xs font-semibold rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Close Profile
+              </button>
+            </div>
           </div>
         </div>
       )}

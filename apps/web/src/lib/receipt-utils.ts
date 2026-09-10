@@ -8,6 +8,7 @@ export interface FeeReceiptData {
   studentPhone: string;
   seatNumber?: string | null;
   shift?: string;
+  stayDuration?: string;
   receiptNumber?: string;
   paidForMonth: string;
   validFrom?: string;
@@ -33,6 +34,25 @@ export interface FeeReminderData {
   paidForMonth?: string;
 }
 
+export function formatShiftSummary(shift?: string, stayDuration?: string): string {
+  const normShift = shift ? shift.toUpperCase() : 'FULL_DAY';
+  const normDuration = stayDuration ? stayDuration.toUpperCase() : undefined;
+
+  if (normShift === 'MORNING') {
+    if (normDuration === 'FOUR_HOURS') return 'Morning Shift (4 Hours / Day)';
+    if (normDuration === 'HALF_DAY') return 'Morning Shift (Half Day, 6–8h)';
+    return 'Morning Shift';
+  }
+  if (normShift === 'EVENING') {
+    if (normDuration === 'FOUR_HOURS') return 'Evening Shift (4 Hours / Day)';
+    if (normDuration === 'HALF_DAY') return 'Evening Shift (Half Day, 6–8h)';
+    return 'Evening Shift';
+  }
+  if (normShift === 'FOUR_HOURS') return '4 Hours / Day';
+  if (normShift === 'HALF_DAY') return 'Half Day (6–8h)';
+  return 'Full Day (24/7 Unlimited)';
+}
+
 /**
  * Generates an automated WhatsApp message for a fee payment receipt
  */
@@ -54,6 +74,7 @@ export function generateWhatsAppReceiptText(data: FeeReceiptData): string {
     `🏛️ *Library:* ${data.libraryName}`,
     `👤 *Student Name:* ${data.studentName}`,
     `🪑 *Assigned Seat:* ${data.seatNumber ? `Seat ${data.seatNumber}` : 'Unassigned / General'}`,
+    data.shift ? `⏰ *Shift / Plan:* ${formatShiftSummary(data.shift, data.stayDuration)}` : '',
     data.receiptNumber ? `🔢 *Receipt No:* #${data.receiptNumber}` : '',
     `📅 *Payment Date:* ${formattedDate}`,
     `💳 *Payment Mode:* ${data.paymentMode}`,

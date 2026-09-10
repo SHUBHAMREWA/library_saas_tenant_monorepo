@@ -80,28 +80,43 @@ export async function GET(
         const payments = await prisma.payment.findMany({
           where: { libraryId },
           orderBy: { createdAt: 'desc' },
+          include: {
+            couponUsages: {
+              include: {
+                coupon: true,
+              },
+            },
+          },
           take: 100,
         });
 
         formattedPayments = payments.map((p) => {
           const meta = (p.metadata || {}) as Record<string, any>;
+          const couponUsage = p.couponUsages?.[0];
+          const couponCode = meta.couponCode || couponUsage?.coupon?.code || null;
+          const discountApplied = Number(meta.discountApplied || couponUsage?.discountApplied || 0);
+          const amount = Number(p.amount);
+          const originalAmount = Number(meta.originalAmount || (amount + discountApplied));
+
           return {
             id: p.id,
-            amount: Number(p.amount),
+            amount,
+            originalAmount,
+            discountApplied,
+            couponCode,
             currency: p.currency,
             status: p.status,
             provider: p.provider,
-            paymentId: p.providerPaymentId || p.providerOrderId || p.idempotencyKey,
-            orderId: p.providerOrderId,
+            paymentId: p.providerPaymentId || meta.razorpay_payment_id || p.providerOrderId || p.idempotencyKey,
+            orderId: p.providerOrderId || meta.razorpay_order_id || null,
             createdAt: p.createdAt.toISOString(),
-            planCode: meta.planCode || 'PRO',
+            planCode: meta.planCode || 'BASIC',
             planName: meta.planName || (meta.planCode ? `${meta.planCode} Plan` : 'SaaS Plan'),
             durationMonths: meta.durationMonths !== undefined ? Number(meta.durationMonths) : 1,
             adjustmentAction: meta.adjustmentAction || (meta.durationMonths < 0 ? 'DECREASE' : 'INCREASE'),
             daysAdjusted: meta.daysAdjusted !== undefined ? Number(meta.daysAdjusted) : null,
             previousEndDate: meta.previousEndDate || null,
             newEndDate: meta.newEndDate || null,
-            discountApplied: meta.discountApplied || 0,
             failureReason: meta.failureReason || null,
             statusDetail: meta.statusDetail || null,
           };

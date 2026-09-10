@@ -56,8 +56,8 @@ export const DashboardChart: React.FC<DashboardChartProps> = ({
   // Calculate shift distribution
   const morningCount = students.filter((s) => s.shift === 'MORNING').length;
   const eveningCount = students.filter((s) => s.shift === 'EVENING').length;
-  const fullDayCount = students.filter((s) => s.shift === 'FULL_DAY' || !s.shift).length;
-  const totalShiftStudents = students.length;
+  const fullDayCount = students.filter((s) => s.shift === 'FULL_DAY').length;
+  const totalShiftStudents = morningCount + eveningCount + fullDayCount;
 
   const morningPercent = totalShiftStudents > 0 ? Math.round((morningCount / totalShiftStudents) * 100) : 0;
   const eveningPercent = totalShiftStudents > 0 ? Math.round((eveningCount / totalShiftStudents) * 100) : 0;

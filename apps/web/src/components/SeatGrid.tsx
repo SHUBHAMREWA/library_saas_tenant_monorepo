@@ -5,6 +5,13 @@ import type { SeatStatus } from '@library/types';
 import { Armchair, Check, Wrench, Ban, UserCheck, X, Building2, Plus, Trash2 } from 'lucide-react';
 import { formatShift } from './StudentList';
 
+export interface SeatOccupant {
+  studentId: string;
+  studentName: string;
+  shift: string;
+  phone?: string;
+}
+
 export interface VisualSeatItem {
   id: string;
   seatNumber: string;
@@ -14,15 +21,15 @@ export interface VisualSeatItem {
   studentName?: string | null;
   shift?: string | null;
   roomId?: string | null;
+  occupants?: SeatOccupant[];
 }
 
 interface SeatGridProps {
   seats: VisualSeatItem[];
   onStatusChange?: (seatId: string, newStatus: SeatStatus) => void;
-  onAssignStudent?: (seatId: string) => void;
+  onAssignStudent?: (seatId: string, preselectedShift?: string) => void;
   onAddRoom?: () => void;
   onAddRow?: () => void;
-  onBatchGenerate?: () => void;
   onDeleteSeat?: (seatId: string) => void;
   onDeleteRow?: (rowName: string) => void;
 }
@@ -33,7 +40,6 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
   onAssignStudent,
   onAddRoom,
   onAddRow,
-  onBatchGenerate,
   onDeleteSeat,
   onDeleteRow,
 }) => {
@@ -83,6 +89,53 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
           label: 'Reserved',
         };
     }
+  };
+
+  const renderSeatContent = (seat: VisualSeatItem, badge: { label: string; bg: string; indicator: string }) => {
+    const occupants = seat.occupants || [];
+    const fullDayOccupant = occupants.find((o) => (o.shift || '').toUpperCase() === 'FULL_DAY') || (seat.studentName && (!seat.shift || seat.shift === 'FULL_DAY') ? { studentName: seat.studentName } : null);
+    const morningOccupant = occupants.find((o) => {
+      const s = (o.shift || '').toUpperCase();
+      return s === 'MORNING' || s === 'FOUR_HOURS' || s === 'HALF_DAY';
+    }) || (seat.studentName && (seat.shift === 'MORNING' || seat.shift === 'FOUR_HOURS' || seat.shift === 'HALF_DAY') ? { studentName: seat.studentName } : null);
+    const eveningOccupant = occupants.find((o) => (o.shift || '').toUpperCase() === 'EVENING') || (seat.studentName && seat.shift === 'EVENING' ? { studentName: seat.studentName } : null);
+    const isShared = Boolean(morningOccupant && eveningOccupant);
+
+    return (
+      <>
+        <div className="flex items-center justify-between w-full gap-0.5">
+          <div className="flex items-center gap-1">
+            <span className={`w-1.5 h-1.5 rounded-full ${badge.indicator}`} />
+            <span className="text-[11px] font-bold tracking-tight">{seat.seatNumber.replace(/^[A-Za-z0-9]+-/, '')}</span>
+            {seat.hasLocker && (
+              <span title="Book Locker Included" className="text-[9px]">🔐</span>
+            )}
+          </div>
+          {isShared ? (
+            <span className="text-[8px] font-black px-1 py-0.2 rounded bg-indigo-200/80 dark:bg-indigo-900/60 text-indigo-900 dark:text-indigo-200">
+              2/2
+            </span>
+          ) : fullDayOccupant ? (
+            <span className="text-[8px] font-black px-1 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">
+              24h
+            </span>
+          ) : morningOccupant ? (
+            <span className="text-[8px] font-extrabold px-1 py-0.2 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">
+              1/2 M
+            </span>
+          ) : eveningOccupant ? (
+            <span className="text-[8px] font-extrabold px-1 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300">
+              1/2 E
+            </span>
+          ) : null}
+        </div>
+        <span className="text-[10px] font-medium truncate max-w-[70px] mt-0.5 block w-full text-center">
+          {isShared
+            ? `${morningOccupant?.studentName.split(' ')[0]} • ${eveningOccupant?.studentName.split(' ')[0]}`
+            : (seat.studentName || badge.label)}
+        </span>
+      </>
+    );
   };
 
   return (
@@ -173,18 +226,9 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                         key={seat.id}
                         type="button"
                         onClick={() => setSelectedSeat(seat)}
-                        className={`flex flex-col items-center justify-center p-2.5 rounded-xl border transition-all active:scale-95 text-center shadow-xs cursor-pointer ${badge.bg}`}
+                        className={`flex flex-col items-center justify-center p-2 rounded-xl border transition-all active:scale-95 text-center shadow-xs cursor-pointer ${badge.bg}`}
                       >
-                        <div className="flex items-center gap-1">
-                          <span className={`w-1.5 h-1.5 rounded-full ${badge.indicator}`} />
-                          <span className="text-[11px] font-bold tracking-tight">{seat.seatNumber.replace(/^[A-Za-z0-9]+-/, '')}</span>
-                          {seat.hasLocker && (
-                            <span title="Book Locker Included" className="text-[10px]">🔐</span>
-                          )}
-                        </div>
-                        <span className="text-[11px] font-medium truncate max-w-[65px] mt-0.5">
-                          {seat.studentName || badge.label}
-                        </span>
+                        {renderSeatContent(seat, badge)}
                       </button>
                     );
                   })}
@@ -215,15 +259,9 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                 key={seat.id}
                 type="button"
                 onClick={() => setSelectedSeat(seat)}
-                className={`flex flex-col items-center justify-center p-2.5 rounded-xl border transition-all active:scale-95 text-center shadow-xs cursor-pointer ${badge.bg}`}
+                className={`flex flex-col items-center justify-center p-2 rounded-xl border transition-all active:scale-95 text-center shadow-xs cursor-pointer ${badge.bg}`}
               >
-                <div className="flex items-center gap-1">
-                  <span className={`w-1.5 h-1.5 rounded-full ${badge.indicator}`} />
-                  <span className="text-[11px] font-bold tracking-tight">{seat.seatNumber.replace(/^[A-Za-z0-9]+-/, '')}</span>
-                </div>
-                <span className="text-[11px] font-medium truncate max-w-[65px] mt-0.5">
-                  {seat.studentName || badge.label}
-                </span>
+                {renderSeatContent(seat, badge)}
               </button>
             );
           })}
@@ -239,7 +277,7 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
           <p className="text-xs text-slate-500 dark:text-[#a8a8a8] mt-1 max-w-xs">
             Generate study halls, numbered rows, and seats to start assigning students.
           </p>
-          {(onAddRow || onAddRoom || onBatchGenerate) && (
+          {(onAddRow || onAddRoom) && (
             <div className="flex flex-wrap gap-2 mt-4 justify-center">
               {onAddRow ? (
                 <button
@@ -260,16 +298,6 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                   <span>Add Room & Rows</span>
                 </button>
               ) : null}
-              {onBatchGenerate && (
-                <button
-                  type="button"
-                  onClick={onBatchGenerate}
-                  className="px-3.5 py-2 bg-white dark:bg-[#1a1a1a] border border-slate-200 dark:border-[#262626] hover:bg-slate-50 dark:hover:bg-[#262626] text-slate-700 dark:text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                  <span>Batch Generate Seats</span>
-                </button>
-              )}
             </div>
           )}
         </div>
@@ -309,22 +337,219 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
               </button>
             </div>
 
-            {/* Occupant Info */}
-            <div className="bg-slate-50 dark:bg-[#1a1a1a] p-3 rounded-xl border border-slate-200 dark:border-[#262626]">
-              <span className="text-[11px] font-semibold text-slate-500 dark:text-[#a8a8a8] uppercase tracking-wider">Current Occupant</span>
-              <div className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
-                {selectedSeat.studentName ? (
+            {/* Multi-Student Shift Occupants Breakdown (Full Day, Morning, Evening) */}
+            {(() => {
+              const occupants = selectedSeat.occupants || [];
+              const fullDayOccupant = occupants.find((o) => (o.shift || '').toUpperCase() === 'FULL_DAY') || (selectedSeat.studentName && (!selectedSeat.shift || selectedSeat.shift === 'FULL_DAY') ? { studentId: '', studentName: selectedSeat.studentName, shift: 'FULL_DAY' } : null);
+              const morningOccupant = occupants.find((o) => {
+                const s = (o.shift || '').toUpperCase();
+                return s === 'MORNING' || s === 'FOUR_HOURS' || s === 'HALF_DAY';
+              }) || (selectedSeat.studentName && (selectedSeat.shift === 'MORNING' || selectedSeat.shift === 'FOUR_HOURS' || selectedSeat.shift === 'HALF_DAY') ? { studentId: '', studentName: selectedSeat.studentName, shift: selectedSeat.shift } : null);
+              const eveningOccupant = occupants.find((o) => (o.shift || '').toUpperCase() === 'EVENING') || (selectedSeat.studentName && selectedSeat.shift === 'EVENING' ? { studentId: '', studentName: selectedSeat.studentName, shift: 'EVENING' } : null);
+
+              return (
+                <div className="space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <span>{selectedSeat.studentName}</span>
-                    <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 px-2 py-0.5 rounded-md">
-                      {formatShift(selectedSeat.shift || 'FULL_DAY')}
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-[#a8a8a8] uppercase tracking-wider block">
+                      Shift Slots & Occupancy (Max 2)
+                    </span>
+                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                      fullDayOccupant
+                        ? 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                        : morningOccupant && eveningOccupant
+                        ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                        : morningOccupant || eveningOccupant
+                        ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                        : 'bg-slate-100 dark:bg-[#222] text-slate-600 dark:text-neutral-400 border border-slate-200 dark:border-[#333]'
+                    }`}>
+                      {fullDayOccupant
+                        ? '☀️ Full Day (1/1 Locked)'
+                        : morningOccupant && eveningOccupant
+                        ? '👥 2/2 Capacity Full'
+                        : morningOccupant
+                        ? '👤 1/2 (Morning Set • Evening Free)'
+                        : eveningOccupant
+                        ? '👤 1/2 (Evening Set • Morning Free)'
+                        : '🟢 0/2 Available'}
                     </span>
                   </div>
-                ) : (
-                  <span className="text-slate-400 dark:text-[#737373] font-normal">No student currently assigned</span>
-                )}
-              </div>
-            </div>
+
+                  {/* 3 Shift Slots: Full Day, Morning, Evening */}
+                  <div className="space-y-2">
+                    {/* 1. Full Day Slot */}
+                    <div className={`p-2.5 rounded-xl border transition-all ${
+                      fullDayOccupant
+                        ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-800 shadow-2xs'
+                        : morningOccupant || eveningOccupant
+                        ? 'bg-slate-50/60 dark:bg-[#161616] border-slate-200/70 dark:border-[#262626] opacity-60'
+                        : 'bg-white dark:bg-[#1a1a1a] border-slate-200 dark:border-[#262626]'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-800 dark:text-neutral-200 flex items-center gap-1.5">
+                          <span>☀️ Full Day Slot</span>
+                          <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-normal">(24/7 Unlimited)</span>
+                        </span>
+                        {fullDayOccupant ? (
+                          <span className="text-[10px] font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/60 px-2 py-0.5 rounded-md">
+                            Occupied (24/7)
+                          </span>
+                        ) : morningOccupant || eveningOccupant ? (
+                          <span className="text-[10px] font-semibold text-slate-400 dark:text-neutral-500 bg-slate-100 dark:bg-[#222] px-2 py-0.5 rounded-md">
+                            Unavailable (Shared)
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onAssignStudent?.(selectedSeat.id, 'FULL_DAY');
+                              setSelectedSeat(null);
+                            }}
+                            className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 px-2 py-0.5 rounded-md cursor-pointer transition-colors"
+                          >
+                            + Assign Full Day
+                          </button>
+                        )}
+                      </div>
+                      <div className="text-xs font-bold text-slate-900 dark:text-white mt-1.5 flex items-center justify-between">
+                        {fullDayOccupant ? (
+                          <>
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
+                              <span className="truncate">{fullDayOccupant.studentName}</span>
+                            </div>
+                            {fullDayOccupant.phone && (
+                              <span className="text-[11px] font-normal text-slate-500 dark:text-neutral-400 shrink-0">{fullDayOccupant.phone}</span>
+                            )}
+                          </>
+                        ) : morningOccupant || eveningOccupant ? (
+                          <span className="text-slate-400 dark:text-neutral-500 font-normal italic text-[11px]">
+                            Seat shared by Morning/Evening students
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 dark:text-neutral-500 font-normal italic text-[11px]">
+                            No student assigned (Free 24/7)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 2. Morning Shift Slot */}
+                    <div className={`p-2.5 rounded-xl border transition-all ${
+                      morningOccupant
+                        ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 shadow-2xs'
+                        : fullDayOccupant
+                        ? 'bg-slate-50/60 dark:bg-[#161616] border-slate-200/70 dark:border-[#262626] opacity-60'
+                        : 'bg-white dark:bg-[#1a1a1a] border-slate-200 dark:border-[#262626]'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-800 dark:text-neutral-200 flex items-center gap-1.5">
+                          <span>🌅 Morning Shift</span>
+                          <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-normal">(6 AM – 2 PM)</span>
+                        </span>
+                        {morningOccupant ? (
+                          <span className="text-[10px] font-extrabold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/60 px-2 py-0.5 rounded-md">
+                            Occupied
+                          </span>
+                        ) : fullDayOccupant ? (
+                          <span className="text-[10px] font-semibold text-slate-400 dark:text-neutral-500 bg-slate-100 dark:bg-[#222] px-2 py-0.5 rounded-md">
+                            Blocked by Full Day
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onAssignStudent?.(selectedSeat.id, 'MORNING');
+                              setSelectedSeat(null);
+                            }}
+                            className="text-[10px] font-bold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 px-2 py-0.5 rounded-md cursor-pointer transition-colors"
+                          >
+                            + Assign Morning
+                          </button>
+                        )}
+                      </div>
+                      <div className="text-xs font-bold text-slate-900 dark:text-white mt-1.5 flex items-center justify-between">
+                        {morningOccupant ? (
+                          <>
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                              <span className="truncate">{morningOccupant.studentName}</span>
+                            </div>
+                            {morningOccupant.phone && (
+                              <span className="text-[11px] font-normal text-slate-500 dark:text-neutral-400 shrink-0">{morningOccupant.phone}</span>
+                            )}
+                          </>
+                        ) : fullDayOccupant ? (
+                          <span className="text-slate-400 dark:text-neutral-500 font-normal italic text-[11px]">
+                            Slot blocked by {fullDayOccupant.studentName} (Full Day)
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 dark:text-neutral-500 font-normal italic text-[11px]">
+                            No morning student assigned (Free)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 3. Evening Shift Slot */}
+                    <div className={`p-2.5 rounded-xl border transition-all ${
+                      eveningOccupant
+                        ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-800 shadow-2xs'
+                        : fullDayOccupant
+                        ? 'bg-slate-50/60 dark:bg-[#161616] border-slate-200/70 dark:border-[#262626] opacity-60'
+                        : 'bg-white dark:bg-[#1a1a1a] border-slate-200 dark:border-[#262626]'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-800 dark:text-neutral-200 flex items-center gap-1.5">
+                          <span>🌇 Evening Shift</span>
+                          <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-normal">(2 PM – 10 PM)</span>
+                        </span>
+                        {eveningOccupant ? (
+                          <span className="text-[10px] font-extrabold text-indigo-800 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/60 px-2 py-0.5 rounded-md">
+                            Occupied
+                          </span>
+                        ) : fullDayOccupant ? (
+                          <span className="text-[10px] font-semibold text-slate-400 dark:text-neutral-500 bg-slate-100 dark:bg-[#222] px-2 py-0.5 rounded-md">
+                            Blocked by Full Day
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onAssignStudent?.(selectedSeat.id, 'EVENING');
+                              setSelectedSeat(null);
+                            }}
+                            className="text-[10px] font-bold text-indigo-800 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 px-2 py-0.5 rounded-md cursor-pointer transition-colors"
+                          >
+                            + Assign Evening
+                          </button>
+                        )}
+                      </div>
+                      <div className="text-xs font-bold text-slate-900 dark:text-white mt-1.5 flex items-center justify-between">
+                        {eveningOccupant ? (
+                          <>
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
+                              <span className="truncate">{eveningOccupant.studentName}</span>
+                            </div>
+                            {eveningOccupant.phone && (
+                              <span className="text-[11px] font-normal text-slate-500 dark:text-neutral-400 shrink-0">{eveningOccupant.phone}</span>
+                            )}
+                          </>
+                        ) : fullDayOccupant ? (
+                          <span className="text-slate-400 dark:text-neutral-500 font-normal italic text-[11px]">
+                            Slot blocked by {fullDayOccupant.studentName} (Full Day)
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 dark:text-neutral-500 font-normal italic text-[11px]">
+                            No evening student assigned (Free)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Status Switcher Actions */}
             <div className="space-y-1.5">
@@ -334,7 +559,7 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                   type="button"
                   onClick={() => {
                     onStatusChange?.(selectedSeat.id, 'AVAILABLE');
-                    setSelectedSeat((prev) => (prev ? { ...prev, status: 'AVAILABLE', studentName: null } : null));
+                    setSelectedSeat((prev) => (prev ? { ...prev, status: 'AVAILABLE', studentName: null, occupants: [] } : null));
                   }}
                   className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
                     selectedSeat.status === 'AVAILABLE'
@@ -362,30 +587,85 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
               </div>
             </div>
 
-            {/* Assign Student CTA */}
-            {selectedSeat.status === 'AVAILABLE' ? (
-              <button
-                type="button"
-                onClick={() => {
-                  onAssignStudent?.(selectedSeat.id);
-                  setSelectedSeat(null);
-                }}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-colors"
-              >
-                <UserCheck className="w-4 h-4" /> Assign Student to Seat
-              </button>
-            ) : selectedSeat.status === 'OCCUPIED' || selectedSeat.status === 'RESERVED' ? (
-              <button
-                type="button"
-                onClick={() => {
-                  onAssignStudent?.(selectedSeat.id);
-                  setSelectedSeat(null);
-                }}
-                className="w-full bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 font-semibold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-2xs cursor-pointer transition-colors"
-              >
-                <UserCheck className="w-4 h-4" /> {selectedSeat.status === 'RESERVED' ? 'Reassign Reserved Seat' : 'Change / Reassign Student'}
-              </button>
-            ) : null}
+            {/* Dynamic Assign Student CTA */}
+            {(() => {
+              const occupants = selectedSeat.occupants || [];
+              const fullDay = occupants.find((o) => (o.shift || '').toUpperCase() === 'FULL_DAY') || (selectedSeat.studentName && (!selectedSeat.shift || selectedSeat.shift === 'FULL_DAY'));
+              const morning = occupants.find((o) => {
+                const s = (o.shift || '').toUpperCase();
+                return s === 'MORNING' || s === 'FOUR_HOURS' || s === 'HALF_DAY';
+              }) || (selectedSeat.studentName && (selectedSeat.shift === 'MORNING' || selectedSeat.shift === 'FOUR_HOURS' || selectedSeat.shift === 'HALF_DAY'));
+              const evening = occupants.find((o) => (o.shift || '').toUpperCase() === 'EVENING') || (selectedSeat.studentName && selectedSeat.shift === 'EVENING');
+
+              if (fullDay) {
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAssignStudent?.(selectedSeat.id);
+                      setSelectedSeat(null);
+                    }}
+                    className="w-full bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-semibold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors"
+                  >
+                    <UserCheck className="w-4 h-4" /> Reassign / Replace Full Day Student
+                  </button>
+                );
+              }
+              if (morning && evening) {
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAssignStudent?.(selectedSeat.id);
+                      setSelectedSeat(null);
+                    }}
+                    className="w-full bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-semibold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors"
+                  >
+                    <UserCheck className="w-4 h-4" /> Reassign / Replace Shift Occupant (2/2 Full)
+                  </button>
+                );
+              }
+              if (morning) {
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAssignStudent?.(selectedSeat.id, 'EVENING');
+                      setSelectedSeat(null);
+                    }}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors"
+                  >
+                    <UserCheck className="w-4 h-4" /> + Assign Student to Open Evening Slot (2nd Student)
+                  </button>
+                );
+              }
+              if (evening) {
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAssignStudent?.(selectedSeat.id, 'MORNING');
+                      setSelectedSeat(null);
+                    }}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors"
+                  >
+                    <UserCheck className="w-4 h-4" /> + Assign Student to Open Morning Slot (2nd Student)
+                  </button>
+                );
+              }
+              return (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onAssignStudent?.(selectedSeat.id);
+                    setSelectedSeat(null);
+                  }}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-colors"
+                >
+                  <UserCheck className="w-4 h-4" /> Assign Student to Seat
+                </button>
+              );
+            })()}
 
             {/* Delete Seat CTA */}
             {onDeleteSeat && (

@@ -36,7 +36,9 @@ export interface SubscriptionPaymentRecord {
   daysAdjusted?: number | null;
   previousEndDate?: string | null;
   newEndDate?: string | null;
+  originalAmount?: number;
   discountApplied?: number;
+  couponCode?: string | null;
   failureReason?: string | null;
   statusDetail?: string | null;
 }
@@ -743,13 +745,32 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                           <span className="text-slate-400 dark:text-[#737373] text-[11px] italic">Not applied</span>
                         )}
                       </td>
-                      <td className="px-4 py-3.5 whitespace-nowrap font-bold text-slate-900 dark:text-white">
-                        ₹{item.amount.toLocaleString('en-IN')}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="font-bold text-slate-900 dark:text-white">
+                          ₹{item.amount.toLocaleString('en-IN')}
+                        </div>
+                        {item.discountApplied && item.discountApplied > 0 ? (
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800/60 inline-flex items-center gap-0.5">
+                              <Tag className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                              {item.couponCode ? item.couponCode : 'Coupon'} (-₹{item.discountApplied.toLocaleString('en-IN')})
+                            </span>
+                            {item.originalAmount && item.originalAmount > item.amount && (
+                              <span className="text-[10px] text-slate-400 dark:text-[#737373] line-through">
+                                ₹{item.originalAmount.toLocaleString('en-IN')}
+                              </span>
+                            )}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3.5 whitespace-nowrap">
-                        <span className="font-mono text-[11px] text-slate-600 dark:text-slate-300 block">{item.paymentId}</span>
+                        <span className="font-mono text-[11px] text-slate-700 dark:text-slate-300 block select-all font-medium">
+                          {item.paymentId}
+                        </span>
                         {item.orderId && (
-                          <span className="text-[10px] text-slate-400 dark:text-[#737373] font-mono block">Order: {item.orderId}</span>
+                          <span className="text-[10px] text-slate-400 dark:text-[#737373] font-mono block select-all">
+                            Order: {item.orderId}
+                          </span>
                         )}
                       </td>
                       <td className="px-5 py-3.5 whitespace-nowrap text-right">
@@ -939,24 +960,38 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
             </div>
 
             {/* Price Summary */}
-            <div className="bg-slate-50 dark:bg-[#1a1a1a] p-4 rounded-2xl border border-slate-200 dark:border-[#262626] text-xs space-y-1.5">
+            <div className="bg-slate-50 dark:bg-[#1a1a1a] p-4 rounded-2xl border border-slate-200 dark:border-[#262626] text-xs space-y-2">
               <div className="flex justify-between text-slate-600 dark:text-[#a8a8a8]">
                 <span>Selected Plan</span>
                 <span className="font-semibold text-slate-900 dark:text-white">{activeSelectedPlan.name} ({activeSelectedPlan.durationMonths} Mo)</span>
               </div>
               <div className="flex justify-between text-slate-600 dark:text-[#a8a8a8]">
-                <span>Plan Price</span>
-                <span className="text-slate-900 dark:text-white">₹{baseTotal}</span>
+                <span>Plan Original Price</span>
+                <span className={`font-semibold ${discount !== null && discount > 0 ? 'line-through text-slate-400 dark:text-[#737373]' : 'text-slate-900 dark:text-white'}`}>
+                  ₹{baseTotal.toLocaleString('en-IN')}
+                </span>
               </div>
-              {discount !== null && (
-                <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-semibold">
-                  <span>Coupon Discount</span>
-                  <span>-₹{discount}</span>
+              {discount !== null && discount > 0 && (
+                <div className="flex justify-between items-center bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded-xl border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <Tag className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Coupon Offer Applied ({coupon.trim().toUpperCase()})</span>
+                  </div>
+                  <span className="font-extrabold text-xs text-emerald-700 dark:text-emerald-300">
+                    -₹{discount.toLocaleString('en-IN')} Saved
+                  </span>
                 </div>
               )}
-              <div className="flex justify-between text-slate-900 dark:text-white font-black border-t border-slate-200 dark:border-[#262626] pt-2 text-sm">
-                <span>Total Payable</span>
-                <span className="text-base text-indigo-700 dark:text-indigo-400">₹{finalPrice}</span>
+              <div className="flex justify-between items-baseline text-slate-900 dark:text-white font-black border-t border-slate-200 dark:border-[#262626] pt-2 text-sm">
+                <span>Total Payable Amount</span>
+                <div className="text-right">
+                  <span className="text-base text-indigo-700 dark:text-indigo-400">₹{finalPrice.toLocaleString('en-IN')}</span>
+                  {discount !== null && discount > 0 && (
+                    <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5">
+                      You are saving ₹{discount.toLocaleString('en-IN')} on this order!
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 

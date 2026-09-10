@@ -104,6 +104,7 @@ export interface StoredStudent {
   photoUrl?: string | null;
   kycDocId?: string | null;
   kycDocType: string;
+  kycPhotoUrl?: string | null;
   isActive: boolean;
   deletedAt?: string | null;
   createdAt: string;
@@ -287,24 +288,40 @@ class MemoryDataStore {
   }
 
   bootstrapAdmin(data?: { email?: string; fullName?: string; phone?: string }): StoredUser {
-    const email = (data?.email || process.env.ADMIN_EMAIL || 'admin@libraryhub.com').trim().toLowerCase();
-    const fullName = data?.fullName || process.env.ADMIN_NAME || 'Platform Super Admin';
-    const phone = data?.phone || process.env.ADMIN_PHONE || '+919876543210';
+    const adminEmails = [
+      'shubhamrewamp17@gmail.com',
+      'kushwahashubham5932@gmail.com',
+      ...(process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.split(',').map((e: string) => e.trim().toLowerCase()) : []),
+      ...(data?.email ? [data.email.trim().toLowerCase()] : []),
+    ];
 
-    let user = this.findUserByEmail(email);
-    if (!user) {
-      user = this.createUser({
-        email,
-        fullName,
-        phone,
-        role: 'SUPER_ADMIN',
-      });
-      console.log(`[DataStore] Automatically bootstrapped Super Admin: ${user.email} (${user.id})`);
-    } else if (user.role !== 'SUPER_ADMIN') {
-      user.role = 'SUPER_ADMIN';
-      console.log(`[DataStore] Elevated user to Super Admin: ${user.email}`);
+    const uniqueEmails = Array.from(new Set(adminEmails.filter(Boolean)));
+    let primaryAdmin: StoredUser | null = null;
+
+    for (const email of uniqueEmails) {
+      let user = this.findUserByEmail(email);
+      const fullName = email === 'shubhamrewamp17@gmail.com' ? 'Shubham Rewa' : (data?.fullName || process.env.ADMIN_NAME || 'Platform Super Admin');
+      const phone = data?.phone || process.env.ADMIN_PHONE || '+919876543210';
+
+      if (!user) {
+        user = this.createUser({
+          email,
+          fullName,
+          phone,
+          role: 'SUPER_ADMIN',
+        });
+        console.log(`[DataStore] Automatically bootstrapped Super Admin: ${user.email} (${user.id})`);
+      } else if (user.role !== 'SUPER_ADMIN') {
+        user.role = 'SUPER_ADMIN';
+        console.log(`[DataStore] Elevated user to Super Admin: ${user.email}`);
+      }
+
+      if (!primaryAdmin) {
+        primaryAdmin = user;
+      }
     }
-    return user;
+
+    return primaryAdmin || this.findUserByEmail('shubhamrewamp17@gmail.com')!;
   }
 
   // ===================== Library Ops =====================
@@ -1051,8 +1068,26 @@ class MemoryDataStore {
           contactEmail: l.contactEmail,
           ownerName: owner ? owner.fullName : 'Unknown',
           ownerEmail: owner ? owner.email : 'Unknown',
+          owner: owner
+            ? {
+                id: owner.id,
+                fullName: owner.fullName,
+                email: owner.email,
+                phone: owner.phone,
+              }
+            : {
+                id: l.ownerId,
+                fullName: 'Owner',
+                email: '',
+                phone: l.contactPhone,
+              },
           totalStudents: students.length,
           totalSeats: seats.length,
+          counts: {
+            students: students.length,
+            seats: seats.length,
+            rooms: 1,
+          },
           subscriptionPlan: plan ? plan.name : 'No Active Plan',
           subscriptionStatus: sub ? sub.status : 'INACTIVE',
           isActive: l.isActive,
@@ -1102,6 +1137,39 @@ class MemoryDataStore {
     };
     this.coupons.set(coupon.code, coupon);
     return coupon;
+  }
+
+  updateCoupon(couponId: string, data: Partial<StoredCoupon>): StoredCoupon | undefined {
+    this.initDefaultCoupons();
+    for (const [key, c] of this.coupons.entries()) {
+      if (c.id === couponId) {
+        const oldCode = c.code;
+        const newCode = data.code ? data.code.toUpperCase().trim() : oldCode;
+        const updated: StoredCoupon = {
+          ...c,
+          ...data,
+          code: newCode,
+        };
+        if (oldCode !== newCode) {
+          this.coupons.delete(oldCode);
+        }
+        this.coupons.set(newCode, updated);
+        return updated;
+      }
+    }
+    return undefined;
+  }
+
+  deleteCoupon(couponId: string): boolean {
+    this.initDefaultCoupons();
+    for (const [code, c] of this.coupons.entries()) {
+      if (c.id === couponId) {
+        this.coupons.delete(code);
+        this.couponUsages = this.couponUsages.filter((u) => u.couponId !== couponId);
+        return true;
+      }
+    }
+    return false;
   }
 
   toggleCouponStatus(couponId: string): StoredCoupon | undefined {
@@ -1158,6 +1226,133 @@ class MemoryDataStore {
       activeMemberships,
       totalRevenue,
     };
+  }
+
+  listAllPayments(): any[] {
+    return Array.from(this.payments.values())
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((p) => {
+        const lib = this.libraries.get(p.libraryId);
+        const owner = lib ? this.users.get(lib.ownerId) : null;
+        const sub = p.subscriptionId ? this.subscriptions.get(p.subscriptionId) : null;
+        const plan = sub ? this.subscriptionPlans.get(sub.planId) : null;
+        const usage = this.couponUsages.find((u) => u.paymentId === p.id);
+        const coupon = usage ? this.coupons.get(usage.couponId) : null;
+        const meta = (p.metadata || {}) as Record<string, any>;
+
+        const discountApplied = Number(meta.discountApplied || usage?.discountApplied || 0);
+        const originalAmount = Number(meta.originalAmount || (p.amount + discountApplied));
+        const couponCode = meta.couponCode || coupon?.code || null;
+
+        return {
+          id: p.id,
+          libraryId: p.libraryId,
+          libraryName: lib?.name || meta.libraryName || 'Library',
+          ownerName: owner?.fullName || meta.ownerName || 'Owner',
+          ownerEmail: owner?.email || lib?.contactEmail || meta.paidByEmail || '',
+          amount: p.amount,
+          originalAmount,
+          discountApplied,
+          couponCode,
+          currency: p.currency,
+          status: p.status,
+          provider: p.provider,
+          paymentId: p.providerPaymentId || meta.razorpay_payment_id || p.id,
+          orderId: p.providerOrderId || meta.razorpay_order_id || null,
+          createdAt: p.createdAt,
+          planCode: meta.planCode || plan?.code || 'BASIC',
+          planName: meta.planName || plan?.name || 'Basic Plan',
+          durationMonths: Number(meta.durationMonths || 1),
+          adjustmentAction: meta.adjustmentAction,
+          daysAdjusted: meta.daysAdjusted !== undefined ? Number(meta.daysAdjusted) : null,
+          isAutopay: Boolean(meta.isAutopay || sub?.autoRenew),
+          isCancelled: Boolean(meta.isCancelled),
+          cancellationReason: meta.cancellationReason || null,
+          cancelledAt: meta.cancelledAt || null,
+          failureReason: meta.failureReason || null,
+          statusDetail: meta.statusDetail || null,
+        };
+      });
+  }
+
+  listAllStudents(filter?: { libraryId?: string; search?: string }): any[] {
+    let all = Array.from(this.students.values()).filter((s) => !s.deletedAt);
+    if (filter?.libraryId && filter.libraryId !== 'ALL') {
+      all = all.filter((s) => s.libraryId === filter.libraryId);
+    }
+    if (filter?.search) {
+      const q = filter.search.toLowerCase();
+      all = all.filter(
+        (s) =>
+          s.fullName.toLowerCase().includes(q) ||
+          s.phone.includes(q) ||
+          (s.email && s.email.toLowerCase().includes(q)) ||
+          (s.fatherName && s.fatherName.toLowerCase().includes(q))
+      );
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+
+    return all.map((s) => {
+      const lib = this.libraries.get(s.libraryId);
+      const owner = lib ? this.users.get(lib.ownerId) : null;
+      const mem = Array.from(this.memberships.values())
+        .filter((m) => m.studentId === s.id)
+        .sort((a, b) => b.expectedEndDate.localeCompare(a.expectedEndDate))[0];
+      const assign = Array.from(this.seatAssignments.values()).find(
+        (a) => a.studentId === s.id && a.status === 'ACTIVE'
+      );
+      const seat = assign ? this.seats.get(assign.seatId) : null;
+      const row = seat ? this.rows.get(seat.rowId) : null;
+      const room = row ? this.rooms.get(row.roomId) : null;
+
+      const isExpired = mem ? mem.expectedEndDate < today : true;
+      const membershipStatus = mem
+        ? (mem.status === 'ACTIVE' && isExpired ? 'EXPIRED' : mem.status)
+        : 'NO_MEMBERSHIP';
+
+      return {
+        id: s.id,
+        fullName: s.fullName,
+        phone: s.phone,
+        email: s.email,
+        fatherName: s.fatherName,
+        motherName: s.motherName,
+        address: s.address,
+        studyPurpose: s.studyPurpose,
+        photoUrl: s.photoUrl,
+        kycDocId: s.kycDocId,
+        kycDocType: s.kycDocType,
+        kycPhotoUrl: s.kycPhotoUrl,
+        isActive: s.isActive,
+        createdAt: s.createdAt,
+        libraryId: s.libraryId,
+        libraryName: lib?.name || 'Library',
+        librarySlug: lib?.slug || '',
+        ownerName: owner?.fullName || 'Owner',
+        ownerEmail: owner?.email || '',
+        membership: mem
+          ? {
+              id: mem.id,
+              status: membershipStatus,
+              shift: mem.shift,
+              startDate: mem.startDate,
+              endDate: mem.expectedEndDate,
+              feeAmount: mem.feeAmount,
+            }
+          : null,
+        seat: seat
+          ? {
+              seatNumber: seat.seatNumber,
+              roomName: room?.name || null,
+              rowName: row?.name || null,
+              shift: assign?.shift || 'FULL_DAY',
+            }
+          : null,
+        remainingDue: 0,
+        lastPaymentDate: null,
+      };
+    });
   }
 
   // ===================== Audit Ops =====================

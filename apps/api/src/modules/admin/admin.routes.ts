@@ -25,6 +25,8 @@ router.put('/plans/:planId', (req, res, next) => adminController.updatePlan(req,
 // Coupons
 router.get('/coupons', (req, res, next) => adminController.listCoupons(req, res, next));
 router.post('/coupons', (req, res, next) => adminController.createCoupon(req, res, next));
+router.put('/coupons/:couponId', (req, res, next) => adminController.updateCoupon(req, res, next));
+router.delete('/coupons/:couponId', (req, res, next) => adminController.deleteCoupon(req, res, next));
 router.put('/coupons/:couponId/toggle', (req, res, next) => adminController.toggleCouponStatus(req, res, next));
 
 // Users
@@ -34,6 +36,9 @@ router.put('/users/:userId/role', (req, res, next) => adminController.updateUser
 // Payments & Subscriptions
 router.get('/payments', (req, res, next) => adminController.listPayments(req, res, next));
 router.post('/subscriptions/adjust', (req, res, next) => adminController.adjustSubscription(req, res, next));
+
+// Students across all libraries
+router.get('/students', (req, res, next) => adminController.listStudents(req, res, next));
 
 // Notifications
 router.post('/notifications/broadcast', (req, res, next) => adminController.broadcastNotification(req, res, next));

@@ -43,6 +43,14 @@ export async function GET(req: NextRequest) {
                 seats: {
                   where: { isActive: true },
                   orderBy: { createdAt: 'asc' },
+                  include: {
+                    seatAssignments: {
+                      where: { status: 'ACTIVE' },
+                      include: {
+                        student: { select: { id: true, fullName: true, phone: true } },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -53,14 +61,13 @@ export async function GET(req: NextRequest) {
           where: { isActive: true },
           include: {
             memberships: {
-              where: { status: 'ACTIVE' },
               orderBy: { createdAt: 'desc' },
-              take: 1,
+              take: 5,
             },
             seatAssignments: {
-              where: { status: 'ACTIVE' },
+              orderBy: { createdAt: 'desc' },
               include: { seat: true },
-              take: 1,
+              take: 5,
             },
             feeTransactions: {
               orderBy: [
@@ -101,13 +108,36 @@ export async function GET(req: NextRequest) {
         const rowNames = rm.rows.map((rw) => rw.name);
         rm.rows.forEach((rw) => {
           rw.seats.forEach((st) => {
+            const activeOccupants = (st.seatAssignments || [])
+              .filter((sa: any) => sa.status === 'ACTIVE' && sa.student && sa.student.fullName)
+              .map((sa: any) => ({
+                studentId: sa.student.id,
+                studentName: sa.student.fullName,
+                phone: sa.student.phone,
+                shift: sa.shift || 'FULL_DAY',
+              }));
+
+            let mainName: string | null = null;
+            let mainShift: string | undefined = undefined;
+
+            if (activeOccupants.length === 1) {
+              mainName = activeOccupants[0].studentName;
+              mainShift = activeOccupants[0].shift;
+            } else if (activeOccupants.length > 1) {
+              mainName = activeOccupants.map((o: any) => `${o.studentName} (${o.shift.charAt(0)})`).join(' • ');
+              mainShift = 'SHARED';
+            }
+
             allSeats.push({
               id: st.id,
               seatNumber: st.seatNumber,
               rowName: rw.name,
-              status: st.status,
-              studentName: null,
+              status: activeOccupants.length > 0 ? (st.status === 'RESERVED' ? 'RESERVED' : 'OCCUPIED') : st.status,
+              studentName: mainName,
+              shift: mainShift,
+              occupants: activeOccupants,
               roomId: rm.id,
+              hasLocker: st.hasLocker || rw.hasLocker || false,
             });
           });
         });
@@ -128,8 +158,8 @@ export async function GET(req: NextRequest) {
       const assignmentsToRelease: string[] = [];
 
       const formattedStudents = lib.students.map((std) => {
-        const activeMembership = std.memberships[0];
-        const activeSeat = std.seatAssignments[0];
+        const activeMembership = std.memberships.find((m) => m.status === 'ACTIVE') || std.memberships[0];
+        const activeSeat = std.seatAssignments.find((sa) => sa.status === 'ACTIVE');
         const now = new Date();
 
         const studentTxList = (std.feeTransactions || []).map((t) => ({
@@ -172,6 +202,7 @@ export async function GET(req: NextRequest) {
 
         // Automatic seat cut/release ONLY if membership duration has genuinely expired
         let assignedSeatNumber: string | null = null;
+        let lastAssignedSeatNumber: string | null = null;
         if (activeSeat?.seat) {
           if (!isExpired) {
             assignedSeatNumber = activeSeat.seat.seatNumber;
@@ -186,6 +217,7 @@ export async function GET(req: NextRequest) {
           } else {
             // Cut seat allotment automatically when duration has genuinely expired
             assignedSeatNumber = null;
+            lastAssignedSeatNumber = activeSeat.seat.seatNumber;
             seatsToRelease.push(activeSeat.seat.id);
             assignmentsToRelease.push(activeSeat.id);
             const matchingSeat = allSeats.find(
@@ -198,6 +230,41 @@ export async function GET(req: NextRequest) {
             }
           }
         }
+
+        // Determine candidate previous seat and inactive days for re-enrollment
+        let candidatePreviousSeat = lastAssignedSeatNumber;
+        if (!candidatePreviousSeat) {
+          const historicalAssignment = std.seatAssignments.find((sa) => sa.seat?.seatNumber);
+          if (historicalAssignment?.seat?.seatNumber) {
+            candidatePreviousSeat = historicalAssignment.seat.seatNumber;
+          }
+        }
+
+        let inactiveDays = 0;
+        let lastActiveDate: Date | null = null;
+        if (activeMembership?.expectedEndDate) {
+          lastActiveDate = new Date(activeMembership.expectedEndDate);
+        } else if (studentTxList.length > 0) {
+          const latestTx = studentTxList[0];
+          if (latestTx.validTo) {
+            lastActiveDate = new Date(latestTx.validTo);
+          } else if (latestTx.paymentDate) {
+            const pDate = new Date(latestTx.paymentDate);
+            pDate.setDate(pDate.getDate() + 30);
+            lastActiveDate = pDate;
+          }
+        }
+
+        if (lastActiveDate && lastActiveDate.getTime() < now.getTime()) {
+          inactiveDays = Math.max(0, Math.floor((now.getTime() - lastActiveDate.getTime()) / (1000 * 60 * 60 * 24)));
+        } else if (!assignedSeatNumber && !lastActiveDate) {
+          inactiveDays = 999;
+        }
+
+        // Rule: If inactive for <= 30 days, suggest old seat. If > 30 days (e.g. 2 months), do not suggest.
+        const previousSeatNumber = (!assignedSeatNumber && candidatePreviousSeat && inactiveDays <= 30)
+          ? candidatePreviousSeat
+          : null;
 
         // Group transactions by billing month/period to compute true remaining due & month totals
         const monthAmountsMap = new Map<string, number>();
@@ -228,15 +295,19 @@ export async function GET(req: NextRequest) {
           }
         });
 
-        // The true agreed monthly fee rate:
-        // Priority 1: activeMembership.feeAmount (if genuine plan amount > 0)
-        // Priority 2: Highest totalFee declared across transactions
-        // Priority 3: Total sum paid in a single month (e.g. 1000 + 200 = 1200)
-        // Default: 1000
+        // The true agreed monthly fee rate (respects student's custom monthly enrollment rate e.g. ₹500, ₹600)
+        const latestTx = studentTxList[0];
+        const latestTxFee = latestTx?.totalFee ? Number(latestTx.totalFee) : (latestTx?.amount ? Number(latestTx.amount) : 0);
         const membershipPlanFee = activeMembership?.feeAmount ? Number(activeMembership.feeAmount) : 0;
-        const computedMonthlyFee = membershipPlanFee > 0
+        const computedMonthlyFee = latestTxFee > 0
+          ? latestTxFee
+          : membershipPlanFee > 0
           ? membershipPlanFee
-          : Math.max(maxRecordedTotalFee, highestMonthPaymentSum, 1000);
+          : maxRecordedTotalFee > 0
+          ? maxRecordedTotalFee
+          : highestMonthPaymentSum > 0
+          ? highestMonthPaymentSum
+          : 0; // No default fee — student must be enrolled+fee paid first
 
         const studentRemainingFee = hasPaidTx
           ? totalRemainingDue
@@ -244,14 +315,46 @@ export async function GET(req: NextRequest) {
           ? 0
           : computedMonthlyFee;
 
+        // Determine stay duration and normalized shift strictly based on enrollment/seat
+        let stayDuration: 'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY' | undefined = undefined;
+        let normalizedShift: string = '';
+
+        if (hasPaidTx || assignedSeatNumber) {
+          const rawShift = activeMembership?.shift;
+          if (rawShift === 'FOUR_HOURS') {
+            stayDuration = 'FOUR_HOURS';
+          } else if (rawShift === 'HALF_DAY') {
+            stayDuration = 'HALF_DAY';
+          } else if (rawShift === 'FULL_DAY') {
+            stayDuration = 'FULL_DAY';
+          } else {
+            const noteText = (studentTxList[0]?.notes || '').toUpperCase();
+            if (noteText.includes('FOUR_HOURS') || noteText.includes('4 HOUR') || noteText.includes('4-HOUR')) {
+              stayDuration = 'FOUR_HOURS';
+            } else if (noteText.includes('HALF_DAY') || noteText.includes('HALF DAY') || noteText.includes('6-8')) {
+              stayDuration = 'HALF_DAY';
+            } else {
+              stayDuration = 'FOUR_HOURS';
+            }
+          }
+
+          normalizedShift = activeMembership?.shift || (assignedSeatNumber ? 'FULL_DAY' : '');
+          if (normalizedShift === 'FOUR_HOURS' || normalizedShift === 'HALF_DAY') {
+            normalizedShift = 'MORNING';
+          }
+        }
+
         return {
           id: std.id,
           fullName: std.fullName,
           phone: std.phone,
           seatNumber: assignedSeatNumber,
+          previousSeatNumber,
+          inactiveDays,
+          stayDuration,
           status: (!assignedSeatNumber ? 'INACTIVE' : (isExpired ? 'EXPIRED' : (activeMembership?.status || 'ACTIVE'))) as 'ACTIVE' | 'EXPIRED' | 'PAUSED' | 'INACTIVE',
           membershipEndsInDays: daysRemaining,
-          shift: activeMembership?.shift || 'FULL_DAY',
+          shift: normalizedShift,
           studyPurpose: std.studyPurpose || undefined,
           photoUrl: std.photoUrl || undefined,
           kycPhotoUrl: std.kycPhotoUrl || undefined,

@@ -37,13 +37,40 @@ export default function AdminPage() {
           return;
         }
 
+        const cleanEmail = (parsedUser.email || '').toLowerCase().trim();
+        const isKnownSuperAdmin =
+          cleanEmail === 'shubhamrewamp17@gmail.com' ||
+          cleanEmail === 'kushwahashubham5932@gmail.com' ||
+          (Boolean(process.env.NEXT_PUBLIC_ADMIN_EMAIL) && cleanEmail === process.env.NEXT_PUBLIC_ADMIN_EMAIL?.toLowerCase().trim());
+
+        if (isKnownSuperAdmin) {
+          const canonicalUser = {
+            fullName: parsedUser.fullName || 'Super Admin',
+            email: cleanEmail,
+            phone: parsedUser.phone || '',
+            role: 'SUPER_ADMIN',
+            avatar: parsedUser.avatar,
+          };
+          setCurrentUser(canonicalUser);
+          setIsVerifying(false);
+
+          // Asynchronously sync in background without blocking
+          fetch('/api/auth/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: cleanEmail, fullName: parsedUser.fullName || '' }),
+          }).catch(() => {});
+          return;
+        }
+
         // 2. Verify role from DB via /api/auth/sync or directly from Render backend
         let data: any = null;
         try {
           const res = await fetch('/api/auth/sync', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: parsedUser.email, fullName: parsedUser.fullName || '' }),
+            body: JSON.stringify({ email: cleanEmail, fullName: parsedUser.fullName || '' }),
+            signal: AbortSignal.timeout(5000),
           });
           if (res.ok) {
             data = await res.json();
@@ -57,7 +84,8 @@ export default function AdminPage() {
             const directRes = await fetch('https://seelibrarybackend.onrender.com/api/v1/auth/sync', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email: parsedUser.email, fullName: parsedUser.fullName || '' }),
+              body: JSON.stringify({ email: cleanEmail, fullName: parsedUser.fullName || '' }),
+              signal: AbortSignal.timeout(5000),
             });
             if (directRes.ok) {
               const rData = await directRes.json();
@@ -80,7 +108,7 @@ export default function AdminPage() {
         // 3. Update localStorage with canonical user
         const canonicalUser = {
           fullName: data?.user?.fullName || parsedUser.fullName || '',
-          email: data?.user?.email || parsedUser.email,
+          email: data?.user?.email || cleanEmail,
           phone: data?.user?.phone || parsedUser.phone || '',
           role: 'SUPER_ADMIN',
           avatar: data?.user?.avatar || parsedUser.avatar,
@@ -94,11 +122,14 @@ export default function AdminPage() {
         console.error('[admin page] Error verifying admin:', err);
         const saved = localStorage.getItem('seelibrary_user');
         if (saved) {
-          const u = JSON.parse(saved);
-          if (u.role === 'SUPER_ADMIN') {
-            setCurrentUser(u);
-            return;
-          }
+          try {
+            const u = JSON.parse(saved);
+            const clean = (u.email || '').toLowerCase().trim();
+            if (u.role === 'SUPER_ADMIN' || clean === 'shubhamrewamp17@gmail.com' || clean === 'kushwahashubham5932@gmail.com') {
+              setCurrentUser({ ...u, role: 'SUPER_ADMIN' });
+              return;
+            }
+          } catch {}
         }
         router.replace('/');
       } finally {

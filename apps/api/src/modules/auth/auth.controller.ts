@@ -102,7 +102,11 @@ export class AuthController {
       }
       const cleanEmail = email.toLowerCase().trim();
       const cleanName = fullName?.trim() || cleanEmail.split('@')[0] || 'User';
-      const configuredAdminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+      const KNOWN_SUPER_ADMINS = new Set([
+        'shubhamrewamp17@gmail.com',
+        'kushwahashubham5932@gmail.com',
+        ...(process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.split(',').map((e: string) => e.trim().toLowerCase()) : [])
+      ]);
 
       // 1. Check & persist in Neon PostgreSQL DB
       let dbUser: any = null;
@@ -114,7 +118,7 @@ export class AuthController {
 
         const isSuperAdmin =
           existing?.role === 'SUPER_ADMIN' ||
-          Boolean(configuredAdminEmail && cleanEmail === configuredAdminEmail);
+          KNOWN_SUPER_ADMINS.has(cleanEmail);
 
         const finalRole = isSuperAdmin ? 'SUPER_ADMIN' : (existing?.role || 'USER');
 
@@ -143,7 +147,7 @@ export class AuthController {
       let memUser = dataStore.findUserByEmail(cleanEmail);
       const isSuperAdmin =
         dbUser?.role === 'SUPER_ADMIN' ||
-        Boolean(configuredAdminEmail && cleanEmail === configuredAdminEmail) ||
+        KNOWN_SUPER_ADMINS.has(cleanEmail) ||
         memUser?.role === 'SUPER_ADMIN';
 
       const finalRole = isSuperAdmin ? 'SUPER_ADMIN' : (dbUser?.role || memUser?.role || 'USER');

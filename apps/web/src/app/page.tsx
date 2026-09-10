@@ -126,11 +126,6 @@ const AddRowModal = dynamic(
   { ssr: false }
 );
 
-const BatchSeatModal = dynamic(
-  () => import('../components/BatchSeatModal').then((m) => m.BatchSeatModal),
-  { ssr: false }
-);
-
 const StudentModal = dynamic(
   () => import('../components/StudentModal').then((m) => m.StudentModal),
   { ssr: false }
@@ -203,6 +198,7 @@ export default function MobileDashboard() {
   const [studentFilterTab, setStudentFilterTab] = useState<StudentFilterTab>('ALL');
   const [isCollectFeeModalOpen, setIsCollectFeeModalOpen] = useState(false);
   const [studentForFeeCollection, setStudentForFeeCollection] = useState<StudentItem | null>(null);
+  const [preselectedSeatNumberForFeeCollection, setPreselectedSeatNumberForFeeCollection] = useState<string | null>(null);
   const [returnToStudentProfileId, setReturnToStudentProfileId] = useState<string | null>(null);
   const [profileInitialTab, setProfileInitialTab] = useState<'profile' | 'feeHistory' | 'kyc' | 'enrollmentTimeline'>('profile');
 
@@ -255,13 +251,13 @@ export default function MobileDashboard() {
   const [isEditLibraryModalOpen, setIsEditLibraryModalOpen] = useState(false);
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
   const [isAddRowModalOpen, setIsAddRowModalOpen] = useState(false);
-  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
   const [isSubscriptionRequiredModalOpen, setIsSubscriptionRequiredModalOpen] = useState(false);
   const [subscriptionGateAction, setSubscriptionGateAction] = useState<string>('Enroll Students');
   const [selectedStudentForProfile, setSelectedStudentForProfile] = useState<StudentItem | null>(null);
   const [selectedReceiptTx, setSelectedReceiptTx] = useState<StudentFeeRecord | null>(null);
   const [selectedSeatForAssignment, setSelectedSeatForAssignment] = useState<VisualSeatItem | null>(null);
+  const [preselectedShiftForAssignment, setPreselectedShiftForAssignment] = useState<string | undefined>(undefined);
   const [preselectedSeatNumberForNewStudent, setPreselectedSeatNumberForNewStudent] = useState<string | null>(null);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
@@ -272,74 +268,92 @@ export default function MobileDashboard() {
   const [activeRoomMenuId, setActiveRoomMenuId] = useState<string | null>(null);
 
   // Sync and fetch libraries from PostgreSQL
-  const loadUserLibrariesFromDb = async (userEmail: string, localFallbackLibs?: LibraryBranch[]) => {
+  const loadUserLibrariesFromDb = async (
+    userEmail: string,
+    localFallbackLibs?: LibraryBranch[],
+    options?: { skipAuthSync?: boolean }
+  ) => {
     setIsSyncingData(true);
     try {
-      let authData: any = null;
-      try {
-        const authRes = await fetch('/api/auth/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: userEmail, fullName: currentUser?.fullName || '' }),
-        });
-        if (authRes.ok) {
-          authData = await authRes.json();
-        }
-      } catch (e) {
-        console.warn('Next.js /api/auth/sync call failed:', e);
-      }
-
-      // Direct check to Render backend if Vercel route didn't return SUPER_ADMIN
-      if (!authData?.user || authData.user.role !== 'SUPER_ADMIN') {
+      if (!options?.skipAuthSync) {
+        let authData: any = null;
         try {
-          const directRes = await fetch('https://seelibrarybackend.onrender.com/api/v1/auth/sync', {
+          const authController = new AbortController();
+          const authTimeout = setTimeout(() => authController.abort(), 4000);
+          const authRes = await fetch('/api/auth/sync', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email: userEmail, fullName: currentUser?.fullName || '' }),
+            signal: authController.signal,
           });
-          if (directRes.ok) {
-            const renderData = await directRes.json();
-            if (renderData?.user) {
-              authData = renderData;
-            }
+          clearTimeout(authTimeout);
+          if (authRes.ok) {
+            authData = await authRes.json();
           }
         } catch (e) {
-          console.warn('Render direct sync fallback failed:', e);
+          console.warn('Next.js /api/auth/sync call failed:', e);
         }
-      }
 
-      if (authData?.user) {
-        const canonicalUser = {
-          fullName: authData.user.fullName || currentUser?.fullName || '',
-          email: authData.user.email,
-          phone: authData.user.phone || '',
-          role: authData.user.role || 'USER',
-          avatar: authData.user.avatar || undefined,
-        };
-        setCurrentUser(canonicalUser);
-        try {
-          localStorage.setItem('seelibrary_user', JSON.stringify(canonicalUser));
-          document.cookie = `seelibrary_role=${canonicalUser.role}; path=/; max-age=604800`;
-        } catch {}
+        // Only fallback to Render if local auth sync completely failed to return a user
+        if (!authData?.user && !userEmail.includes('demo') && !userEmail.includes('test')) {
+          try {
+            const directController = new AbortController();
+            const directTimeout = setTimeout(() => directController.abort(), 3000);
+            const directRes = await fetch('https://seelibrarybackend.onrender.com/api/v1/auth/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: userEmail, fullName: currentUser?.fullName || '' }),
+              signal: directController.signal,
+            });
+            clearTimeout(directTimeout);
+            if (directRes.ok) {
+              const renderData = await directRes.json();
+              if (renderData?.user) {
+                authData = renderData;
+              }
+            }
+          } catch (e) {
+            console.warn('Render direct sync fallback failed:', e);
+          }
+        }
 
-        // If SUPER_ADMIN — go to dedicated /admin page unless user explicitly chose library view
-        if (authData.user.role === 'SUPER_ADMIN') {
-          if (!isLibraryViewPreferred()) {
-            setIsAdminPortalView(true);
-            router.replace('/admin');
-            return;
-          } else {
-            setIsAdminPortalView(false);
+        if (authData?.user) {
+          const canonicalUser = {
+            fullName: authData.user.fullName || currentUser?.fullName || '',
+            email: authData.user.email,
+            phone: authData.user.phone || '',
+            role: authData.user.role || 'USER',
+            avatar: authData.user.avatar || undefined,
+          };
+          setCurrentUser(canonicalUser);
+          try {
+            localStorage.setItem('seelibrary_user', JSON.stringify(canonicalUser));
+            document.cookie = `seelibrary_role=${canonicalUser.role}; path=/; max-age=604800`;
+          } catch {}
+
+          // If SUPER_ADMIN — go to dedicated /admin page unless user explicitly chose library view
+          if (authData.user.role === 'SUPER_ADMIN') {
+            if (!isLibraryViewPreferred()) {
+              setIsAdminPortalView(true);
+              router.replace('/admin');
+              return;
+            } else {
+              setIsAdminPortalView(false);
+            }
           }
         }
       }
 
-      // 2. Sync and fetch all libraries for this user from DB
+      // 2. Sync and fetch all libraries for this user from DB with timeout
+      const syncController = new AbortController();
+      const syncTimeout = setTimeout(() => syncController.abort(), 8000);
       const res = await fetch('/api/libraries/sync-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userEmail, localLibraries: localFallbackLibs || [] }),
+        signal: syncController.signal,
       });
+      clearTimeout(syncTimeout);
 
       if (res.ok) {
         const data = await res.json();
@@ -914,53 +928,6 @@ export default function MobileDashboard() {
     setIsAddRowModalOpen(false);
   };
 
-  const handleBatchGenerate = async (data: { prefix: string; startNumber: number; count: number; rowName?: string }) => {
-    const targetRoom = currentSelectedRoom || displayRooms[0];
-    const targetRoomId = targetRoom?.id;
-    const targetRow = data.rowName || targetRoom?.rows?.[0] || 'Row A';
-
-    if (!activeLibrary) return;
-
-    try {
-      const res = await fetch(`/api/libraries/${activeLibrary.id}/seats`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...data,
-          roomId: targetRoomId,
-          rowName: targetRow,
-        }),
-      });
-
-      if (res.ok) {
-        const result = await res.json();
-        if (result.seats && result.seats.length > 0) {
-          updateActiveLibrary((lib) => ({
-            ...lib,
-            rooms: (lib.rooms || []).map((r) =>
-              r.id === targetRoomId && !r.rows.includes(targetRow)
-                ? { ...r, rows: [...r.rows, targetRow] }
-                : r
-            ),
-            seats: [...lib.seats, ...result.seats],
-          }));
-          return;
-        } else if (result.message) {
-          alert(result.message);
-          return;
-        }
-      } else {
-        const err = await res.json().catch(() => ({}));
-        alert(`Could not generate seats: ${err.error || 'Server error'}`);
-        return;
-      }
-    } catch (e) {
-      console.error('Database batch generate error:', e);
-      alert('Network error while generating batch seats. Please check your connection.');
-      return;
-    }
-  };
-
   const handleSaveRoomName = async (newName: string) => {
     if (!editingRoom || !activeLibrary) return;
 
@@ -1081,7 +1048,7 @@ export default function MobileDashboard() {
     fullName: string;
     phone: string;
     studyPurpose?: string;
-    shift: string;
+    shift?: string;
     durationMonths?: number;
     feeAmount?: number;
     seatNumber?: string | null;
@@ -1116,7 +1083,7 @@ export default function MobileDashboard() {
           seats: chosenSeatNumber
             ? lib.seats.map((s) =>
                 s.seatNumber === chosenSeatNumber
-                  ? { ...s, status: 'OCCUPIED' as const, studentName: data.fullName, shift: data.shift }
+                  ? { ...s, status: 'OCCUPIED' as const, studentName: data.fullName, shift: data.shift || 'FULL_DAY' }
                   : s
               )
             : lib.seats,
@@ -1156,7 +1123,7 @@ export default function MobileDashboard() {
       fullName: data.fullName,
       phone: data.phone,
       studyPurpose: data.studyPurpose,
-      shift: data.shift,
+      shift: data.shift || '',
       seatNumber: chosenSeatNumber || null,
       status: chosenSeatNumber ? 'ACTIVE' : 'INACTIVE',
       membershipEndsInDays: chosenSeatNumber && fallbackAmount > 0 ? (data.durationMonths || 1) * 30 : 0,
@@ -1198,13 +1165,29 @@ export default function MobileDashboard() {
     updateActiveLibrary((lib) => {
       const updatedStudents = lib.students.map((std) => {
         if (std.id === studentId) {
-          const hasValidMembership = std.membershipEndsInDays > 0 && std.status !== 'EXPIRED' && std.status !== 'INACTIVE';
+          const now = new Date();
+          const txs = std.transactions || [];
+          let activeDaysFromTx = 0;
+          for (const tx of txs) {
+            if (tx.validTo) {
+              const dTo = new Date(tx.validTo);
+              if (!isNaN(dTo.getTime()) && dTo > now) {
+                const diff = Math.max(0, Math.ceil((dTo.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+                if (diff > activeDaysFromTx) activeDaysFromTx = diff;
+              }
+            }
+          }
+          const preservedDays = activeDaysFromTx > 0 ? activeDaysFromTx : (std.membershipEndsInDays > 0 ? std.membershipEndsInDays : 0);
+          const hasValidMembership = preservedDays > 0 && std.status !== 'EXPIRED';
+
           return {
             ...std,
             seatNumber,
+            previousSeatNumber: seatNumber ? null : (oldSeatNumber || std.previousSeatNumber || null),
+            inactiveDays: seatNumber ? 0 : (std.inactiveDays || 0),
             shift: shift || std.shift,
-            status: (seatNumber ? (hasValidMembership ? std.status : 'INACTIVE') : 'INACTIVE') as any,
-            membershipEndsInDays: seatNumber ? (hasValidMembership ? std.membershipEndsInDays : 0) : 0,
+            status: (hasValidMembership ? 'ACTIVE' : (seatNumber ? 'ACTIVE' : 'INACTIVE')) as any,
+            membershipEndsInDays: preservedDays,
           };
         }
         return std;
@@ -1213,15 +1196,80 @@ export default function MobileDashboard() {
       const updatedSeats = lib.seats.map((seat) => {
         // Free old seat if previously occupied by this student
         if (oldSeatNumber && seat.seatNumber === oldSeatNumber) {
-          return { ...seat, status: 'AVAILABLE' as const, studentName: null, shift: undefined };
+          const remainingOccupants = (seat.occupants || []).filter((o) => o.studentId !== studentId);
+          if (remainingOccupants.length === 0) {
+            return {
+              ...seat,
+              status: 'AVAILABLE' as const,
+              studentName: null,
+              shift: undefined,
+              occupants: [],
+            };
+          } else {
+            const mainName =
+              remainingOccupants.length === 1
+                ? remainingOccupants[0].studentName
+                : remainingOccupants.map((o) => `${o.studentName} (${(o.shift || 'F').charAt(0)})`).join(' • ');
+            return {
+              ...seat,
+              studentName: mainName,
+              shift: remainingOccupants.length === 1 ? remainingOccupants[0].shift : 'SHARED',
+              occupants: remainingOccupants,
+            };
+          }
         }
         // Occupy or reserve new seat
         if (seatNumber && seat.seatNumber === seatNumber) {
+          const targetShift = (shift || student?.shift || 'FULL_DAY').toUpperCase();
+          const isTargetMorning = targetShift === 'MORNING' || targetShift === 'FOUR_HOURS' || targetShift === 'HALF_DAY';
+          const isTargetEvening = targetShift === 'EVENING';
+
+          const currentOccupants = (seat.occupants || []).filter((o) => o.studentId !== studentId);
+          let newOccupants: any[] = [];
+
+          if (targetShift === 'FULL_DAY') {
+            newOccupants = [
+              {
+                studentId,
+                studentName: student?.fullName || 'Student',
+                phone: student?.phone,
+                shift: 'FULL_DAY',
+              },
+            ];
+          } else {
+            const keptOccupants = currentOccupants.filter((o) => {
+              const oShift = (o.shift || 'FULL_DAY').toUpperCase();
+              const oIsMorning = oShift === 'MORNING' || oShift === 'FOUR_HOURS' || oShift === 'HALF_DAY';
+              const oIsEvening = oShift === 'EVENING';
+              if (oShift === 'FULL_DAY') return false;
+              if (isTargetMorning && oIsMorning) return false;
+              if (isTargetEvening && oIsEvening) return false;
+              return true;
+            });
+
+            newOccupants = [
+              ...keptOccupants,
+              {
+                studentId,
+                studentName: student?.fullName || 'Student',
+                phone: student?.phone,
+                shift: targetShift,
+              },
+            ];
+          }
+
+          const mainName =
+            newOccupants.length === 1
+              ? newOccupants[0].studentName
+              : newOccupants.map((o) => `${o.studentName} (${(o.shift || 'F').charAt(0)})`).join(' • ');
+          const mainShift = newOccupants.length === 1 ? newOccupants[0].shift : 'SHARED';
+
           return {
             ...seat,
             status: isReserved ? ('RESERVED' as const) : ('OCCUPIED' as const),
-            studentName: student?.fullName || 'Student',
-            shift: shift || student?.shift || 'FULL_DAY',
+            studentName: mainName,
+            shift: mainShift,
+            occupants: newOccupants,
           };
         }
         return seat;
@@ -1231,16 +1279,33 @@ export default function MobileDashboard() {
     });
 
     // Update active modal student state
-    setSelectedStudentForProfile((prev) =>
-      prev && prev.id === studentId
-        ? {
-            ...prev,
-            seatNumber,
-            shift: shift || prev.shift,
-            status: (seatNumber ? (prev.status === 'INACTIVE' ? 'ACTIVE' : prev.status) : 'INACTIVE') as any,
+    setSelectedStudentForProfile((prev) => {
+      if (!prev || prev.id !== studentId) return prev;
+      const now = new Date();
+      const txs = prev.transactions || [];
+      let activeDaysFromTx = 0;
+      for (const tx of txs) {
+        if (tx.validTo) {
+          const dTo = new Date(tx.validTo);
+          if (!isNaN(dTo.getTime()) && dTo > now) {
+            const diff = Math.max(0, Math.ceil((dTo.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+            if (diff > activeDaysFromTx) activeDaysFromTx = diff;
           }
-        : prev
-    );
+        }
+      }
+      const preservedDays = activeDaysFromTx > 0 ? activeDaysFromTx : (prev.membershipEndsInDays > 0 ? prev.membershipEndsInDays : 0);
+      const hasValidMembership = preservedDays > 0 && prev.status !== 'EXPIRED';
+
+      return {
+        ...prev,
+        seatNumber,
+        previousSeatNumber: seatNumber ? null : (oldSeatNumber || prev.previousSeatNumber || null),
+        inactiveDays: seatNumber ? 0 : (prev.inactiveDays || 0),
+        shift: shift || prev.shift,
+        status: (hasValidMembership ? 'ACTIVE' : (seatNumber ? 'ACTIVE' : 'INACTIVE')) as any,
+        membershipEndsInDays: preservedDays,
+      };
+    });
 
     // 2. Sync with database
     try {
@@ -1348,7 +1413,9 @@ export default function MobileDashboard() {
     notes?: string;
     extendDays: number;
     shift?: string;
+    stayDuration?: string;
     isSettlingDue?: boolean;
+    assignedSeatNumber?: string;
   }) => {
     if (!activeLibrary) return;
 
@@ -1373,6 +1440,8 @@ export default function MobileDashboard() {
       status: isPartial ? 'PARTIAL' : 'PAID',
       receiptNumber,
       notes: paymentData.notes,
+      shift: paymentData.shift,
+      stayDuration: paymentData.stayDuration,
     };
 
     // 1. Optimistic UI update
@@ -1380,12 +1449,11 @@ export default function MobileDashboard() {
       const updatedStudents = lib.students.map((s) => {
         if (s.id === paymentData.studentId) {
           const currentDays = Math.max(0, s.membershipEndsInDays || 0);
-          const preservedMonthlyFee = Math.max(
-            s.monthlyFee || 0,
-            s.totalFee || 0,
-            paymentData.totalFee || 0,
-            paymentData.amount || 0
-          );
+          const updatedMonthlyFee = paymentData.totalFee !== undefined && Number(paymentData.totalFee) > 0
+            ? Number(paymentData.totalFee)
+            : paymentData.amount > 0
+            ? Number(paymentData.amount)
+            : (s.monthlyFee || s.totalFee || 0);
 
           // Update prior partial transactions for this student/month
           const updatedOldTxs = (s.transactions || []).map((t) => {
@@ -1401,11 +1469,18 @@ export default function MobileDashboard() {
             return t;
           });
 
+          const assignedSeat = paymentData.assignedSeatNumber !== undefined
+            ? (paymentData.assignedSeatNumber || null)
+            : s.seatNumber;
+
           return {
             ...s,
+            seatNumber: assignedSeat,
+            previousSeatNumber: assignedSeat ? null : s.previousSeatNumber,
             shift: paymentData.shift || s.shift,
-            monthlyFee: preservedMonthlyFee,
-            totalFee: preservedMonthlyFee,
+            stayDuration: paymentData.stayDuration || s.stayDuration,
+            monthlyFee: updatedMonthlyFee,
+            totalFee: updatedMonthlyFee,
             remainingFee: paymentData.remainingFee ?? 0,
             status: 'ACTIVE' as const,
             membershipEndsInDays:
@@ -1422,12 +1497,27 @@ export default function MobileDashboard() {
         return s;
       });
 
-      // Update seat's shift if this student has an assigned seat
+      // Update seat's status and shift if assignedSeatNumber was provided or student has seat
+      const targetSeatNumber = paymentData.assignedSeatNumber || student?.seatNumber;
+      const oldSeatNumber = student?.seatNumber;
+
       const updatedSeats = lib.seats.map((seat) => {
-        if (student && student.seatNumber && seat.seatNumber === student.seatNumber && paymentData.shift) {
+        // If old seat changed, free it
+        if (oldSeatNumber && paymentData.assignedSeatNumber && oldSeatNumber !== paymentData.assignedSeatNumber && seat.seatNumber === oldSeatNumber) {
           return {
             ...seat,
-            shift: paymentData.shift,
+            status: 'AVAILABLE' as const,
+            studentName: null,
+            shift: undefined,
+          };
+        }
+        // If seat assigned or updated, occupy it
+        if (targetSeatNumber && seat.seatNumber === targetSeatNumber) {
+          return {
+            ...seat,
+            status: 'OCCUPIED' as const,
+            studentName: student?.fullName || 'Student',
+            shift: paymentData.shift || student?.shift || 'FULL_DAY',
           };
         }
         return seat;
@@ -1463,12 +1553,11 @@ export default function MobileDashboard() {
     setSelectedStudentForProfile((prev) => {
       if (prev && prev.id === paymentData.studentId) {
         const currentDays = Math.max(0, prev.membershipEndsInDays || 0);
-        const preservedMonthlyFee = Math.max(
-          prev.monthlyFee || 0,
-          prev.totalFee || 0,
-          paymentData.totalFee || 0,
-          paymentData.amount || 0
-        );
+        const updatedMonthlyFee = paymentData.totalFee !== undefined && Number(paymentData.totalFee) > 0
+          ? Number(paymentData.totalFee)
+          : paymentData.amount > 0
+          ? Number(paymentData.amount)
+          : (prev.monthlyFee || prev.totalFee || 0);
 
         const updatedOldTxs = (prev.transactions || []).map((t) => {
           const matchesMonth = t.paidForMonth?.trim().toLowerCase() === paymentData.paidForMonth?.trim().toLowerCase();
@@ -1483,11 +1572,18 @@ export default function MobileDashboard() {
           return t;
         });
 
+        const assignedSeat = paymentData.assignedSeatNumber !== undefined
+          ? (paymentData.assignedSeatNumber || null)
+          : prev.seatNumber;
+
         return {
           ...prev,
+          seatNumber: assignedSeat,
+          previousSeatNumber: assignedSeat ? null : prev.previousSeatNumber,
           shift: paymentData.shift || prev.shift,
-          monthlyFee: preservedMonthlyFee,
-          totalFee: preservedMonthlyFee,
+          stayDuration: paymentData.stayDuration || prev.stayDuration,
+          monthlyFee: updatedMonthlyFee,
+          totalFee: updatedMonthlyFee,
           remainingFee: paymentData.remainingFee ?? 0,
           status: 'ACTIVE' as const,
           membershipEndsInDays:
@@ -1506,6 +1602,9 @@ export default function MobileDashboard() {
 
     // 2. Persist to PostgreSQL backend
     try {
+      if (paymentData.assignedSeatNumber && paymentData.assignedSeatNumber !== student?.seatNumber) {
+        handleAssignSeat(paymentData.studentId, paymentData.assignedSeatNumber, paymentData.shift);
+      }
       await fetch(`/api/libraries/${activeLibrary.id}/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2068,7 +2167,6 @@ export default function MobileDashboard() {
                 onOpenAuth={() => setIsAuthModalOpen(true)}
                 onOpenCreateLibrary={() => setIsLibraryModalOpen(true)}
                 onOpenAddRoom={() => setIsRoomModalOpen(true)}
-                onOpenGenerateSeats={() => setIsBatchModalOpen(true)}
                 onOpenAddStudent={() => requireSubscription('Enroll Students', () => setIsStudentModalOpen(true))}
                 isLoggedIn={!!currentUser}
                 libraryName="Your Library"
@@ -2716,28 +2814,21 @@ export default function MobileDashboard() {
                     >
                       <Plus className="w-3.5 h-3.5" /> Add Row & Seats
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsBatchModalOpen(true)}
-                      className="text-xs bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Batch Seats
-                    </button>
                   </div>
                 </div>
 
                 <SeatGrid
                   seats={currentRoomSeats}
                   onStatusChange={handleStatusChange}
-                  onAssignStudent={(seatId) => {
+                  onAssignStudent={(seatId, preselectedShift) => {
                     const seat = activeLibrary?.seats.find((s) => s.id === seatId || s.seatNumber === seatId);
                     if (seat) {
                       setSelectedSeatForAssignment(seat);
+                      setPreselectedShiftForAssignment(preselectedShift);
                     }
                   }}
                   onAddRow={() => setIsAddRowModalOpen(true)}
                   onAddRoom={() => setIsAddRowModalOpen(true)}
-                  onBatchGenerate={() => setIsBatchModalOpen(true)}
                   onDeleteRow={handleDeleteRow}
                   onDeleteSeat={handleDeleteSeat}
                 />
@@ -2767,13 +2858,6 @@ export default function MobileDashboard() {
                   className="bg-white dark:bg-[#1c1c1e] hover:bg-slate-50 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-xs transition-colors"
                 >
                   <Building2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Add Room/Row
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsBatchModalOpen(true)}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-xs transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Batch Generate
                 </button>
               </div>
             </div>
@@ -2828,15 +2912,15 @@ export default function MobileDashboard() {
             <SeatGrid
               seats={currentSelectedRoom ? currentRoomSeats : seats}
               onStatusChange={handleStatusChange}
-              onAssignStudent={(seatId) => {
+              onAssignStudent={(seatId, preselectedShift) => {
                 const seat = activeLibrary?.seats.find((s) => s.id === seatId || s.seatNumber === seatId);
                 if (seat) {
                   setSelectedSeatForAssignment(seat);
+                  setPreselectedShiftForAssignment(preselectedShift);
                 }
               }}
               onAddRow={currentSelectedRoom ? () => setIsAddRowModalOpen(true) : undefined}
               onAddRoom={() => (currentSelectedRoom ? setIsAddRowModalOpen(true) : setIsRoomModalOpen(true))}
-              onBatchGenerate={() => setIsBatchModalOpen(true)}
               onDeleteRow={handleDeleteRow}
               onDeleteSeat={handleDeleteSeat}
             />
@@ -2903,7 +2987,7 @@ export default function MobileDashboard() {
                 isRefreshing={isSyncingData}
                 onRefresh={async () => {
                   if (currentUser?.email) {
-                    await loadUserLibrariesFromDb(currentUser.email, libraries);
+                    await loadUserLibrariesFromDb(currentUser.email, libraries, { skipAuthSync: true });
                   }
                 }}
                 onAddStudent={() => {
@@ -3167,18 +3251,6 @@ export default function MobileDashboard() {
         />
       )}
 
-      {/* Batch Seat Modal */}
-      {isBatchModalOpen && (
-        <BatchSeatModal
-          isOpen={isBatchModalOpen}
-          onClose={() => setIsBatchModalOpen(false)}
-          targetRoomName={currentSelectedRoom?.name}
-          availableRows={currentSelectedRoom?.rows || []}
-          existingSeats={activeLibrary?.seats || []}
-          onGenerate={handleBatchGenerate}
-        />
-      )}
-
       {/* 3-Step Student Registration Wizard */}
       {isStudentModalOpen && (
         <StudentModal
@@ -3227,6 +3299,7 @@ export default function MobileDashboard() {
           onClose={() => {
             setIsCollectFeeModalOpen(false);
             setStudentForFeeCollection(null);
+            setPreselectedSeatNumberForFeeCollection(null);
             if (returnToStudentProfileId) {
               const targetId = returnToStudentProfileId;
               setReturnToStudentProfileId(null);
@@ -3242,6 +3315,7 @@ export default function MobileDashboard() {
           }}
           students={activeLibrary?.students || []}
           preselectedStudent={studentForFeeCollection}
+          preselectedSeatNumber={preselectedSeatNumberForFeeCollection}
           availableSeats={seats.filter((s) => s.status === 'AVAILABLE')}
           onAssignSeat={handleAssignSeat}
           onRecordPayment={handleRecordFeePayment}
@@ -3264,9 +3338,13 @@ export default function MobileDashboard() {
       {selectedSeatForAssignment && (
         <AssignSeatModal
           isOpen={!!selectedSeatForAssignment}
-          onClose={() => setSelectedSeatForAssignment(null)}
+          onClose={() => {
+            setSelectedSeatForAssignment(null);
+            setPreselectedShiftForAssignment(undefined);
+          }}
           seat={selectedSeatForAssignment}
           students={students}
+          initialShift={preselectedShiftForAssignment}
           onAssign={async (studentId, seatNumber, shift, isReserved) => {
             await handleAssignSeat(studentId, seatNumber, shift, isReserved);
           }}
@@ -3275,6 +3353,12 @@ export default function MobileDashboard() {
               setPreselectedSeatNumberForNewStudent(seatNumber);
               setIsStudentModalOpen(true);
             });
+          }}
+          onEnrollAndCollectFee={(student, seatNumber) => {
+            setSelectedSeatForAssignment(null);
+            setStudentForFeeCollection(student);
+            setPreselectedSeatNumberForFeeCollection(seatNumber);
+            setIsCollectFeeModalOpen(true);
           }}
         />
       )}

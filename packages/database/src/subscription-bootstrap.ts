@@ -1,7 +1,9 @@
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
+import { prisma } from './index';
 
-export async function ensureDefaultSubscriptionPlans(client: PrismaClient) {
+export async function ensureDefaultSubscriptionPlans(client?: PrismaClient) {
+  const db = client || prisma;
   try {
     const defaultPlans = [
       {
@@ -34,7 +36,7 @@ export async function ensureDefaultSubscriptionPlans(client: PrismaClient) {
     ];
 
     for (const p of defaultPlans) {
-      const existingPlan = await client.subscriptionPlan.findUnique({
+      const existingPlan = await db.subscriptionPlan.findUnique({
         where: { code: p.code },
       });
 
@@ -53,7 +55,7 @@ export async function ensureDefaultSubscriptionPlans(client: PrismaClient) {
       };
 
       if (!existingPlan) {
-        await client.subscriptionPlan.create({
+        await db.subscriptionPlan.create({
           data: {
             id: crypto.randomUUID(),
             code: p.code,
@@ -70,7 +72,7 @@ export async function ensureDefaultSubscriptionPlans(client: PrismaClient) {
         // If existing plan lacks durationMonths in features, populate only missing metadata without overwriting prices
         const currentFeatures = (existingPlan.features || {}) as Record<string, any>;
         if (!currentFeatures.durationMonths) {
-          await client.subscriptionPlan.update({
+          await db.subscriptionPlan.update({
             where: { id: existingPlan.id },
             data: {
               features: {
@@ -88,17 +90,17 @@ export async function ensureDefaultSubscriptionPlans(client: PrismaClient) {
     }
 
     // Deactivate legacy ENTERPRISE plan if it exists
-    const legacyEnterprise = await client.subscriptionPlan.findUnique({
+    const legacyEnterprise = await db.subscriptionPlan.findUnique({
       where: { code: 'ENTERPRISE' },
     });
     if (legacyEnterprise && legacyEnterprise.isActive) {
-      await client.subscriptionPlan.update({
+      await db.subscriptionPlan.update({
         where: { id: legacyEnterprise.id },
         data: { isActive: false },
       });
     }
 
-    return await client.subscriptionPlan.findMany({
+    return await db.subscriptionPlan.findMany({
       where: { isActive: true },
       orderBy: { priceMonthly: 'asc' },
     });

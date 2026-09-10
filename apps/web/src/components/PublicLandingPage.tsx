@@ -154,19 +154,12 @@ export function PublicLandingPage({ onOpenAuth, onLaunchDemo }: PublicLandingPag
             {
               step: '02',
               title: 'Define Rooms & Rows',
-              desc: 'Configure silent study halls, AC cubicles, and numbered rows (Row A, Row B...).',
+              desc: 'Configure silent study halls, AC cubicles, and numbered seat rows.',
               icon: Layers,
               color: 'text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-500/10 border-purple-200 dark:border-purple-500/20',
             },
             {
               step: '03',
-              title: 'Generate Seats',
-              desc: 'Batch create seats with auto-numbering from A-01 to A-50 in a single tap.',
-              icon: Armchair,
-              color: 'text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-500/10 border-sky-200 dark:border-sky-500/20',
-            },
-            {
-              step: '04',
               title: 'Enroll Students',
               desc: 'Assign shift seats, track admission KYC, record monthly fees, and issue digital receipts.',
               icon: Users,

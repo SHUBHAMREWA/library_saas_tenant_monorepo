@@ -121,6 +121,11 @@ export class AdminController {
           studentCount: lib._count?.students || 0,
           seatCount: lib._count?.seats || 0,
           roomCount: lib._count?.rooms || 0,
+          counts: {
+            students: lib._count?.students || 0,
+            seats: lib._count?.seats || 0,
+            rooms: lib._count?.rooms || 0,
+          },
           activeSubscription: sub
             ? {
                 id: sub.id,
@@ -457,22 +462,151 @@ export class AdminController {
     }
   }
 
+  async updateCoupon(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { couponId } = req.params;
+      const {
+        code,
+        discountType,
+        discountValue,
+        maxDiscount,
+        minOrderAmount,
+        maxUses,
+        validFrom,
+        validUntil,
+        isActive,
+      } = req.body;
+
+      try {
+        const { prisma } = await import('@library/database');
+        const coupon = await prisma.coupon.findUnique({ where: { id: couponId } });
+        if (!coupon) {
+          res.status(404).json({ error: 'Coupon not found' });
+          return;
+        }
+
+        const updated = await prisma.coupon.update({
+          where: { id: couponId },
+          data: {
+            code: code ? code.toUpperCase().trim() : undefined,
+            discountType: discountType || undefined,
+            discountValue: discountValue !== undefined ? Number(discountValue) : undefined,
+            maxDiscountAmount: maxDiscount !== undefined ? (maxDiscount ? Number(maxDiscount) : null) : undefined,
+            minOrderAmount: minOrderAmount !== undefined ? (minOrderAmount ? Number(minOrderAmount) : null) : undefined,
+            maxRedemptions: maxUses !== undefined ? (maxUses ? Number(maxUses) : null) : undefined,
+            validFrom: validFrom ? new Date(validFrom) : undefined,
+            validUntil: validUntil ? new Date(validUntil) : undefined,
+            isActive: isActive !== undefined ? Boolean(isActive) : undefined,
+          },
+          include: {
+            usages: true,
+          },
+        });
+
+        const updatedAny = updated as any;
+        const formatted = {
+          id: updated.id,
+          code: updated.code,
+          discountType: updated.discountType,
+          discountValue: Number(updated.discountValue),
+          maxDiscount: updated.maxDiscountAmount ? Number(updated.maxDiscountAmount) : null,
+          minOrderAmount: updated.minOrderAmount ? Number(updated.minOrderAmount) : null,
+          maxUses: updated.maxRedemptions,
+          usedCount: updatedAny.usages?.length || updatedAny._count?.usages || 0,
+          validFrom: updated.validFrom.toISOString(),
+          validUntil: updated.validUntil ? updated.validUntil.toISOString() : null,
+          applicablePlans: [],
+          isActive: updated.isActive,
+          createdAt: updated.createdAt.toISOString(),
+        };
+
+        res.status(200).json({ success: true, coupon: formatted, data: formatted });
+      } catch (dbErr: any) {
+        if (dbErr.code === 'P2002') {
+          res.status(409).json({ error: 'A coupon with this code already exists' });
+          return;
+        }
+        const updated = dataStore.updateCoupon(couponId, {
+          code: code ? code.toUpperCase().trim() : undefined,
+          discountType,
+          discountValue: discountValue !== undefined ? Number(discountValue) : undefined,
+          maxDiscountAmount: maxDiscount !== undefined ? (maxDiscount ? Number(maxDiscount) : null) : undefined,
+          minOrderAmount: minOrderAmount !== undefined ? (minOrderAmount ? Number(minOrderAmount) : null) : undefined,
+          maxRedemptions: maxUses !== undefined ? (maxUses ? Number(maxUses) : null) : undefined,
+          validFrom,
+          validUntil,
+          isActive,
+        });
+        if (!updated) {
+          res.status(404).json({ error: 'Coupon not found' });
+          return;
+        }
+        res.status(200).json({ success: true, coupon: updated, data: updated });
+      }
+    } catch (err: any) {
+      if (err.code === 'P2002') {
+        res.status(409).json({ error: 'A coupon with this code already exists' });
+        return;
+      }
+      next(err);
+    }
+  }
+
+  async deleteCoupon(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { couponId } = req.params;
+
+      try {
+        const { prisma } = await import('@library/database');
+        const coupon = await prisma.coupon.findUnique({ where: { id: couponId } });
+        if (!coupon) {
+          res.status(404).json({ error: 'Coupon not found' });
+          return;
+        }
+
+        // Delete any related usage logs first
+        await prisma.couponUsage.deleteMany({ where: { couponId } });
+        await prisma.coupon.delete({ where: { id: couponId } });
+
+        res.status(200).json({ success: true, message: `Coupon '${coupon.code}' deleted successfully` });
+      } catch (dbErr) {
+        const deleted = dataStore.deleteCoupon(couponId);
+        if (!deleted) {
+          res.status(404).json({ error: 'Coupon not found' });
+          return;
+        }
+        res.status(200).json({ success: true, message: 'Coupon deleted successfully' });
+      }
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async toggleCouponStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { couponId } = req.params;
-      const { prisma } = await import('@library/database');
-      const coupon = await prisma.coupon.findUnique({ where: { id: couponId } });
-      if (!coupon) {
-        res.status(404).json({ error: 'Coupon not found' });
-        return;
+      try {
+        const { prisma } = await import('@library/database');
+        const coupon = await prisma.coupon.findUnique({ where: { id: couponId } });
+        if (!coupon) {
+          res.status(404).json({ error: 'Coupon not found' });
+          return;
+        }
+
+        const updated = await prisma.coupon.update({
+          where: { id: couponId },
+          data: { isActive: !coupon.isActive },
+        });
+
+        res.status(200).json({ success: true, coupon: updated, data: updated });
+      } catch (dbErr) {
+        const updated = dataStore.toggleCouponStatus(couponId);
+        if (!updated) {
+          res.status(404).json({ error: 'Coupon not found' });
+          return;
+        }
+        res.status(200).json({ success: true, coupon: updated, data: updated });
       }
-
-      const updated = await prisma.coupon.update({
-        where: { id: couponId },
-        data: { isActive: !coupon.isActive },
-      });
-
-      res.status(200).json({ success: true, coupon: updated, data: updated });
     } catch (err) {
       next(err);
     }
@@ -576,13 +710,14 @@ export class AdminController {
     try {
       const { prisma } = await import('@library/database');
       const payments = await prisma.payment.findMany({
-        take: 100,
+        take: 200,
         orderBy: { createdAt: 'desc' },
         include: {
           library: {
             select: {
               id: true,
               name: true,
+              contactEmail: true,
               owner: {
                 select: {
                   id: true,
@@ -592,24 +727,73 @@ export class AdminController {
               },
             },
           },
+          subscription: {
+            include: {
+              plan: true,
+            },
+          },
+          couponUsages: {
+            include: {
+              coupon: true,
+            },
+          },
         },
       });
 
-      const formatted = payments.map((p) => ({
-        id: p.id,
-        amount: Number(p.amount),
-        currency: p.currency,
-        status: p.status,
-        provider: p.provider,
-        providerPaymentId: p.providerPaymentId,
-        createdAt: p.createdAt.toISOString(),
-        library: p.library ? { id: p.library.id, name: p.library.name } : null,
-        user: p.library?.owner ? { id: p.library.owner.id, email: p.library.owner.email, fullName: p.library.owner.fullName } : null,
-      }));
+      const formatted = payments.map((p) => {
+        const meta = (p.metadata || {}) as Record<string, any>;
+        const couponUsage = p.couponUsages?.[0];
+        const couponCode = meta.couponCode || couponUsage?.coupon?.code || null;
+        const discountApplied = Number(meta.discountApplied || couponUsage?.discountApplied || 0);
+        const amount = Number(p.amount);
+        const originalAmount = Number(meta.originalAmount || (amount + discountApplied));
+
+        const paymentId = p.providerPaymentId || meta.razorpay_payment_id || p.id;
+        const orderId = p.providerOrderId || meta.razorpay_order_id || meta.orderId || null;
+
+        const isCancelled = meta.isCancelled === true || meta.autopayCancelled === true;
+        const isAutopay = Boolean(meta.isAutopay || p.subscription?.autoRenew);
+
+        return {
+          id: p.id,
+          libraryId: p.libraryId,
+          libraryName: p.library?.name || meta.libraryName || 'Library',
+          ownerName: p.library?.owner?.fullName || meta.ownerName || 'Owner',
+          ownerEmail: p.library?.owner?.email || p.library?.contactEmail || meta.paidByEmail || meta.userEmail || '',
+          amount,
+          originalAmount,
+          discountApplied,
+          couponCode,
+          currency: p.currency || 'INR',
+          status: p.status,
+          provider: p.provider,
+          paymentId,
+          orderId,
+          createdAt: p.createdAt.toISOString(),
+          planCode: meta.planCode || p.subscription?.plan?.code || 'BASIC',
+          planName: meta.planName || p.subscription?.plan?.name || 'Basic Plan',
+          durationMonths: Number(meta.durationMonths || 1),
+          adjustmentAction: meta.adjustmentAction,
+          daysAdjusted: meta.daysAdjusted !== undefined ? Number(meta.daysAdjusted) : null,
+          isAutopay,
+          isCancelled,
+          cancellationReason: meta.cancellationReason || p.subscription?.cancellationReason || null,
+          cancelledAt: meta.cancelledAt || null,
+          failureReason: meta.failureReason || null,
+          statusDetail: meta.statusDetail || null,
+          library: p.library ? { id: p.library.id, name: p.library.name } : null,
+          user: p.library?.owner ? { id: p.library.owner.id, email: p.library.owner.email, fullName: p.library.owner.fullName } : null,
+        };
+      });
 
       res.status(200).json({ success: true, payments: formatted, data: formatted });
     } catch (err) {
-      next(err);
+      try {
+        const payments = dataStore.listAllPayments();
+        res.status(200).json({ success: true, payments, data: payments });
+      } catch {
+        next(err);
+      }
     }
   }
 
@@ -710,6 +894,154 @@ export class AdminController {
       });
     } catch (err) {
       next(err);
+    }
+  }
+
+  async listStudents(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { prisma } = await import('@library/database');
+      const { libraryId, search, status } = req.query;
+
+      const whereClause: any = {
+        deletedAt: null,
+      };
+
+      if (libraryId && typeof libraryId === 'string' && libraryId !== 'ALL') {
+        whereClause.libraryId = libraryId;
+      }
+
+      if (search && typeof search === 'string' && search.trim()) {
+        const q = search.trim();
+        whereClause.OR = [
+          { fullName: { contains: q, mode: 'insensitive' } },
+          { phone: { contains: q } },
+          { email: { contains: q, mode: 'insensitive' } },
+          { fatherName: { contains: q, mode: 'insensitive' } },
+          { studyPurpose: { contains: q, mode: 'insensitive' } },
+        ];
+      }
+
+      const students = await prisma.student.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+        include: {
+          library: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              owner: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  email: true,
+                },
+              },
+            },
+          },
+          memberships: {
+            orderBy: { expectedEndDate: 'desc' },
+            take: 1,
+          },
+          seatAssignments: {
+            where: { status: 'ACTIVE' },
+            take: 1,
+            include: {
+              seat: {
+                select: {
+                  id: true,
+                  seatNumber: true,
+                  row: {
+                    select: {
+                      name: true,
+                      room: {
+                        select: {
+                          name: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          feeTransactions: {
+            orderBy: { paymentDate: 'desc' },
+            take: 1,
+          },
+        },
+      });
+
+      const now = new Date();
+      const formatted = (students as any[]).map((std) => {
+        const activeMembership = std.memberships?.[0] || null;
+        const activeAssignment = std.seatAssignments?.[0] || null;
+        const latestTx = std.feeTransactions?.[0] || null;
+
+        const isExpired = activeMembership ? new Date(activeMembership.expectedEndDate) < now : true;
+        const membershipStatus = activeMembership
+          ? (activeMembership.status === 'ACTIVE' && isExpired ? 'EXPIRED' : activeMembership.status)
+          : 'NO_MEMBERSHIP';
+
+        const seatNumber = activeAssignment?.seat?.seatNumber || null;
+        const roomName = activeAssignment?.seat?.row?.room?.name || null;
+        const rowName = activeAssignment?.seat?.row?.name || null;
+
+        return {
+          id: std.id,
+          fullName: std.fullName,
+          phone: std.phone,
+          email: std.email,
+          fatherName: std.fatherName,
+          motherName: std.motherName,
+          address: std.address,
+          studyPurpose: std.studyPurpose,
+          photoUrl: std.photoUrl,
+          kycDocId: std.kycDocId,
+          kycDocType: std.kycDocType,
+          kycPhotoUrl: std.kycPhotoUrl,
+          isActive: std.isActive,
+          createdAt: std.createdAt.toISOString(),
+          libraryId: std.libraryId,
+          libraryName: std.library?.name || 'Library',
+          librarySlug: std.library?.slug || '',
+          ownerName: std.library?.owner?.fullName || 'Owner',
+          ownerEmail: std.library?.owner?.email || '',
+          membership: activeMembership
+            ? {
+                id: activeMembership.id,
+                status: membershipStatus,
+                shift: activeMembership.shift,
+                startDate: activeMembership.startDate?.toISOString()?.split('T')[0] || null,
+                endDate: activeMembership.expectedEndDate?.toISOString()?.split('T')[0] || null,
+                feeAmount: Number(activeMembership.feeAmount || 0),
+              }
+            : null,
+          seat: seatNumber
+            ? {
+                seatNumber,
+                roomName,
+                rowName,
+                shift: activeAssignment?.shift || 'FULL_DAY',
+              }
+            : null,
+          remainingDue: Number(latestTx?.remainingFee || 0),
+          lastPaymentDate: latestTx?.paymentDate ? new Date(latestTx.paymentDate).toISOString() : null,
+        };
+      });
+
+      res.status(200).json({ success: true, students: formatted, count: formatted.length, data: formatted });
+    } catch (err) {
+      try {
+        const students = dataStore.listAllStudents({
+          libraryId: req.query.libraryId as string,
+          search: req.query.search as string,
+        });
+        res.status(200).json({ success: true, students, count: students.length, data: students });
+      } catch {
+        next(err);
+      }
     }
   }
 

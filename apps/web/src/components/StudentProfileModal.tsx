@@ -34,7 +34,7 @@ import {
   AlertTriangle,
   ArrowUpRight,
 } from 'lucide-react';
-import { StudentItem, StudentFeeRecord, formatShift, MONTH_NAMES } from './StudentList';
+import { StudentItem, StudentFeeRecord, formatShift, MONTH_NAMES, getStudentPreviousSeat } from './StudentList';
 import { WhatsAppIcon } from './WhatsAppIcon';
 import {
   compressAndConvertToWebP,
@@ -64,46 +64,43 @@ function formatFriendlyPeriod(validFromStr?: string, validToStr?: string): strin
   if (isNaN(dFrom.getTime())) return validFromStr;
 
   const fromDay = dFrom.getDate();
-  const fromMonth = dFrom.toLocaleDateString('en-IN', { month: 'short' });
+  const fromMonth = dFrom.toLocaleString('en-US', { month: 'short' });
   const fromYear = dFrom.getFullYear();
 
-  if (!validToStr) {
-    return `${fromDay} ${fromMonth} ${fromYear}`;
-  }
-
+  if (!validToStr) return `${fromDay} ${fromMonth} ${fromYear}`;
   const dTo = new Date(validToStr);
-  if (isNaN(dTo.getTime())) {
-    return `${fromDay} ${fromMonth} ${fromYear}`;
-  }
+  if (isNaN(dTo.getTime())) return `${fromDay} ${fromMonth} ${fromYear} – ${validToStr}`;
 
   const toDay = dTo.getDate();
-  const toMonth = dTo.toLocaleDateString('en-IN', { month: 'short' });
+  const toMonth = dTo.toLocaleString('en-US', { month: 'short' });
   const toYear = dTo.getFullYear();
 
   if (fromYear === toYear) {
-    return `${fromDay} ${fromMonth} – ${toDay} ${toMonth} ${toYear}`;
+    if (fromMonth === toMonth) {
+      return `${fromDay} – ${toDay} ${fromMonth} ${fromYear}`;
+    }
+    return `${fromDay} ${fromMonth} – ${toDay} ${toMonth} ${fromYear}`;
   }
   return `${fromDay} ${fromMonth} ${fromYear} – ${toDay} ${toMonth} ${toYear}`;
 }
 
-function formatShiftDetailed(shift?: string): string {
-  if (!shift) return 'Full Day (24/7 Unlimited)';
-  switch (shift.toUpperCase()) {
-    case 'FOUR_HOURS':
-      return '4 Hours / Day';
-    case 'HALF_DAY':
-      return 'Half Day (6–8 Hours / Day)';
-    case 'FULL_DAY':
-      return 'Full Day (24/7 Unlimited)';
-    case 'MORNING':
-      return 'Morning Shift';
-    case 'EVENING':
-      return 'Evening Shift';
-    case 'NIGHT':
-      return 'Night Shift';
-    default:
-      return shift;
+function formatShiftDetailed(shift?: string, stayDuration?: string): string {
+  const normShift = shift ? shift.toUpperCase() : 'FULL_DAY';
+  const normDuration = stayDuration ? stayDuration.toUpperCase() : undefined;
+
+  if (normShift === 'MORNING') {
+    if (normDuration === 'FOUR_HOURS') return 'Morning Shift • 4 Hours / Day';
+    if (normDuration === 'HALF_DAY') return 'Morning Shift • Half Day (6–8h)';
+    return 'Morning Shift';
   }
+  if (normShift === 'EVENING') {
+    if (normDuration === 'FOUR_HOURS') return 'Evening Shift • 4 Hours / Day';
+    if (normDuration === 'HALF_DAY') return 'Evening Shift • Half Day (6–8h)';
+    return 'Evening Shift';
+  }
+  if (normShift === 'FOUR_HOURS') return '4 Hours / Day';
+  if (normShift === 'HALF_DAY') return 'Half Day (6–8 Hours / Day)';
+  return 'Full Day (24/7 Unlimited)';
 }
 
 interface StudentProfileModalProps {
@@ -193,21 +190,12 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
 
   const computedMonthlyRate = useMemo(() => {
     if (!student) return 0;
-    const monthSumMap = new Map<string, number>();
-    let maxTxTotal = 0;
-    (student.transactions || []).forEach((tx) => {
-      const k = tx.paidForMonth?.trim().toLowerCase() || '';
-      monthSumMap.set(k, (monthSumMap.get(k) || 0) + Number(tx.amount || 0));
-      if (tx.totalFee && Number(tx.totalFee) > maxTxTotal) {
-        maxTxTotal = Number(tx.totalFee);
-      }
-    });
-    let highestMonthSum = 0;
-    monthSumMap.forEach((v) => {
-      if (v > highestMonthSum) highestMonthSum = v;
-    });
-
-    return Math.max(student.monthlyFee || 0, student.totalFee || 0, maxTxTotal, highestMonthSum);
+    const latestTx = student.transactions?.[0];
+    if (latestTx?.totalFee && Number(latestTx.totalFee) > 0) return Number(latestTx.totalFee);
+    if (latestTx?.amount && Number(latestTx.amount) > 0) return Number(latestTx.amount);
+    if (student.monthlyFee && Number(student.monthlyFee) > 0) return Number(student.monthlyFee);
+    if (student.totalFee && Number(student.totalFee) > 0) return Number(student.totalFee);
+    return 0; // No default — student must be enrolled+fee paid first
   }, [student]);
 
   const nowVal = useMemo(() => new Date(), []);
@@ -1235,7 +1223,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                           <Clock className="w-3.5 h-3.5 text-slate-400 dark:text-neutral-500" /> Stay Duration / Plan
                         </span>
                         <span className="font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/80 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
-                          {formatShiftDetailed((currentMonthTx as any)?.shift || student.shift)}
+                          {formatShiftDetailed((currentMonthTx as any)?.shift || student.shift, (currentMonthTx as any)?.stayDuration || student.stayDuration)}
                         </span>
                       </div>
 
@@ -1294,6 +1282,25 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                           </p>
                         </div>
                       </div>
+
+                      {/* Previous Seat Helper Badge if inactive <= 30 days */}
+                      {(() => {
+                        const prevSeat = getStudentPreviousSeat(student);
+                        return prevSeat.seatNumber ? (
+                          <div className="flex items-center gap-1.5 py-1.5 px-2.5 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/60 rounded-xl text-xs text-indigo-950 dark:text-indigo-200">
+                            <Armchair className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                            <span>
+                              Previous Seat Allotment: <strong className="font-bold text-indigo-700 dark:text-indigo-300">Seat {prevSeat.seatNumber}</strong>
+                              {prevSeat.inactiveDays > 0 ? (
+                                <span className="text-[11px] text-slate-500 dark:text-neutral-400 ml-1">
+                                  (Released {prevSeat.inactiveDays} days ago)
+                                </span>
+                              ) : ''}
+                            </span>
+                          </div>
+                        ) : null;
+                      })()}
+
                       <button
                         type="button"
                         onClick={() => onCollectFee?.(student)}
