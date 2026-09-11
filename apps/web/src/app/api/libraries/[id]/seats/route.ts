@@ -125,31 +125,40 @@ export async function POST(
 }
 
 export async function PATCH(
-  req: NextRequest
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: libraryId } = await context.params;
     const body = await req.json();
-    const { seatId, status } = body;
+    const { seatId, seatNumber, status } = body;
 
-    if (!seatId || !status) {
-      return NextResponse.json({ error: 'seatId and status are required' }, { status: 400 });
+    if ((!seatId && !seatNumber) || !status) {
+      return NextResponse.json({ error: 'seatId or seatNumber, and status are required' }, { status: 400 });
     }
 
-    // Try updating by id
-    try {
-      const updated = await prisma.seat.update({
-        where: { id: seatId },
-        data: { status },
+    // Try updating by id within this library
+    if (seatId) {
+      const existingSeat = await prisma.seat.findFirst({
+        where: { id: seatId, libraryId },
       });
-      return NextResponse.json({ success: true, seat: updated });
-    } catch {
-      // If seatId was client-generated, update by seatNumber
-      const updated = await prisma.seat.updateMany({
-        where: { seatNumber: seatId },
-        data: { status },
-      });
-      return NextResponse.json({ success: true, count: updated.count });
+      if (existingSeat) {
+        const updated = await prisma.seat.update({
+          where: { id: existingSeat.id },
+          data: { status },
+        });
+        return NextResponse.json({ success: true, seat: updated });
+      }
     }
+
+    // If seatId was client-generated or seatNumber is passed, update by seatNumber within this library only
+    const targetSeatNumber = seatNumber || seatId;
+    const updated = await prisma.seat.updateMany({
+      where: { seatNumber: targetSeatNumber, libraryId },
+      data: { status },
+    });
+
+    return NextResponse.json({ success: true, count: updated.count });
   } catch (error: any) {
     console.error('API PATCH /api/libraries/[id]/seats error:', error);
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
@@ -157,37 +166,67 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  req: NextRequest
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: libraryId } = await context.params;
     const { searchParams } = new URL(req.url);
-    const seatId = searchParams.get('seatId');
-    const seatNumber = searchParams.get('seatNumber');
+    const seatId = searchParams.get('seatId')?.trim();
+    const seatNumber = searchParams.get('seatNumber')?.trim();
 
     if (!seatId && !seatNumber) {
       return NextResponse.json({ error: 'seatId or seatNumber query parameter is required' }, { status: 400 });
     }
 
+    // Find matching seats strictly within the target library
+    let matchingSeats: { id: string }[] = [];
+
     if (seatId) {
-      await prisma.seatAssignment.deleteMany({ where: { seatId } });
-      try {
-        await prisma.seat.delete({ where: { id: seatId } });
-        return NextResponse.json({ success: true, deletedSeatId: seatId });
-      } catch {
-        if (seatNumber) {
-          await prisma.seat.deleteMany({ where: { seatNumber } });
-        }
+      matchingSeats = await prisma.seat.findMany({
+        where: { id: seatId, libraryId },
+        select: { id: true },
+      });
+
+      // If not found by UUID, check if seatId was passed as a seat number string (e.g. "01")
+      if (matchingSeats.length === 0) {
+        matchingSeats = await prisma.seat.findMany({
+          where: { seatNumber: seatId, libraryId },
+          select: { id: true },
+        });
       }
     } else if (seatNumber) {
-      const seats = await prisma.seat.findMany({ where: { seatNumber } });
-      const ids = seats.map((s) => s.id);
-      if (ids.length > 0) {
-        await prisma.seatAssignment.deleteMany({ where: { seatId: { in: ids } } });
-        await prisma.seat.deleteMany({ where: { id: { in: ids } } });
-      }
+      matchingSeats = await prisma.seat.findMany({
+        where: { seatNumber, libraryId },
+        select: { id: true },
+      });
     }
 
-    return NextResponse.json({ success: true });
+    if (matchingSeats.length === 0) {
+      return NextResponse.json({
+        success: true,
+        message: 'No matching seat found in this library',
+        deletedCount: 0,
+      });
+    }
+
+    const seatIds = matchingSeats.map((s) => s.id);
+
+    // Clean up seat assignments strictly belonging to target library and these seats
+    await prisma.seatAssignment.deleteMany({
+      where: { seatId: { in: seatIds }, libraryId },
+    });
+
+    // Delete the physical seats strictly in the target library
+    const deleteResult = await prisma.seat.deleteMany({
+      where: { id: { in: seatIds }, libraryId },
+    });
+
+    return NextResponse.json({
+      success: true,
+      deletedCount: deleteResult.count,
+      deletedSeatIds: seatIds,
+    });
   } catch (error: any) {
     console.error('API DELETE /api/libraries/[id]/seats error:', error);
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });

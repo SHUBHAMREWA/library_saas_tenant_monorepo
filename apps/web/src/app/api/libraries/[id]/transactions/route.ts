@@ -147,8 +147,8 @@ export async function POST(
       where: { id: studentId, libraryId },
       include: {
         memberships: {
-          // Include ACTIVE or PAUSED memberships — PAUSED is the initial state for newly admitted students
-          where: { status: { in: ['ACTIVE', 'PAUSED'] } },
+          // Include ACTIVE, PAUSED, or EXPIRED memberships — allows re-enrollment renewal
+          where: { status: { in: ['ACTIVE', 'PAUSED', 'EXPIRED'] } },
           orderBy: { createdAt: 'desc' },
           take: 1,
         },
@@ -164,9 +164,27 @@ export async function POST(
       return NextResponse.json({ error: 'Student not found in this library' }, { status: 404 });
     }
 
-    const activeMembership = student.memberships[0];
+    let activeMembership = student.memberships[0];
     const receiptNumber = `REC-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
     const parsedPaymentDate = paymentDate ? new Date(paymentDate) : new Date();
+
+    // If student has no membership record at all, create an active one
+    if (!activeMembership) {
+      const parsedStart = validFrom ? new Date(validFrom) : parsedPaymentDate;
+      const parsedEnd = validTo ? new Date(validTo) : new Date(parsedStart.getTime() + 30 * 86400000);
+      activeMembership = await prisma.membership.create({
+        data: {
+          id: crypto.randomUUID(),
+          libraryId,
+          studentId: student.id,
+          startDate: parsedStart,
+          expectedEndDate: parsedEnd,
+          status: 'ACTIVE',
+          feeAmount: totalFee !== undefined ? Number(totalFee) : Number(amount),
+          shift: (shift || 'FULL_DAY') as any,
+        },
+      });
+    }
 
     const transaction = await prisma.studentFeeTransaction.create({
       data: {
@@ -258,11 +276,15 @@ export async function POST(
         );
       }
 
+      const effectiveFeeAmount = isSettlingDue
+        ? Number(activeMembership.feeAmount || totalFee || amount)
+        : (totalFee !== undefined && Number(totalFee) > 0 ? Number(totalFee) : Number(amount));
+
       await prisma.membership.update({
         where: { id: activeMembership.id },
         data: {
           ...(daysToAdd > 0 && newEndDate ? { expectedEndDate: newEndDate } : {}),
-          ...(isSettlingDue ? {} : { feeAmount: totalFee !== undefined ? Number(totalFee) : Number(amount) }),
+          ...(isSettlingDue ? {} : { feeAmount: effectiveFeeAmount }),
           ...(shift ? { shift: shift as any } : {}),
           status: 'ACTIVE',
         },
@@ -276,6 +298,10 @@ export async function POST(
         data: { shift: shift as any },
       });
     }
+
+    const effectiveStudentFee = isSettlingDue
+      ? Number(activeMembership?.feeAmount || totalFee || amount)
+      : (totalFee !== undefined && Number(totalFee) > 0 ? Number(totalFee) : Number(amount));
 
     return NextResponse.json({
       success: true,
@@ -299,14 +325,8 @@ export async function POST(
       },
       updatedStudent: {
         id: student.id,
-        monthlyFee: activeMembership && Number(activeMembership.feeAmount) > 0
-          ? Number(activeMembership.feeAmount)
-          : isSettlingDue
-          ? Number(totalFee || amount)
-          : (totalFee !== undefined && Number(totalFee) > 0 ? Number(totalFee) : Number(amount)),
-        totalFee: activeMembership && Number(activeMembership.feeAmount) > 0
-          ? Number(activeMembership.feeAmount)
-          : (totalFee !== undefined && Number(totalFee) > 0 ? Number(totalFee) : Number(amount)),
+        monthlyFee: effectiveStudentFee,
+        totalFee: effectiveStudentFee,
         remainingFee: remainingFee !== undefined ? Number(remainingFee) : 0,
         membershipEndsInDays: newDaysRemaining,
         shift: shift || activeMembership?.shift || 'FULL_DAY',

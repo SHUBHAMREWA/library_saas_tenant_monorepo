@@ -56,7 +56,7 @@ export async function PATCH(
 
     if (shift || monthlyFee !== undefined) {
       await prisma.membership.updateMany({
-        where: { studentId, libraryId, status: 'ACTIVE' },
+        where: { studentId, libraryId, status: { in: ['ACTIVE', 'PAUSED'] } },
         data: {
           ...(shift ? { shift: shift as any } : {}),
           ...(monthlyFee !== undefined ? { feeAmount: Number(monthlyFee) } : {}),
@@ -125,13 +125,22 @@ export async function DELETE(
     });
 
     for (const assignment of activeAssignments) {
-      await prisma.seat.update({
-        where: { id: assignment.seatId },
-        data: { status: 'AVAILABLE' },
+      await prisma.seatAssignment.update({
+        where: { id: assignment.id },
+        data: { status: 'RELEASED', endDate: new Date() },
       });
+      const remainingCount = await prisma.seatAssignment.count({
+        where: { seatId: assignment.seatId, libraryId, status: 'ACTIVE' },
+      });
+      if (remainingCount === 0) {
+        await prisma.seat.update({
+          where: { id: assignment.seatId },
+          data: { status: 'AVAILABLE' },
+        });
+      }
     }
 
-    // 2. Delete the student record (Memberships, SeatAssignments, AttendanceLogs cascade via Prisma schema)
+    // 2. Delete the student record (Memberships, SeatAssignments cascade via Prisma schema)
     await prisma.student.delete({
       where: { id: studentId },
     });

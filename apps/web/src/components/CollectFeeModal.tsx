@@ -16,7 +16,7 @@ interface CollectFeeModalProps {
   preselectedShift?: 'MORNING' | 'EVENING' | 'FULL_DAY' | null;
   preselectedDuration?: 'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY' | null;
   availableSeats?: { id: string; seatNumber: string; rowName?: string }[];
-  onAssignSeat?: (studentId: string, seatNumber: string | null) => Promise<void> | void;
+  onAssignSeat?: (studentId: string, seatNumber: string | null, shift?: string) => Promise<void> | void;
   libraryName?: string;
   libraryPhone?: string;
   onRecordPayment: (paymentData: {
@@ -380,7 +380,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
       if (assignedSeatNumber && assignedSeatNumber !== currentStudent?.seatNumber && onAssignSeat) {
         setIsLoading(true);
         try {
-          await onAssignSeat(selectedStudentId, assignedSeatNumber);
+          await onAssignSeat(selectedStudentId, assignedSeatNumber, selectedShift);
           alert(`Seat ${assignedSeatNumber} successfully assigned to ${currentStudent?.fullName || 'student'}. Fee for this period (${paidForMonth}) was already cleared.`);
           onClose();
         } catch (err) {
@@ -414,7 +414,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
 
     if (assignedSeatNumber && assignedSeatNumber !== currentStudent?.seatNumber && onAssignSeat) {
       try {
-        await onAssignSeat(selectedStudentId, assignedSeatNumber);
+        await onAssignSeat(selectedStudentId, assignedSeatNumber, selectedShift);
       } catch (err) {
         console.error('Failed to assign seat during fee collection:', err);
       }

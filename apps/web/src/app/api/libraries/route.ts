@@ -206,29 +206,47 @@ export async function GET(req: NextRequest) {
         let assignedSeatNumber: string | null = null;
         let lastAssignedSeatNumber: string | null = null;
         if (activeSeat?.seat) {
+          const matchingSeat = allSeats.find(
+            (s) => s.id === activeSeat.seat.id || s.seatNumber === activeSeat.seat.seatNumber
+          );
           if (!isExpired) {
             assignedSeatNumber = activeSeat.seat.seatNumber;
-            const matchingSeat = allSeats.find(
-              (s) => s.id === activeSeat.seat.id || s.seatNumber === activeSeat.seat.seatNumber
-            );
             if (matchingSeat) {
               matchingSeat.status = activeSeat.seat.status === 'RESERVED' ? 'RESERVED' : 'OCCUPIED';
-              matchingSeat.studentName = std.fullName;
-              matchingSeat.shift = activeSeat.shift || activeMembership?.shift || 'FULL_DAY';
+              // Only overwrite single student name/shift if not shared by multiple active occupants
+              if (!matchingSeat.occupants || matchingSeat.occupants.length <= 1) {
+                matchingSeat.studentName = std.fullName;
+                matchingSeat.shift = activeSeat.shift || activeMembership?.shift || 'FULL_DAY';
+              }
             }
           } else {
             // Cut seat allotment automatically when duration has genuinely expired
             assignedSeatNumber = null;
             lastAssignedSeatNumber = activeSeat.seat.seatNumber;
-            seatsToRelease.push(activeSeat.seat.id);
             assignmentsToRelease.push(activeSeat.id);
-            const matchingSeat = allSeats.find(
-              (s) => s.id === activeSeat.seat.id || s.seatNumber === activeSeat.seat.seatNumber
-            );
+
             if (matchingSeat) {
-              matchingSeat.status = 'AVAILABLE';
-              matchingSeat.studentName = null;
-              matchingSeat.shift = undefined;
+              // Remove this expired student from occupants
+              matchingSeat.occupants = (matchingSeat.occupants || []).filter(
+                (o: any) => o.studentId !== std.id
+              );
+
+              if (matchingSeat.occupants.length === 0) {
+                matchingSeat.status = 'AVAILABLE';
+                matchingSeat.studentName = null;
+                matchingSeat.shift = undefined;
+                seatsToRelease.push(activeSeat.seat.id);
+              } else {
+                matchingSeat.status = 'OCCUPIED';
+                matchingSeat.studentName =
+                  matchingSeat.occupants.length === 1
+                    ? matchingSeat.occupants[0].studentName
+                    : matchingSeat.occupants.map((o: any) => `${o.studentName} (${(o.shift || 'F').charAt(0)})`).join(' • ');
+                matchingSeat.shift =
+                  matchingSeat.occupants.length === 1
+                    ? matchingSeat.occupants[0].shift
+                    : 'SHARED';
+              }
             }
           }
         }

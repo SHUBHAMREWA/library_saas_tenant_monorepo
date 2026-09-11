@@ -51,8 +51,8 @@ describe('Phase 5: Real-Time Dashboard Metrics', () => {
     // Give student1 an active membership
     dataStore.createMembership(libraryId, {
       studentId: student1Id,
-      startDate: '2026-09-01',
-      expectedEndDate: '2026-09-08', // Expiring in 4 days!
+      startDate: new Date(Date.now() - 26 * 86400000).toISOString().split('T')[0],
+      expectedEndDate: new Date(Date.now() + 4 * 86400000).toISOString().split('T')[0], // Expiring in 4 days!
       feeAmount: 1200,
       shift: 'FULL_DAY',
     });

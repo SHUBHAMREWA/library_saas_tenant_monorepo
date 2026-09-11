@@ -1,21 +1,91 @@
 {
-  "name": "seeLibrary - Study Library & Reading Room Management SaaS",
+  "id": "/seelibrary-pwa",
+  "name": "seeLibrary - Study Library & Reading Room Management",
   "short_name": "seeLibrary",
-  "description": "Mobile-First SaaS for Physical Study Libraries and Reading Rooms",
-  "start_url": "/",
+  "description": "Mobile-First SaaS for Physical Study Libraries, Reading Rooms and Institute Centers",
+  "start_url": "/?source=pwa",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
+  "orientation": "portrait-primary",
+  "background_color": "#0f172a",
   "theme_color": "#4f46e5",
+  "lang": "en-IN",
+  "dir": "ltr",
+  "categories": [
+    "business",
+    "productivity",
+    "utilities",
+    "education"
+  ],
   "icons": [
+    {
+      "src": "/icons/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "/icons/icon-192x192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "/icons/icon-512x512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
-  ]
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "View active students, seats and memberships",
+      "url": "/?tab=dashboard&source=shortcut",
+      "icons": [
+        {
+          "src": "/icons/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Seat Layout",
+      "short_name": "Seats",
+      "description": "Manage rooms, rows and seat grid",
+      "url": "/?tab=seats&source=shortcut",
+      "icons": [
+        {
+          "src": "/icons/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Students",
+      "short_name": "Students",
+      "description": "Manage enrolled students and admission",
+      "url": "/?tab=students&source=shortcut",
+      "icons": [
+        {
+          "src": "/icons/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
+  "prefer_related_applications": false
 }
