@@ -646,12 +646,24 @@ export default function MobileDashboard() {
   };
 
   const handleCreateLibrary = async (data: { name: string; contactPhone: string; address?: string }) => {
+    const effectiveEmail =
+      currentUser?.email ||
+      (() => {
+        try {
+          const saved = localStorage.getItem('seelibrary_user') || localStorage.getItem('quickcheck_user');
+          return saved ? JSON.parse(saved).email : null;
+        } catch {
+          return null;
+        }
+      })() ||
+      'admin@seelibrary.com';
+
     try {
       const res = await fetch('/api/libraries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userEmail: currentUser?.email || 'admin@seelibrary.com',
+          userEmail: effectiveEmail,
           name: data.name,
           contactPhone: data.contactPhone,
           address: data.address,
@@ -669,12 +681,27 @@ export default function MobileDashboard() {
           return updated;
         });
         setActiveLibraryId(newLib.id);
+        try {
+          localStorage.setItem('seelibrary_active_lib_id', newLib.id);
+        } catch {}
         setIsBranchDropdownOpen(false);
         setIsLibraryModalOpen(false);
         return;
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        const errMsg = errData.error || 'Server failed to create library in database.';
+        console.error('Server error creating library:', errMsg);
+        if (typeof window !== 'undefined' && navigator.onLine) {
+          alert(`Could not save library to cloud database: ${errMsg}\n\nPlease check connection and try again.`);
+          return;
+        }
       }
     } catch (e) {
       console.error('Database create library error:', e);
+      if (typeof window !== 'undefined' && navigator.onLine) {
+        alert('Network error communicating with server. Please try again.');
+        return;
+      }
     }
 
     // Fallback if network offline
