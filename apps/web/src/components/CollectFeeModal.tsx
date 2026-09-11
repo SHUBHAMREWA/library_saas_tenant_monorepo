@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, CheckCircle2, IndianRupee, Calendar, CreditCard, User, Armchair, ShieldCheck, Clock, AlertCircle, Printer, FileCheck, Copy, Search, ChevronDown, Check } from 'lucide-react';
+import { X, CheckCircle2, IndianRupee, Calendar, CreditCard, User, Armchair, ShieldCheck, Clock, AlertCircle, Printer, FileCheck, Copy, Search, ChevronDown, Check, Loader2 } from 'lucide-react';
 import { StudentItem, getStudentPreviousSeat } from './StudentList';
 import { WhatsAppIcon } from './WhatsAppIcon';
 import { generateWhatsAppReceiptText, openWhatsApp, FeeReceiptData, formatShiftSummary } from '@/lib/receipt-utils';
@@ -1496,9 +1496,9 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                 <button
                   type="submit"
                   disabled={isLoading || !selectedStudentId}
-                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <Armchair className="w-3.5 h-3.5" />
+                  {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Armchair className="w-3.5 h-3.5" />}
                   <span>{isLoading ? 'Assigning Seat...' : `Assign Seat ${assignedSeatNumber} (Fee Cleared)`}</span>
                 </button>
               ) : (
@@ -1515,10 +1515,10 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
               <button
                 type="submit"
                 disabled={isLoading || !selectedStudentId}
-                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <IndianRupee className="w-3.5 h-3.5" />
-                <span>{isLoading ? 'Saving...' : 'Confirm & Collect Fee'}</span>
+                {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <IndianRupee className="w-3.5 h-3.5" />}
+                <span>{isLoading ? 'Processing Payment...' : 'Confirm & Collect Fee'}</span>
               </button>
             )}
           </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Layers, Plus, Check, Armchair, Hash } from 'lucide-react';
+import { X, Layers, Plus, Check, Armchair, Hash, Loader2 } from 'lucide-react';
 
 interface AddRowModalProps {
   isOpen: boolean;
@@ -275,10 +275,19 @@ export function AddRowModal({
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <Check className="w-4 h-4" />
-              <span>{isLoading ? 'Adding Rows...' : `Save & Add to ${roomName}`}</span>
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Adding Rows & Seats...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  <span>Save & Add to {roomName}</span>
+                </>
+              )}
             </button>
           </div>
         </form>

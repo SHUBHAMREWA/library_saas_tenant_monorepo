@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Layers, Plus, Check, Armchair, Hash } from 'lucide-react';
+import { X, Layers, Plus, Check, Armchair, Hash, Loader2 } from 'lucide-react';
 
 export interface RowConfigItem {
   name: string;
@@ -253,10 +253,19 @@ export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) 
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <Check className="w-4 h-4" />
-              <span>{isLoading ? 'Generating Layout...' : `Save & Generate ${totalSeatsToCreate} Seats`}</span>
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Generating Layout & Seats...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  <span>Save & Generate {totalSeatsToCreate} Seats</span>
+                </>
+              )}
             </button>
           </div>
         </form>

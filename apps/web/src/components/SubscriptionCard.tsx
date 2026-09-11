@@ -66,6 +66,15 @@ interface SubscriptionCardProps {
   openUpgradeModalImmediately?: boolean;
 }
 
+export interface AppliedCouponInfo {
+  code: string;
+  discountType: 'PERCENTAGE' | 'FIXED';
+  discountValue: number;
+  discountAmount: number;
+  maxDiscountAmount?: number | null;
+  minOrderAmount?: number | null;
+}
+
 const loadRazorpayScript = (): Promise<boolean> => {
   return new Promise((resolve) => {
     if (typeof window === 'undefined') return resolve(false);
@@ -93,7 +102,8 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(openUpgradeModalImmediately);
   const [selectedPlanCode, setSelectedPlanCode] = useState('BASIC');
   const [coupon, setCoupon] = useState('');
-  const [discount, setDiscount] = useState<number | null>(null);
+  const [appliedCoupon, setAppliedCoupon] = useState<AppliedCouponInfo | null>(null);
+  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
   const [couponFeedback, setCouponFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
   const [celebrationSavings, setCelebrationSavings] = useState(0);
@@ -259,27 +269,32 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
   const currentPlanList = availablePlans.length > 0 ? availablePlans : defaultPlans;
   const activeSelectedPlan = currentPlanList.find((x) => x.code === selectedPlanCode) || currentPlanList[0];
   const baseTotal = activeSelectedPlan ? activeSelectedPlan.price : 799;
+
+  // Dynamically compute discount from appliedCoupon and active plan price
+  let discount: number | null = null;
+  if (appliedCoupon) {
+    if (appliedCoupon.minOrderAmount && baseTotal < appliedCoupon.minOrderAmount) {
+      discount = null;
+    } else if (appliedCoupon.discountType === 'PERCENTAGE') {
+      let d = Math.round((baseTotal * appliedCoupon.discountValue) / 100);
+      if (appliedCoupon.maxDiscountAmount && d > appliedCoupon.maxDiscountAmount) {
+        d = appliedCoupon.maxDiscountAmount;
+      }
+      discount = Math.min(d, baseTotal);
+    } else {
+      // FIXED / FLAT discount
+      discount = Math.min(appliedCoupon.discountValue, baseTotal);
+    }
+  }
   const finalPrice = discount !== null ? Math.max(0, baseTotal - discount) : baseTotal;
 
-  const handleApplyCoupon = async () => {
-    if (!coupon.trim()) return;
-    const clean = coupon.trim().toUpperCase();
+  const handleApplyCoupon = async (codeToApply?: string) => {
+    const raw = codeToApply || coupon;
+    if (!raw.trim()) return;
+    const clean = raw.trim().toUpperCase();
 
-    // Instant local shortcuts
-    if (clean === 'LIBRARY20' || clean === 'WELCOME50' || clean === 'ADMIN100') {
-      let disc = 0;
-      if (clean === 'WELCOME50') disc = Math.round(baseTotal * 0.5);
-      else if (clean === 'LIBRARY20') disc = Math.round(baseTotal * 0.2);
-      else if (clean === 'ADMIN100') disc = baseTotal;
-
-      setDiscount(disc);
-      setCouponFeedback({
-        type: 'success',
-        message: `Coupon '${clean}' applied! You saved ₹${disc.toLocaleString('en-IN')}.`,
-      });
-      triggerCelebration(disc);
-      return;
-    }
+    setIsValidatingCoupon(true);
+    setCouponFeedback(null);
 
     // Server-side dynamic validation for any admin-created coupon
     try {
@@ -289,26 +304,53 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
         body: JSON.stringify({ code: clean, amount: baseTotal }),
       });
       const data = await res.json();
-      if (res.ok && data.success) {
-        setDiscount(data.discountAmount);
+      if (res.ok && data.success && data.coupon) {
+        const discType = (data.coupon.discountType || 'PERCENTAGE').toUpperCase() as 'PERCENTAGE' | 'FIXED';
+        const discVal = Number(data.coupon.discountValue);
+        const maxDisc = data.coupon.maxDiscountAmount ? Number(data.coupon.maxDiscountAmount) : null;
+        const minOrder = data.coupon.minOrderAmount ? Number(data.coupon.minOrderAmount) : null;
+
+        let computedDisc = 0;
+        if (discType === 'PERCENTAGE') {
+          computedDisc = Math.round((baseTotal * discVal) / 100);
+          if (maxDisc && computedDisc > maxDisc) computedDisc = maxDisc;
+        } else {
+          computedDisc = discVal;
+        }
+        computedDisc = Math.min(computedDisc, baseTotal);
+
+        const newApplied: AppliedCouponInfo = {
+          code: clean,
+          discountType: discType,
+          discountValue: discVal,
+          discountAmount: computedDisc,
+          maxDiscountAmount: maxDisc,
+          minOrderAmount: minOrder,
+        };
+
+        setAppliedCoupon(newApplied);
+        setCoupon(clean);
+        const offerText = discType === 'PERCENTAGE' ? `${discVal}% OFF` : `₹${discVal} FLAT OFF`;
         setCouponFeedback({
           type: 'success',
-          message: `Coupon '${clean}' applied! You saved ₹${data.discountAmount.toLocaleString('en-IN')}.`,
+          message: `Coupon '${clean}' applied (${offerText})! You saved ₹${computedDisc.toLocaleString('en-IN')}.`,
         });
-        triggerCelebration(data.discountAmount);
+        triggerCelebration(computedDisc);
       } else {
-        setDiscount(null);
+        setAppliedCoupon(null);
         setCouponFeedback({
           type: 'error',
-          message: data.error || `Coupon '${clean}' is invalid. Try WELCOME50 or LIBRARY20.`,
+          message: data.error || `Coupon '${clean}' is invalid or inactive.`,
         });
       }
     } catch {
-      setDiscount(null);
+      setAppliedCoupon(null);
       setCouponFeedback({
         type: 'error',
-        message: `Unable to validate coupon '${clean}'.`,
+        message: `Unable to validate coupon '${clean}'. Please check connection.`,
       });
+    } finally {
+      setIsValidatingCoupon(false);
     }
   };
 
@@ -326,7 +368,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
         },
         body: JSON.stringify({
           planCode: activeSelectedPlan.code,
-          couponCode: discount !== null ? coupon.trim().toUpperCase() : undefined,
+          couponCode: appliedCoupon && discount !== null ? appliedCoupon.code : undefined,
           userEmail,
           isAutopay: shouldEnableAutopay,
         }),
@@ -350,7 +392,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
           body: JSON.stringify({
             bypassPayment: true,
             planCode: activeSelectedPlan.code,
-            couponCode: discount !== null ? coupon.trim().toUpperCase() : undefined,
+            couponCode: appliedCoupon && discount !== null ? appliedCoupon.code : undefined,
             userEmail,
             isAutopay: shouldEnableAutopay,
           }),
@@ -359,7 +401,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
         if (verifyRes.ok) {
           setIsModalOpen(false);
           setCoupon('');
-          setDiscount(null);
+          setAppliedCoupon(null);
           setCouponFeedback(null);
           await fetchSubscriptionData();
           if (onSubscriptionUpdated) {
@@ -419,7 +461,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_signature: response.razorpay_signature,
                 planCode: activeSelectedPlan.code,
-                couponCode: discount !== null ? coupon.trim().toUpperCase() : undefined,
+                couponCode: appliedCoupon && discount !== null ? appliedCoupon.code : undefined,
                 userEmail,
                 isAutopay: shouldEnableAutopay,
               }),
@@ -429,7 +471,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
             if (verifyRes.ok) {
               setIsModalOpen(false);
               setCoupon('');
-              setDiscount(null);
+              setAppliedCoupon(null);
               setCouponFeedback(null);
               await fetchSubscriptionData();
               if (onSubscriptionUpdated) {
@@ -843,8 +885,6 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                       key={p.code}
                       onClick={() => {
                         setSelectedPlanCode(p.code);
-                        setDiscount(null);
-                        setCouponFeedback(null);
                       }}
                       className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all flex flex-col justify-between relative ${
                         isSelected
@@ -938,18 +978,44 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                   <input
                     type="text"
                     value={coupon}
+                    disabled={!!appliedCoupon || isValidatingCoupon}
                     onChange={(e) => setCoupon(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (!appliedCoupon) handleApplyCoupon();
+                      }
+                    }}
                     placeholder="e.g. WELCOME50, LIBRARY20"
-                    className="w-full pl-9 pr-3 py-2.5 border border-slate-300 dark:border-[#262626] rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-[#737373] font-mono uppercase bg-white dark:bg-[#1a1a1a] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs"
+                    className={`w-full pl-9 pr-3 py-2.5 border rounded-xl text-xs font-mono uppercase bg-white dark:bg-[#1a1a1a] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-xs ${
+                      appliedCoupon
+                        ? 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 text-emerald-900 dark:text-emerald-200 font-bold'
+                        : 'border-slate-300 dark:border-[#262626] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-[#737373]'
+                    }`}
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={handleApplyCoupon}
-                  className="bg-slate-900 dark:bg-white text-white dark:text-black hover:bg-slate-800 dark:hover:bg-slate-200 px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-colors"
-                >
-                  Apply
-                </button>
+                {appliedCoupon ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAppliedCoupon(null);
+                      setCoupon('');
+                      setCouponFeedback(null);
+                    }}
+                    className="bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+                  >
+                    Remove
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={isValidatingCoupon || !coupon.trim()}
+                    onClick={() => handleApplyCoupon()}
+                    className="bg-slate-900 dark:bg-white text-white dark:text-black hover:bg-slate-800 dark:hover:bg-slate-200 disabled:opacity-50 px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+                  >
+                    {isValidatingCoupon ? 'Checking...' : 'Apply'}
+                  </button>
+                )}
               </div>
               {couponFeedback && (
                 <p className={`text-[11px] font-semibold flex items-center gap-1 mt-1 ${couponFeedback.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
@@ -971,17 +1037,51 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                   ₹{baseTotal.toLocaleString('en-IN')}
                 </span>
               </div>
-              {discount !== null && discount > 0 && (
-                <div className="flex justify-between items-center bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded-xl border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300">
+              {appliedCoupon && discount !== null && discount > 0 ? (
+                <div className="flex justify-between items-center bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300">
                   <div className="flex items-center gap-1.5 font-bold">
-                    <Tag className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>Coupon Offer Applied ({coupon.trim().toUpperCase()})</span>
+                    <Tag className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>
+                      Coupon Offer Applied: <span className="font-mono font-black">{appliedCoupon.code}</span>
+                      <span className="ml-1 text-[11px] font-semibold opacity-90">
+                        ({appliedCoupon.discountType === 'PERCENTAGE' ? `${appliedCoupon.discountValue}% OFF` : `₹${appliedCoupon.discountValue} FLAT OFF`})
+                      </span>
+                    </span>
                   </div>
-                  <span className="font-extrabold text-xs text-emerald-700 dark:text-emerald-300">
-                    -₹{discount.toLocaleString('en-IN')} Saved
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-xs text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
+                      -₹{discount.toLocaleString('en-IN')} Saved
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAppliedCoupon(null);
+                        setCoupon('');
+                        setCouponFeedback(null);
+                      }}
+                      className="text-[10px] text-rose-600 hover:text-rose-700 dark:text-rose-400 underline font-bold cursor-pointer"
+                      title="Remove coupon"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
-              )}
+              ) : appliedCoupon && appliedCoupon.minOrderAmount && baseTotal < appliedCoupon.minOrderAmount ? (
+                <div className="bg-amber-50 dark:bg-amber-950/40 p-2.5 rounded-xl border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-[11px] flex items-center justify-between">
+                  <span>Coupon {appliedCoupon.code} requires minimum plan of ₹{appliedCoupon.minOrderAmount}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAppliedCoupon(null);
+                      setCoupon('');
+                      setCouponFeedback(null);
+                    }}
+                    className="text-rose-600 dark:text-rose-400 font-bold underline ml-2 cursor-pointer"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : null}
               <div className="flex justify-between items-baseline text-slate-900 dark:text-white font-black border-t border-slate-200 dark:border-[#262626] pt-2 text-sm">
                 <span>Total Payable Amount</span>
                 <div className="text-right">

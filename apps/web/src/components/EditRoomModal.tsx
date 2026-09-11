@@ -1,13 +1,13 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Building2, Check } from 'lucide-react';
+import { X, Building2, Check, Loader2 } from 'lucide-react';
 
 interface EditRoomModalProps {
   isOpen: boolean;
   currentRoom: { id: string; name: string } | null;
   onClose: () => void;
-  onSave: (newName: string) => void;
+  onSave: (newName: string) => Promise<void> | void;
 }
 
 export const EditRoomModal: React.FC<EditRoomModalProps> = ({
@@ -17,6 +17,7 @@ export const EditRoomModal: React.FC<EditRoomModalProps> = ({
   onSave,
 }) => {
   const [name, setName] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (currentRoom) {
@@ -26,11 +27,18 @@ export const EditRoomModal: React.FC<EditRoomModalProps> = ({
 
   if (!isOpen || !currentRoom) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (name.trim()) {
-      onSave(name.trim());
+    if (!name.trim()) return;
+
+    setIsLoading(true);
+    try {
+      await onSave(name.trim());
       onClose();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -81,11 +89,20 @@ export const EditRoomModal: React.FC<EditRoomModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={!name.trim()}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              disabled={isLoading || !name.trim()}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:cursor-not-allowed"
             >
-              <Check className="w-4 h-4" />
-              <span>Save Changes</span>
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  <span>Save Changes</span>
+                </>
+              )}
             </button>
           </div>
         </form>

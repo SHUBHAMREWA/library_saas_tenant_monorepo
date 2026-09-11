@@ -33,28 +33,119 @@ export async function POST(
     const months = planFeatures.durationMonths || (plan.code === 'PRO' ? 12 : plan.code === 'ADVANCE' ? 3 : 1);
     const basePrice = Number(plan.priceMonthly);
     let discountAmount = 0;
+    let appliedCouponObj: any = null;
 
     // Validate Coupon if provided
     if (couponCode && typeof couponCode === 'string' && couponCode.trim()) {
       const cleanCoupon = couponCode.trim().toUpperCase();
-      const dbCoupon = await prisma.coupon.findUnique({
-        where: { code: cleanCoupon },
-      });
+      let dbCoupon: any = null;
 
-      if (dbCoupon && dbCoupon.isActive) {
-        const nowIso = new Date().toISOString();
-        if (nowIso >= dbCoupon.validFrom.toISOString() && nowIso <= dbCoupon.validUntil.toISOString()) {
-          if (dbCoupon.discountType === 'PERCENTAGE') {
-            discountAmount = Math.round((basePrice * Number(dbCoupon.discountValue)) / 100);
-            if (dbCoupon.maxDiscountAmount && discountAmount > Number(dbCoupon.maxDiscountAmount)) {
-              discountAmount = Number(dbCoupon.maxDiscountAmount);
+      try {
+        dbCoupon = await prisma.coupon.findUnique({
+          where: { code: cleanCoupon },
+          include: {
+            _count: {
+              select: { usages: true },
+            },
+          },
+        });
+      } catch (dbErr) {
+        console.warn('Prisma coupon query in create-order error:', dbErr);
+      }
+
+      // Backend fallback if not in local Prisma
+      if (!dbCoupon) {
+        try {
+          const rawBackendUrl =
+            process.env.NEXT_PUBLIC_API_URL ||
+            process.env.RENDER_BACKEND_URL ||
+            'https://seelibrarybackend.onrender.com';
+          const backendOrigin = rawBackendUrl.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
+          const bRes = await fetch(`${backendOrigin}/api/v1/admin/coupons`, {
+            cache: 'no-store',
+            signal: AbortSignal.timeout(4000),
+          });
+          if (bRes.ok) {
+            const bData = await bRes.json();
+            const list = bData.coupons || bData.data || [];
+            const found = list.find((c: any) => c.code?.toUpperCase() === cleanCoupon);
+            if (found) {
+              dbCoupon = {
+                id: found.id,
+                code: found.code,
+                discountType: found.discountType,
+                discountValue: Number(found.discountValue),
+                maxDiscountAmount: found.maxDiscount ? Number(found.maxDiscount) : null,
+                minOrderAmount: found.minOrderAmount ? Number(found.minOrderAmount) : null,
+                maxRedemptions: found.maxUses ? Number(found.maxUses) : null,
+                validFrom: new Date(found.validFrom),
+                validUntil: found.validUntil ? new Date(found.validUntil) : null,
+                isActive: Boolean(found.isActive),
+                _count: { usages: found.usedCount || 0 },
+              };
             }
-          } else {
-            discountAmount = Number(dbCoupon.discountValue);
           }
-          discountAmount = Math.min(discountAmount, basePrice);
+        } catch (bErr) {
+          console.warn('Backend coupon fallback error in create-order:', bErr);
         }
       }
+
+      if (!dbCoupon) {
+        return NextResponse.json(
+          { error: `Coupon '${cleanCoupon}' is invalid or does not exist` },
+          { status: 400 }
+        );
+      }
+
+      if (!dbCoupon.isActive) {
+        return NextResponse.json(
+          { error: `Coupon '${cleanCoupon}' has been disabled by admin` },
+          { status: 400 }
+        );
+      }
+
+      const now = new Date();
+      if (dbCoupon.validFrom && now < new Date(dbCoupon.validFrom)) {
+        return NextResponse.json(
+          { error: `Coupon '${cleanCoupon}' is not active yet` },
+          { status: 400 }
+        );
+      }
+
+      if (dbCoupon.validUntil && now > new Date(dbCoupon.validUntil)) {
+        return NextResponse.json(
+          { error: `Coupon '${cleanCoupon}' has expired` },
+          { status: 400 }
+        );
+      }
+
+      const usageCount = dbCoupon._count?.usages ?? dbCoupon.usageCount ?? 0;
+      if (dbCoupon.maxRedemptions && usageCount >= Number(dbCoupon.maxRedemptions)) {
+        return NextResponse.json(
+          { error: `Coupon '${cleanCoupon}' has reached its maximum redemptions` },
+          { status: 400 }
+        );
+      }
+
+      if (dbCoupon.minOrderAmount && basePrice < Number(dbCoupon.minOrderAmount)) {
+        return NextResponse.json(
+          { error: `Coupon '${cleanCoupon}' requires a minimum order amount of ₹${dbCoupon.minOrderAmount}` },
+          { status: 400 }
+        );
+      }
+
+      const discVal = Number(dbCoupon.discountValue);
+      const discType = (dbCoupon.discountType || 'PERCENTAGE').toUpperCase();
+      if (discType === 'PERCENTAGE') {
+        discountAmount = Math.round((basePrice * discVal) / 100);
+        if (dbCoupon.maxDiscountAmount && discountAmount > Number(dbCoupon.maxDiscountAmount)) {
+          discountAmount = Number(dbCoupon.maxDiscountAmount);
+        }
+      } else {
+        discountAmount = discVal;
+      }
+      discountAmount = Math.min(discountAmount, basePrice);
+      appliedCouponObj = dbCoupon;
     }
 
     const finalAmount = Math.max(0, basePrice - discountAmount);

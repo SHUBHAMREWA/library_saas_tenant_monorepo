@@ -14,6 +14,7 @@ import {
   CreditCard,
   Filter,
   Users,
+  Loader2,
 } from 'lucide-react';
 import { StudentItem } from './StudentList';
 
@@ -604,13 +605,20 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
                 type="button"
                 disabled={assigningId === pendingStudent.id}
                 onClick={() => executeAssignment(pendingStudent)}
-                className={`flex-1 py-2.5 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 ${
+                className={`flex-1 py-2.5 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                   fullDayOccupant
                     ? 'bg-rose-600 hover:bg-rose-700 active:bg-rose-800'
                     : 'bg-amber-600 hover:bg-amber-700 active:bg-amber-800'
                 }`}
               >
-                {assigningId === pendingStudent.id ? 'Reassigning...' : 'Confirm Reassign Seat'}
+                {assigningId === pendingStudent.id ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Reassigning...</span>
+                  </>
+                ) : (
+                  <span>Confirm Reassign Seat</span>
+                )}
               </button>
             </div>
           </div>
@@ -1006,9 +1014,9 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
 
                       <button
                         type="button"
-                        disabled={hasThisSeat || isBusy}
+                        disabled={hasThisSeat || assigningId !== null}
                         onClick={() => handleStudentSelect(student)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 disabled:opacity-60 disabled:cursor-not-allowed ${
                           hasThisSeat
                             ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 cursor-default'
                             : !isStudentEnrolled
@@ -1024,8 +1032,10 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
                           <>
                             <CheckCircle2 className="w-3.5 h-3.5" /> Assigned
                           </>
-                        ) : isBusy ? (
-                          'Saving...'
+                        ) : assigningId === student.id ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving...
+                          </>
                         ) : !isStudentEnrolled ? (
                           <>
                             <CreditCard className="w-3.5 h-3.5" /> Enroll & Assign

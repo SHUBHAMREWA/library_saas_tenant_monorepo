@@ -973,10 +973,10 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
               <button
                 type="submit"
                 disabled={isLoading}
-                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <Save className="w-3.5 h-3.5" />
-                <span>{isLoading ? 'Saving...' : 'Save Changes'}</span>
+                {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                <span>{isLoading ? 'Saving Changes...' : 'Save Changes'}</span>
               </button>
             </div>
           </form>
@@ -1173,9 +1173,16 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                           <button
                             type="submit"
                             disabled={isLoading || !selectedSeat}
-                            className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1 cursor-pointer"
+                            className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1 cursor-pointer"
                           >
-                            {isLoading ? 'Saving...' : 'Confirm Assignment'}
+                            {isLoading ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <span>Saving...</span>
+                              </>
+                            ) : (
+                              <span>Confirm Assignment</span>
+                            )}
                           </button>
                         </div>
                       </form>
@@ -1371,11 +1378,11 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                     type="button"
                     onClick={handleDelete}
                     disabled={isLoading}
-                    className="py-2.5 px-3.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 hover:bg-rose-100 dark:hover:bg-rose-900/40 text-rose-700 dark:text-rose-400 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    className="py-2.5 px-3.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 hover:bg-rose-100 dark:hover:bg-rose-900/40 text-rose-700 dark:text-rose-400 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                     title="Delete this student"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete</span>
+                    {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                    <span>{isLoading ? 'Deleting...' : 'Delete'}</span>
                   </button>
                 </div>
               </div>

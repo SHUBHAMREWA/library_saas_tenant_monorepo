@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   LogOut,
   Mail,
+  Loader2,
 } from 'lucide-react';
 
 interface AuthModalProps {
@@ -545,10 +546,19 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
                     <button
                       type="submit"
                       disabled={isLoading}
-                      className="w-full py-2.5 bg-slate-900 dark:bg-white text-white dark:text-black hover:bg-black dark:hover:bg-slate-200 text-xs font-bold rounded-xl shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-full py-2.5 bg-slate-900 dark:bg-white text-white dark:text-black hover:bg-black dark:hover:bg-slate-200 text-xs font-bold rounded-xl shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      <span>{isLoading ? 'Sending OTP to Email...' : 'Send Verification OTP'}</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Sending OTP to Email...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Send Verification OTP</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </>
+                      )}
                     </button>
                   </form>
                 ) : (
@@ -617,10 +627,19 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
                     <button
                       type="submit"
                       disabled={isLoading}
-                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>{isLoading ? 'Verifying...' : 'Verify OTP & Log In'}</span>
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Verifying OTP...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Verify OTP & Log In</span>
+                        </>
+                      )}
                     </button>
                   </form>
                 )}
