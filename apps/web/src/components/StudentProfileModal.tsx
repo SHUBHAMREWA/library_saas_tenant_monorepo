@@ -1732,7 +1732,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                       <span>Monthly Enrollment Status</span>
                     </h4>
                     <p className="text-[11px] text-slate-500 dark:text-neutral-400">
-                      Attendance &amp; enrollment track across billing months
+                      Enrollment and membership track across billing months
                     </p>
                   </div>
 
@@ -1880,7 +1880,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                   })}
                 </div>
 
-                {/* Annual Attendance Summary Card */}
+                {/* Annual Enrollment Summary Card */}
                 <div className="p-3 bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200/80 dark:border-[#262626] rounded-2xl flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />

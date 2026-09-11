@@ -90,20 +90,26 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
     <aside className="hidden md:flex flex-col w-64 bg-white dark:bg-black border-r border-slate-200 dark:border-[#262626] fixed left-0 top-0 bottom-0 z-30 select-none transition-colors duration-150">
       {/* Brand Header */}
       <div className="p-4 border-b border-slate-100 dark:border-[#262626] flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white font-extrabold flex items-center justify-center text-sm shadow-xs">
-            sL
-          </div>
+        <button
+          type="button"
+          onClick={() => onSelectTab('home')}
+          className="flex items-center gap-3 text-left group cursor-pointer transition-all"
+          title="Go to Home Dashboard"
+        >
+          <img
+            src="/icons/icon-192x192.png"
+            alt="seeLibrary Logo"
+            className="w-11 h-11 rounded-xl object-contain bg-white shadow-xs group-hover:scale-105 border border-slate-200 dark:border-neutral-800 shrink-0 transition-transform duration-200"
+          />
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="font-extrabold text-slate-900 dark:text-white text-base tracking-tight">seeLibrary</span>
-              <span className="text-[10px] font-extrabold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.2 rounded border border-indigo-200 dark:border-indigo-800/60">
-                SaaS
+              <span className="font-black text-slate-900 dark:text-white text-xl tracking-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                seeLibrary
               </span>
             </div>
-            <p className="text-[10px] text-slate-400 dark:text-[#737373] font-medium">Smart Library Management</p>
+            <p className="text-[11px] text-slate-400 dark:text-[#737373] font-semibold">Smart Library Management</p>
           </div>
-        </div>
+        </button>
 
         {onOpenNotifications && (
           <button

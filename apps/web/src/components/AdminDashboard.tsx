@@ -1844,7 +1844,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                       <span>All Platform Features Unlocked</span>
                     </div>
                     <p className="text-slate-500 dark:text-neutral-400 leading-snug">
-                      {plan.description || 'Full student admission, fee collection, seats, and attendance.'}
+                      {plan.description || 'Full student admission, fee collection, seats, and monthly plans.'}
                     </p>
                   </div>
                 </div>

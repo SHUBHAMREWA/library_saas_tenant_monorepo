@@ -19,6 +19,7 @@ import {
   Moon,
 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
+import { FooterShareBar } from './FooterShareBar';
 
 interface PublicLandingPageProps {
   onOpenAuth: () => void;
@@ -31,47 +32,57 @@ export function PublicLandingPage({ onOpenAuth, onLaunchDemo }: PublicLandingPag
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0B0F17] text-slate-900 dark:text-white flex flex-col selection:bg-indigo-500 selection:text-white transition-colors duration-200">
       {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-40 bg-white/85 dark:bg-[#0B0F17]/85 backdrop-blur-md border-b border-slate-200 dark:border-slate-800/80 px-4 sm:px-8 py-3.5 flex items-center justify-between transition-colors">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-indigo-700 text-white flex items-center justify-center font-black text-sm shadow-md shadow-indigo-500/20">
-            sL
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-xl font-black tracking-tight text-slate-900 dark:text-white">
+      <header className="sticky top-0 z-40 bg-white/90 dark:bg-[#0B0F17]/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800/80 px-3 sm:px-8 py-2.5 sm:py-3 flex items-center justify-between transition-colors w-full max-w-full">
+        <a
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          className="flex items-center gap-2 sm:gap-2.5 group cursor-pointer shrink-0"
+          title="seeLibrary Home"
+        >
+          <img
+            src="/icons/icon-192x192.png"
+            alt="seeLibrary Logo"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-contain bg-white shadow-xs group-hover:scale-105 border border-slate-200 dark:border-slate-800 transition-transform duration-200"
+          />
+          <div className="flex items-center gap-1">
+            <span className="text-base sm:text-xl font-black tracking-tight text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
               see<span className="text-indigo-600 dark:text-indigo-400">Library</span>
             </span>
           </div>
-        </div>
+        </a>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           {/* Theme Switcher Toggle */}
           <button
             type="button"
             onClick={toggleTheme}
-            className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700/80 transition-all cursor-pointer shadow-2xs"
+            className="p-1.5 sm:p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700/80 transition-all cursor-pointer shadow-2xs shrink-0"
             aria-label="Toggle theme"
             title={resolvedTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           >
             {resolvedTheme === 'dark' ? (
-              <Sun className="w-4 h-4 text-amber-400" />
+              <Sun className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
             ) : (
-              <Moon className="w-4 h-4 text-indigo-600" />
+              <Moon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600" />
             )}
           </button>
 
           <button
             type="button"
             onClick={onOpenAuth}
-            className="px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+            className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-white transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
             Sign In
           </button>
           <button
             type="button"
             onClick={onLaunchDemo}
-            className="px-3.5 sm:px-4 py-2 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-white text-xs font-bold rounded-xl shadow-md shadow-indigo-600/20 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+            className="px-2.5 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-white text-[11px] sm:text-xs font-bold rounded-xl shadow-md shadow-indigo-600/20 active:scale-95 transition-all flex items-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
           >
-            <Sparkles className="w-3.5 h-3.5 text-amber-200 fill-amber-200" />
+            <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-200 fill-amber-200" />
             <span className="hidden sm:inline">1-Click Demo (Without Login)</span>
             <span className="sm:hidden">1-Click Demo</span>
           </button>
@@ -298,13 +309,22 @@ export function PublicLandingPage({ onOpenAuth, onLaunchDemo }: PublicLandingPag
       </section>
 
       {/* Footer */}
-      <footer className="mt-auto border-t border-slate-200 dark:border-slate-800/80 px-4 sm:px-8 py-6 text-center text-xs text-slate-500 dark:text-slate-400 flex flex-col sm:flex-row items-center justify-between max-w-6xl mx-auto w-full gap-3 transition-colors">
-        <div className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-300">
-          <span>seeLibrary SaaS</span>
-          <span>•</span>
-          <span>Study Library OS</span>
+      <footer className="mt-auto border-t border-slate-200 dark:border-slate-800/80 px-4 sm:px-8 py-8 text-xs text-slate-500 dark:text-slate-400 max-w-6xl mx-auto w-full transition-colors flex flex-col gap-6">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex flex-col sm:flex-row items-center gap-2 font-bold text-slate-700 dark:text-slate-300 text-center sm:text-left">
+            <span className="font-extrabold text-slate-900 dark:text-white text-sm">seeLibrary</span>
+            <span className="hidden sm:inline">•</span>
+            <span>Study Library OS</span>
+          </div>
+
+          {/* Social Share & Conditional PWA Download */}
+          <FooterShareBar />
         </div>
-        <p>© 2026 seeLibrary. Built for physical reading rooms and competitive exam centers.</p>
+
+        <div className="pt-4 border-t border-slate-100 dark:border-slate-800/60 flex flex-col sm:flex-row items-center justify-between text-[11px] text-slate-400 dark:text-neutral-500 gap-2 text-center sm:text-left">
+          <p>© 2026 seeLibrary. Built for physical reading rooms and competitive exam centers.</p>
+          <p className="font-medium">Fast • Offline-Ready • Installable PWA</p>
+        </div>
       </footer>
     </div>
   );

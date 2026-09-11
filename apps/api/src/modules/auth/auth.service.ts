@@ -1,6 +1,7 @@
 import { createHmac, randomInt } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { dataStore, StoredUser } from '../../services/data-store';
+import { emailService } from '../../services/email.service';
 import { UserProfile } from '@library/types';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-library-management-system-2026';
@@ -11,7 +12,7 @@ const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 const OTP_SECRET_SALT = process.env.OTP_SALT || 'otp-salt-secret-dev';
 const OTP_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 const OTP_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const MAX_OTP_REQUESTS_PER_WINDOW = 3;
+const MAX_OTP_REQUESTS_PER_WINDOW = 5;
 const MAX_VERIFY_ATTEMPTS = 5;
 
 function hashOtp(email: string, otp: string): string {
@@ -21,7 +22,7 @@ function hashOtp(email: string, otp: string): string {
 }
 
 export class AuthService {
-  requestOtp(email: string): { message: string; testOtp?: string } {
+  async requestOtp(email: string, fullName?: string): Promise<{ message: string; testOtp?: string }> {
     const normalizedEmail = email.trim().toLowerCase();
     const now = Date.now();
 
@@ -31,7 +32,7 @@ export class AuthService {
       if (now - record.windowStart < OTP_RATE_LIMIT_WINDOW_MS) {
         if (record.requestCount >= MAX_OTP_REQUESTS_PER_WINDOW) {
           throw Object.assign(
-            new Error('Too many OTP requests. Please wait before trying again.'),
+            new Error('Too many OTP requests. Please wait a few minutes before trying again.'),
             { statusCode: 429, code: 'OTP_RATE_LIMIT_EXCEEDED' }
           );
         }
@@ -54,14 +55,16 @@ export class AuthService {
       windowStart: record ? record.windowStart : now,
     });
 
-    // In non-production, return or log the testOtp for frictionless testing
-    const isDev = process.env.NODE_ENV !== 'production';
-    if (isDev) {
-      console.log(`[AUTH] Generated OTP for ${normalizedEmail}: ${rawOtp}`);
-    }
+    // Send OTP via Gmail SMTP
+    await emailService.sendOtpEmail({
+      toEmail: normalizedEmail,
+      otp: rawOtp,
+      fullName,
+    });
 
+    const isDev = process.env.NODE_ENV !== 'production';
     return {
-      message: 'OTP has been dispatched to your email address.',
+      message: `OTP has been dispatched to ${normalizedEmail}.`,
       ...(isDev ? { testOtp: rawOtp } : {}),
     };
   }

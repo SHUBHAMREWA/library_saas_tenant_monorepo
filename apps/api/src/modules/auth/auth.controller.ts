@@ -7,7 +7,7 @@ export class AuthController {
   async requestOtp(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { email } = RequestOtpSchema.parse(req.body);
-      const result = authService.requestOtp(email);
+      const result = await authService.requestOtp(email, req.body.fullName);
       res.status(200).json({
         success: true,
         data: result,

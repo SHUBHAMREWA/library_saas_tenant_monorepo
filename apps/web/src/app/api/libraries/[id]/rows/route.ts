@@ -15,12 +15,12 @@ export async function POST(
       return NextResponse.json({ error: 'roomId is required' }, { status: 400 });
     }
 
-    const room = await prisma.room.findUnique({
-      where: { id: roomId },
+    const room = await prisma.room.findFirst({
+      where: { id: roomId, libraryId },
     });
 
     if (!room) {
-      return NextResponse.json({ error: 'Room not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Room not found in this library' }, { status: 404 });
     }
 
     const validRows = Array.isArray(rowNames) && rowNames.length > 0 ? rowNames : ['Row A'];
@@ -202,13 +202,13 @@ export async function DELETE(
 
     const allSeatIds = Array.from(seatIdSet);
 
-    // 3. Clean up seat assignments and attendance logs first to prevent RESTRICT violations
+    // 3. Clean up seat assignments strictly in this library
     if (allSeatIds.length > 0) {
       await prisma.seatAssignment.deleteMany({
-        where: { seatId: { in: allSeatIds } },
+        where: { seatId: { in: allSeatIds }, libraryId },
       });
       await prisma.seat.deleteMany({
-        where: { id: { in: allSeatIds } },
+        where: { id: { in: allSeatIds }, libraryId },
       });
     }
 

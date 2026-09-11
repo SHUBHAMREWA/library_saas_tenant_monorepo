@@ -66,16 +66,23 @@ export async function POST(
     });
 
     for (const assignment of existingAssignments) {
-      // Free the old seat
-      await prisma.seat.update({
-        where: { id: assignment.seatId },
-        data: { status: 'AVAILABLE' },
-      });
-      // Mark old assignment completed
+      // Mark old assignment released first
       await prisma.seatAssignment.update({
         where: { id: assignment.id },
         data: { status: 'RELEASED', endDate: new Date() },
       });
+
+      // Only free the physical seat if no other active assignments remain on it (co-occupants)
+      const remainingCount = await prisma.seatAssignment.count({
+        where: { seatId: assignment.seatId, libraryId, status: 'ACTIVE' },
+      });
+
+      if (remainingCount === 0) {
+        await prisma.seat.update({
+          where: { id: assignment.seatId },
+          data: { status: 'AVAILABLE' },
+        });
+      }
     }
 
     // 4. If assigning a new seat (seatId or seatNumber provided)

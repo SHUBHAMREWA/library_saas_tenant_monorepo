@@ -90,9 +90,11 @@ export async function POST(
 }
 
 export async function PUT(
-  req: NextRequest
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: libraryId } = await context.params;
     const body = await req.json();
     const { roomId, newName } = body;
 
@@ -100,8 +102,17 @@ export async function PUT(
       return NextResponse.json({ error: 'roomId and newName are required' }, { status: 400 });
     }
 
+    // Verify room belongs strictly to this library
+    const existingRoom = await prisma.room.findFirst({
+      where: { id: roomId, libraryId },
+    });
+
+    if (!existingRoom) {
+      return NextResponse.json({ error: 'Room not found in this library' }, { status: 404 });
+    }
+
     const updated = await prisma.room.update({
-      where: { id: roomId },
+      where: { id: existingRoom.id },
       data: { name: newName.trim() },
     });
 
@@ -113,30 +124,43 @@ export async function PUT(
 }
 
 export async function DELETE(
-  req: NextRequest
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: libraryId } = await context.params;
     const { searchParams } = new URL(req.url);
-    const roomId = searchParams.get('roomId');
+    const roomId = searchParams.get('roomId')?.trim();
 
     if (!roomId) {
       return NextResponse.json({ error: 'roomId query parameter is required' }, { status: 400 });
     }
 
-    const room = await prisma.room.findUnique({
-      where: { id: roomId },
+    // Find room strictly within target library
+    const room = await prisma.room.findFirst({
+      where: { id: roomId, libraryId },
       include: { rows: { include: { seats: true } } },
     });
 
-    if (room) {
-      const seatIds = room.rows.flatMap((r) => r.seats.map((s) => s.id));
-      if (seatIds.length > 0) {
-        await prisma.seatAssignment.deleteMany({ where: { seatId: { in: seatIds } } });
-        await prisma.seat.deleteMany({ where: { id: { in: seatIds } } });
-      }
-      await prisma.row.deleteMany({ where: { roomId: room.id } });
-      await prisma.room.delete({ where: { id: room.id } });
+    if (!room) {
+      return NextResponse.json({ error: 'Room not found in this library' }, { status: 404 });
     }
+
+    const seatIds = room.rows.flatMap((r) => r.seats.map((s) => s.id));
+    if (seatIds.length > 0) {
+      await prisma.seatAssignment.deleteMany({
+        where: { seatId: { in: seatIds }, libraryId },
+      });
+      await prisma.seat.deleteMany({
+        where: { id: { in: seatIds }, libraryId },
+      });
+    }
+    await prisma.row.deleteMany({
+      where: { roomId: room.id, libraryId },
+    });
+    await prisma.room.delete({
+      where: { id: room.id },
+    });
 
     return NextResponse.json({ success: true, deletedRoomId: roomId });
   } catch (error: any) {

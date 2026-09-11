@@ -43,6 +43,7 @@ import type { VisualSeatItem } from '../components/SeatGrid';
 import type { StudentItem, StudentFeeRecord, StudentFilterTab } from '../components/StudentList';
 import { DesktopSidebar } from '../components/DesktopSidebar';
 import { QuickCheckHero } from '../components/QuickCheckHero';
+import { FooterShareBar } from '../components/FooterShareBar';
 import {
   DashboardSkeleton,
   DashboardChartSkeleton,
@@ -1192,6 +1193,32 @@ export default function MobileDashboard() {
             membershipEndsInDays: preservedDays,
           };
         }
+
+        // If another student was on this target seat and is evicted due to shift conflict:
+        if (seatNumber && std.seatNumber === seatNumber && std.id !== studentId) {
+          const targetShift = (shift || student?.shift || 'FULL_DAY').toUpperCase();
+          const stdShift = (std.shift || 'FULL_DAY').toUpperCase();
+          const isTargetMorning = targetShift === 'MORNING' || targetShift === 'FOUR_HOURS' || targetShift === 'HALF_DAY';
+          const isTargetEvening = targetShift === 'EVENING';
+          const isStdMorning = stdShift === 'MORNING' || stdShift === 'FOUR_HOURS' || stdShift === 'HALF_DAY';
+          const isStdEvening = stdShift === 'EVENING';
+
+          const isConflict =
+            targetShift === 'FULL_DAY' ||
+            stdShift === 'FULL_DAY' ||
+            (isTargetMorning && isStdMorning) ||
+            (isTargetEvening && isStdEvening);
+
+          if (isConflict) {
+            return {
+              ...std,
+              seatNumber: null,
+              previousSeatNumber: seatNumber,
+              status: 'INACTIVE' as const,
+            };
+          }
+        }
+
         return std;
       });
 
@@ -1759,19 +1786,26 @@ export default function MobileDashboard() {
 
         {/* Header */}
         <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 sm:px-8 py-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-indigo-700 text-white flex items-center justify-center font-black text-sm shadow-md shadow-indigo-500/20">
-              sL
-            </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('home')}
+            className="flex items-center gap-3 cursor-pointer group text-left"
+            title="Go to Home Dashboard"
+          >
+            <img
+              src="/icons/icon-192x192.png"
+              alt="seeLibrary Logo"
+              className="w-14 h-14 rounded-2xl object-contain bg-white shadow-md group-hover:scale-105 border border-slate-700 transition-transform duration-200"
+            />
             <div className="flex items-center gap-1.5">
-              <span className="text-xl font-black tracking-tight text-white">
+              <span className="text-2xl font-black tracking-tight text-white group-hover:text-indigo-400 transition-colors">
                 see<span className="text-indigo-400">Library</span>
               </span>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                 Dashboard
               </span>
             </div>
-          </div>
+          </button>
 
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs font-semibold text-slate-200">
@@ -1903,7 +1937,7 @@ export default function MobileDashboard() {
   // 3. AUTHENTICATED DASHBOARD (With created libraries)
   return (
     <div className="flex flex-col min-h-screen pb-20 md:pb-8 select-none bg-slate-50 dark:bg-black text-slate-900 dark:text-[#f5f5f5] md:pl-64 transition-colors overflow-x-hidden w-full max-w-full">
-      <PWACompanion />
+      <PWACompanion userEmail={currentUser?.email} libraryId={activeLibrary?.id} />
 
       {/* Desktop Sidebar (visible on md: screens and above) */}
       <DesktopSidebar
@@ -1936,20 +1970,31 @@ export default function MobileDashboard() {
       />
 
       {/* Mobile Top Navigation Header (Mobile only - hidden on desktop where sidebar is present) */}
-      <header className="md:hidden sticky top-0 z-30 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-slate-200 dark:border-[#262626] px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between shadow-xs transition-colors w-full max-w-full overflow-hidden">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-800 text-white flex items-center justify-center font-black text-xs sm:text-sm shadow-sm tracking-tight shrink-0">
-            sL
-          </div>
+      <header className="md:hidden sticky top-0 z-40 bg-white/95 dark:bg-black/95 backdrop-blur-md border-b border-slate-200 dark:border-[#262626] px-3 sm:px-4 py-2 flex items-center justify-between shadow-xs transition-colors w-full max-w-full">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab('home')}
+            className="flex items-center shrink-0 cursor-pointer group"
+            title="Go to Home Dashboard"
+          >
+            <img
+              src="/icons/icon-192x192.png"
+              alt="seeLibrary Logo"
+              className="w-10 h-10 rounded-xl object-contain bg-white shadow-xs group-hover:scale-105 border border-slate-200 dark:border-neutral-800 shrink-0 transition-transform duration-200"
+            />
+          </button>
+
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1 sm:gap-1.5 min-w-0">
-              <h1 className="text-sm sm:text-lg font-black text-slate-900 dark:text-[#f5f5f5] tracking-tight truncate">
+            <button
+              type="button"
+              onClick={() => setActiveTab('home')}
+              className="text-left block cursor-pointer group"
+            >
+              <h1 className="text-sm sm:text-base font-black text-slate-900 dark:text-[#f5f5f5] tracking-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors leading-tight">
                 see<span className="text-indigo-600 dark:text-indigo-400">Library</span>
               </h1>
-              <span className="text-[9px] sm:text-[10px] font-bold px-1 sm:px-1.5 py-0.2 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 border border-indigo-100/60 dark:border-indigo-900/50 shrink-0">
-                SaaS
-              </span>
-            </div>
+            </button>
 
             {/* Branch Switcher Dropdown */}
             {activeLibrary && (
@@ -1957,71 +2002,78 @@ export default function MobileDashboard() {
                 <button
                   type="button"
                   onClick={() => setIsBranchDropdownOpen((prev) => !prev)}
-                  className="flex items-center gap-1 text-[11px] text-slate-700 dark:text-neutral-300 font-bold hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors max-w-full"
+                  className="flex items-center gap-1 text-[11px] text-slate-600 dark:text-neutral-400 font-bold hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors max-w-full cursor-pointer leading-tight"
                 >
-                  <span className="truncate max-w-[90px] xs:max-w-[130px] sm:max-w-[200px]">
+                  <span className="truncate max-w-[110px] xs:max-w-[150px] sm:max-w-[220px]">
                     {activeLibrary.name}
                   </span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 dark:text-neutral-500 shrink-0" />
+                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 dark:text-neutral-500 shrink-0 transition-transform duration-150 ${isBranchDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
 
                 {isBranchDropdownOpen && (
-                  <div className="absolute top-full left-0 mt-1.5 w-64 max-w-[calc(100vw-32px)] bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-xl shadow-xl z-50 p-1 animate-in fade-in zoom-in-95 duration-150">
-                    <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-slate-400 dark:text-neutral-500 border-b border-slate-100 dark:border-[#262626]">
-                      Select Library Branch ({libraries.length})
-                    </div>
+                  <>
+                    {/* Fullscreen transparent backdrop for outside taps */}
+                    <div
+                      className="fixed inset-0 z-50 bg-black/10 dark:bg-black/30 backdrop-blur-[1px]"
+                      onClick={() => setIsBranchDropdownOpen(false)}
+                    />
+                    <div className="absolute top-full left-0 mt-2 w-72 max-w-[calc(100vw-24px)] bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-2xl shadow-2xl z-50 p-1.5 animate-in fade-in zoom-in-95 duration-150">
+                      <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-slate-400 dark:text-neutral-500 border-b border-slate-100 dark:border-[#262626]">
+                        Select Library Branch ({libraries.length})
+                      </div>
 
-                    <div className="max-h-48 overflow-y-auto py-1 space-y-0.5">
-                      {libraries.map((lib) => (
+                      <div className="max-h-56 overflow-y-auto py-1 space-y-0.5">
+                        {libraries.map((lib) => (
+                          <button
+                            key={lib.id}
+                            type="button"
+                            onClick={() => {
+                              setActiveLibraryId(lib.id);
+                              try {
+                                localStorage.setItem('seelibrary_active_lib_id', lib.id);
+                              } catch {}
+                              setIsBranchDropdownOpen(false);
+                            }}
+                            className={`w-full px-3 py-2 text-left rounded-xl text-xs font-semibold flex items-center justify-between transition-colors ${
+                              lib.id === activeLibrary.id
+                                ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold'
+                                : 'text-slate-700 dark:text-neutral-300 hover:bg-slate-50 dark:hover:bg-[#1c1c1e]'
+                            }`}
+                          >
+                            <span className="truncate">{lib.name}</span>
+                            {lib.id === activeLibrary.id && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="border-t border-slate-100 dark:border-[#262626] pt-1 space-y-0.5">
+                        {activeLibrary && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsBranchDropdownOpen(false);
+                              setIsEditLibraryModalOpen(true);
+                            }}
+                            className="w-full px-3 py-2 text-left rounded-xl text-xs font-semibold text-slate-700 dark:text-neutral-300 hover:bg-slate-50 dark:hover:bg-[#1c1c1e] flex items-center gap-1.5 transition-colors cursor-pointer"
+                          >
+                            <Pencil className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
+                            <span>Edit Active Branch</span>
+                          </button>
+                        )}
                         <button
-                          key={lib.id}
                           type="button"
                           onClick={() => {
-                            setActiveLibraryId(lib.id);
-                            try {
-                              localStorage.setItem('seelibrary_active_lib_id', lib.id);
-                            } catch {}
                             setIsBranchDropdownOpen(false);
+                            setIsLibraryModalOpen(true);
                           }}
-                          className={`w-full px-3 py-2 text-left rounded-lg text-xs font-semibold flex items-center justify-between transition-colors ${
-                            lib.id === activeLibrary.id
-                              ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300'
-                              : 'text-slate-700 dark:text-neutral-300 hover:bg-slate-50 dark:hover:bg-[#1c1c1e]'
-                          }`}
+                          className="w-full px-3 py-2 text-left rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 flex items-center gap-1.5 transition-colors cursor-pointer"
                         >
-                          <span className="truncate">{lib.name}</span>
-                          {lib.id === activeLibrary.id && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Create Another Library</span>
                         </button>
-                      ))}
+                      </div>
                     </div>
-
-                    <div className="border-t border-slate-100 dark:border-[#262626] pt-1 space-y-0.5">
-                      {activeLibrary && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsBranchDropdownOpen(false);
-                            setIsEditLibraryModalOpen(true);
-                          }}
-                          className="w-full px-3 py-2 text-left rounded-lg text-xs font-semibold text-slate-700 dark:text-neutral-300 hover:bg-slate-50 dark:hover:bg-[#1c1c1e] flex items-center gap-1.5 transition-colors cursor-pointer"
-                        >
-                          <Pencil className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
-                          <span>Edit Active Branch</span>
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsBranchDropdownOpen(false);
-                          setIsLibraryModalOpen(true);
-                        }}
-                        className="w-full px-3 py-2 text-left rounded-lg text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 flex items-center gap-1.5 transition-colors"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Create Another Library</span>
-                      </button>
-                    </div>
-                  </div>
+                  </>
                 )}
               </div>
             )}
@@ -3170,6 +3222,17 @@ export default function MobileDashboard() {
                   <Bell className="w-3.5 h-3.5" />
                   <span>Notification Center</span>
                 </button>
+              </div>
+            </div>
+
+            {/* Share & PWA Install Hub */}
+            <div className="bg-white dark:bg-[#121212] rounded-2xl border border-slate-200 dark:border-[#262626] p-4 shadow-xs space-y-3 transition-colors">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-[#f5f5f5]">Share & Download App</h4>
+                  <p className="text-xs text-slate-500 dark:text-neutral-400">Share seeLibrary with staff or download the mobile app via QR code</p>
+                </div>
+                <FooterShareBar />
               </div>
             </div>
 
