@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@library/config": "workspace:*",
+    "@prisma/nextjs-monorepo-workaround-plugin": "^7.10.0",
     "@types/node": "^22.13.5",
     "@types/nodemailer": "^6.4.17",
     "@types/qrcode": "^1.5.6",
