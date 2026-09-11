@@ -42,7 +42,7 @@ interface AssignSeatModalProps {
   initialShift?: string;
   onAssign: (studentId: string, seatNumber: string, shift?: string, isReserved?: boolean) => Promise<void> | void;
   onEnrollNewStudent: (seatNumber: string) => void;
-  onEnrollAndCollectFee?: (student: StudentItem, seatNumber: string) => void;
+  onEnrollAndCollectFee?: (student: StudentItem, seatNumber: string, shift: string, duration?: string) => void;
 }
 
 const SHIFT_OPTIONS = [
@@ -131,7 +131,10 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
    * Checks recent fee transactions first, then student record.
    */
   const getStudentEnrolledShift = (student: StudentItem): 'MORNING' | 'EVENING' | 'FULL_DAY' | 'NONE' => {
+    // Newly admitted students: no transactions AND no seat → never enrolled
     const txs = student.transactions || [];
+    if (txs.length === 0 && !student.seatNumber) return 'NONE';
+
     for (const tx of txs) {
       if (tx.shift) {
         const s = tx.shift.toUpperCase();
@@ -187,11 +190,10 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
     const currentMonthName = now.toLocaleString('en-US', { month: 'long' }).toLowerCase();
     const currentYearStr = now.getFullYear().toString();
 
-    if (student.membershipEndsInDays > 0 && student.status !== 'EXPIRED') {
-      return true;
-    }
-
     const txs = student.transactions || [];
+    // Never consider admission-only students (no transactions) as enrolled
+    if (txs.length === 0) return false;
+
     return txs.some((tx) => {
       const isPaid = tx.status === 'PAID' || (tx.remainingFee !== undefined && Number(tx.remainingFee) === 0 && Number(tx.amount || 0) > 0);
       if (!isPaid) return false;
@@ -233,11 +235,18 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
 
   /**
    * A student is considered "enrolled" if:
-   *  1. Their status is ACTIVE/PAUSED with remaining days, OR
+   *  1. They have at least one paid tx AND their membership has remaining days, OR
    *  2. They have a valid fee transaction covering today (even if seat was unassigned)
+   *
+   * IMPORTANT: Students with NO transactions are NEVER considered enrolled,
+   * even if their membership shows days remaining (PAUSED with expectedEndDate).
    */
   const isEnrolledForCurrentPeriod = (student: StudentItem): boolean => {
-    // Seat is still assigned & membership is active
+    // Must have at least one paid transaction to be considered enrolled
+    const hasTx = Boolean(student.transactions?.length);
+    if (!hasTx) return false;
+
+    // Seat is still assigned & membership is active with days remaining
     if (
       student.status !== 'INACTIVE' &&
       student.status !== 'EXPIRED' &&
@@ -493,6 +502,7 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
                 <span>Requested Shift / Duration:</span>
                 <span className="font-bold text-indigo-700 dark:text-indigo-400">
                   {SHIFT_OPTIONS.find((s) => s.id === selectedShift)?.label || selectedShift}
+                  {selectedShift !== 'FULL_DAY' ? ` • ${selectedDuration === 'FOUR_HOURS' ? '4 Hours' : 'Half Day'}` : ''}
                 </span>
               </div>
             </div>
@@ -509,7 +519,12 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
                 type="button"
                 onClick={() => {
                   if (onEnrollAndCollectFee) {
-                    onEnrollAndCollectFee(enrollmentRequiredStudent, seat.seatNumber);
+                    onEnrollAndCollectFee(
+                      enrollmentRequiredStudent,
+                      seat.seatNumber,
+                      selectedShift,
+                      selectedShift === 'FULL_DAY' ? 'FULL_DAY' : selectedDuration
+                    );
                   } else {
                     onEnrollNewStudent(seat.seatNumber);
                     onClose();

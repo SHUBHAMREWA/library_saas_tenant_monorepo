@@ -13,6 +13,8 @@ interface CollectFeeModalProps {
   students: StudentItem[];
   preselectedStudent?: StudentItem | null;
   preselectedSeatNumber?: string | null;
+  preselectedShift?: 'MORNING' | 'EVENING' | 'FULL_DAY' | null;
+  preselectedDuration?: 'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY' | null;
   availableSeats?: { id: string; seatNumber: string; rowName?: string }[];
   onAssignSeat?: (studentId: string, seatNumber: string | null) => Promise<void> | void;
   libraryName?: string;
@@ -56,7 +58,7 @@ const getSuggestedFee = (shift: string, stayDuration: string, customMonthlyFee?:
 };
 
 export const getStudentAgreedRate = (std?: StudentItem | null): number => {
-  if (!std) return 1200;
+  if (!std) return 0;
   const txs = std.transactions || [];
   for (const tx of txs) {
     if (tx.totalFee && Number(tx.totalFee) > 0) return Number(tx.totalFee);
@@ -64,7 +66,7 @@ export const getStudentAgreedRate = (std?: StudentItem | null): number => {
   }
   if (std.monthlyFee && Number(std.monthlyFee) > 0) return Number(std.monthlyFee);
   if (std.totalFee && Number(std.totalFee) > 0) return Number(std.totalFee);
-  return 1200;
+  return 0;
 };
 
 export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
@@ -73,6 +75,8 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
   students,
   preselectedStudent,
   preselectedSeatNumber,
+  preselectedShift,
+  preselectedDuration,
   availableSeats = [],
   onAssignSeat,
   libraryName = 'seeLibrary Study Center',
@@ -152,7 +156,15 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         const seatToSet = preselectedSeatNumber || activeStudent.seatNumber || (prevSeat.seatNumber && availableSeats.some((s) => s.seatNumber === prevSeat.seatNumber) ? prevSeat.seatNumber : '');
         setAssignedSeatNumber(seatToSet);
 
-        const { shift: initShift, duration: initDuration } = resolveStudentShiftAndDuration(activeStudent);
+        // If a specific shift or duration was requested (e.g. from AssignSeatModal), use it.
+        // Otherwise fall back to the student's historical shift.
+        const { shift: historicalShift, duration: historicalDuration } = resolveStudentShiftAndDuration(activeStudent);
+        const initShift: 'MORNING' | 'EVENING' | 'FULL_DAY' = preselectedShift || historicalShift;
+        const initDuration: 'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY' = preselectedDuration
+          ? preselectedDuration
+          : preselectedShift
+          ? (preselectedShift === 'FULL_DAY' ? 'FULL_DAY' : historicalDuration !== 'FULL_DAY' ? historicalDuration : 'HALF_DAY')
+          : historicalDuration;
         setSelectedShift(initShift);
         setStayDuration(initDuration);
 
@@ -168,8 +180,11 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
           setNotes(`Remaining fee clearance for ${targetMonth}`);
         } else {
           setPaymentType('NEW_MONTH');
-          const agreed = getStudentAgreedRate(activeStudent);
-          const fee = getSuggestedFee(initShift, initDuration, agreed);
+          // For unenrolled students (no transactions), use suggested fee based on selected shift
+          // rather than their "agreed rate" (which defaults to 1200 for unenrolled students)
+          const isUnenrolled = !activeStudent.transactions?.length && !activeStudent.seatNumber;
+          const agreed = isUnenrolled ? 0 : getStudentAgreedRate(activeStudent);
+          const fee = getSuggestedFee(initShift, initDuration, agreed > 0 ? agreed : undefined);
           setTotalFee(fee);
           setAmount(fee);
           setPaidForMonth(currentMonth);
@@ -177,16 +192,23 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         }
       } else {
         setPaymentType('NEW_MONTH');
-        setSelectedShift('FULL_DAY');
-        setStayDuration('FULL_DAY');
-        setTotalFee(1200);
-        setAmount(1200);
+        const initShift: 'MORNING' | 'EVENING' | 'FULL_DAY' = preselectedShift || 'FULL_DAY';
+        const initDuration: 'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY' = preselectedDuration
+          ? preselectedDuration
+          : initShift === 'FULL_DAY'
+          ? 'FULL_DAY'
+          : 'HALF_DAY';
+        setSelectedShift(initShift);
+        setStayDuration(initDuration);
+        const fee = getSuggestedFee(initShift, initDuration);
+        setTotalFee(fee);
+        setAmount(fee);
         setPaidForMonth(currentMonth);
         setAssignedSeatNumber(preselectedSeatNumber || '');
         setNotes('');
       }
     }
-  }, [isOpen, preselectedStudent, preselectedSeatNumber, students, currentMonth]);
+  }, [isOpen, preselectedStudent, preselectedSeatNumber, preselectedShift, preselectedDuration, students, currentMonth]);
 
   // When student selection changes, auto-update default amount & plan
   const handleStudentChange = (stdId: string) => {
@@ -213,8 +235,9 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         setNotes(`Remaining fee clearance for ${targetMonth}`);
       } else {
         setPaymentType('NEW_MONTH');
-        const agreed = getStudentAgreedRate(found);
-        const fee = getSuggestedFee(initShift, initDuration, agreed);
+        const isUnenrolled = !found.transactions?.length && !found.seatNumber;
+        const agreed = isUnenrolled ? 0 : getStudentAgreedRate(found);
+        const fee = getSuggestedFee(initShift, initDuration, agreed > 0 ? agreed : undefined);
         setTotalFee(fee);
         setAmount(fee);
         setPaidForMonth(currentMonth);
@@ -666,7 +689,11 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                     <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-neutral-400 mt-0.5">
                       <span>{currentStudent.phone}</span>
                       <span>•</span>
-                      <span>{formatShiftSummary(currentStudent.shift, currentStudent.stayDuration)}</span>
+                      <span>
+                        {!currentStudent.transactions?.length && !currentStudent.seatNumber
+                          ? 'Admission Recorded (No Enrollment)'
+                          : formatShiftSummary(currentStudent.shift, currentStudent.stayDuration)}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -684,6 +711,10 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                   {currentStudent.remainingFee && currentStudent.remainingFee > 0 ? (
                     <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 px-2 py-0.5 rounded-md">
                       Due: ₹{currentStudent.remainingFee}
+                    </span>
+                  ) : (!currentStudent.transactions?.length && !currentStudent.seatNumber) ? (
+                    <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/50 px-1.5 py-0.5 rounded-md">
+                      Unenrolled
                     </span>
                   ) : (
                     <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 px-1.5 py-0.5 rounded-md">
@@ -770,6 +801,10 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                             {s.remainingFee && s.remainingFee > 0 ? (
                               <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded">
                                 Due: ₹{s.remainingFee}
+                              </span>
+                            ) : (!s.transactions?.length && !s.seatNumber) ? (
+                              <span className="text-[10px] font-bold text-slate-500 dark:text-neutral-500 bg-slate-100 dark:bg-[#2a2a2a] px-1.5 py-0.5 rounded">
+                                Not Enrolled
                               </span>
                             ) : (
                               <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded">
@@ -954,12 +989,21 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                   <div className="flex items-center gap-2">
                     <IndianRupee className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                     <div className="text-[11px] text-indigo-950 dark:text-indigo-200">
-                      <span className="font-bold">Fee Pending for {paidForMonth}:</span> Agreed plan rate is{' '}
-                      <strong className="font-bold text-indigo-700 dark:text-indigo-300">₹{monthPeriodStatus.totalFee}</strong> ({formatShiftSummary(selectedShift, stayDuration)}).
+                      {!currentStudent?.transactions?.length && !currentStudent?.seatNumber ? (
+                        <>
+                          <span className="font-bold">Initial Enrollment Fee ({paidForMonth}):</span> Plan rate is{' '}
+                          <strong className="font-bold text-indigo-700 dark:text-indigo-300">₹{totalFee !== '' && Number(totalFee) > 0 ? totalFee : (monthPeriodStatus.totalFee || 1200)}</strong> ({formatShiftSummary(selectedShift, stayDuration)}).
+                        </>
+                      ) : (
+                        <>
+                          <span className="font-bold">Fee Pending for {paidForMonth}:</span> Agreed plan rate is{' '}
+                          <strong className="font-bold text-indigo-700 dark:text-indigo-300">₹{totalFee !== '' && Number(totalFee) > 0 ? totalFee : (monthPeriodStatus.totalFee || 1200)}</strong> ({formatShiftSummary(selectedShift, stayDuration)}).
+                        </>
+                      )}
                     </div>
                   </div>
                   <span className="text-[10px] font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/60 px-2 py-0.5 rounded-full shrink-0">
-                    Fee Pending
+                    {!currentStudent?.transactions?.length && !currentStudent?.seatNumber ? 'New Admission' : 'Fee Pending'}
                   </span>
                 </div>
               )}

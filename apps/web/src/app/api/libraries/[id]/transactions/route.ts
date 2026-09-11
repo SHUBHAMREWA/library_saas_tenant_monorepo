@@ -147,7 +147,8 @@ export async function POST(
       where: { id: studentId, libraryId },
       include: {
         memberships: {
-          where: { status: 'ACTIVE' },
+          // Include ACTIVE or PAUSED memberships — PAUSED is the initial state for newly admitted students
+          where: { status: { in: ['ACTIVE', 'PAUSED'] } },
           orderBy: { createdAt: 'desc' },
           take: 1,
         },

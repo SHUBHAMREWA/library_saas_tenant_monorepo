@@ -199,6 +199,8 @@ export default function MobileDashboard() {
   const [isCollectFeeModalOpen, setIsCollectFeeModalOpen] = useState(false);
   const [studentForFeeCollection, setStudentForFeeCollection] = useState<StudentItem | null>(null);
   const [preselectedSeatNumberForFeeCollection, setPreselectedSeatNumberForFeeCollection] = useState<string | null>(null);
+  const [preselectedShiftForFeeCollection, setPreselectedShiftForFeeCollection] = useState<'MORNING' | 'EVENING' | 'FULL_DAY' | null>(null);
+  const [preselectedDurationForFeeCollection, setPreselectedDurationForFeeCollection] = useState<'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY' | null>(null);
   const [returnToStudentProfileId, setReturnToStudentProfileId] = useState<string | null>(null);
   const [profileInitialTab, setProfileInitialTab] = useState<'profile' | 'feeHistory' | 'kyc' | 'enrollmentTimeline'>('profile');
 
@@ -3300,6 +3302,8 @@ export default function MobileDashboard() {
             setIsCollectFeeModalOpen(false);
             setStudentForFeeCollection(null);
             setPreselectedSeatNumberForFeeCollection(null);
+            setPreselectedShiftForFeeCollection(null);
+            setPreselectedDurationForFeeCollection(null);
             if (returnToStudentProfileId) {
               const targetId = returnToStudentProfileId;
               setReturnToStudentProfileId(null);
@@ -3316,6 +3320,8 @@ export default function MobileDashboard() {
           students={activeLibrary?.students || []}
           preselectedStudent={studentForFeeCollection}
           preselectedSeatNumber={preselectedSeatNumberForFeeCollection}
+          preselectedShift={preselectedShiftForFeeCollection}
+          preselectedDuration={preselectedDurationForFeeCollection}
           availableSeats={seats.filter((s) => s.status === 'AVAILABLE')}
           onAssignSeat={handleAssignSeat}
           onRecordPayment={handleRecordFeePayment}
@@ -3354,10 +3360,12 @@ export default function MobileDashboard() {
               setIsStudentModalOpen(true);
             });
           }}
-          onEnrollAndCollectFee={(student, seatNumber) => {
+          onEnrollAndCollectFee={(student, seatNumber, shift, duration) => {
             setSelectedSeatForAssignment(null);
             setStudentForFeeCollection(student);
             setPreselectedSeatNumberForFeeCollection(seatNumber);
+            setPreselectedShiftForFeeCollection((shift as any) || null);
+            setPreselectedDurationForFeeCollection((duration as any) || null);
             setIsCollectFeeModalOpen(true);
           }}
         />

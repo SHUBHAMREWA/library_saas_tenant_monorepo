@@ -432,7 +432,9 @@ export async function POST(req: NextRequest) {
         let daysRemaining = 0;
         let isExpired = false;
 
-        if (activeMembership?.expectedEndDate) {
+        // Only compute daysRemaining from membership if student is actually enrolled (paid tx or active seat)
+        // For newly admitted students (PAUSED membership, no tx, no seat), daysRemaining stays 0
+        if ((hasPaidTx || activeSeat) && activeMembership?.expectedEndDate) {
           const end = new Date(activeMembership.expectedEndDate);
           daysRemaining = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
           isExpired = daysRemaining <= 0;
@@ -569,12 +571,21 @@ export async function POST(req: NextRequest) {
 
         if (hasPaidTx || assignedSeatNumber) {
           const rawShift = activeMembership?.shift;
+          // Determine stayDuration from rawShift
           if (rawShift === 'FOUR_HOURS') {
             stayDuration = 'FOUR_HOURS';
           } else if (rawShift === 'HALF_DAY') {
             stayDuration = 'HALF_DAY';
           } else if (rawShift === 'FULL_DAY') {
             stayDuration = 'FULL_DAY';
+          } else if (rawShift === 'MORNING' || rawShift === 'EVENING') {
+            // Shift is properly stored — infer stayDuration from notes
+            const noteText = (studentTxList[0]?.notes || '').toUpperCase();
+            if (noteText.includes('HALF_DAY') || noteText.includes('HALF DAY') || noteText.includes('6-8')) {
+              stayDuration = 'HALF_DAY';
+            } else {
+              stayDuration = 'FOUR_HOURS';
+            }
           } else {
             const noteText = (studentTxList[0]?.notes || '').toUpperCase();
             if (noteText.includes('FOUR_HOURS') || noteText.includes('4 HOUR') || noteText.includes('4-HOUR')) {
@@ -586,9 +597,14 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          normalizedShift = activeMembership?.shift || (assignedSeatNumber ? 'FULL_DAY' : '');
-          if (normalizedShift === 'FOUR_HOURS' || normalizedShift === 'HALF_DAY') {
+          // Normalize shift to MORNING / EVENING / FULL_DAY
+          if (rawShift === 'MORNING' || rawShift === 'EVENING' || rawShift === 'FULL_DAY') {
+            normalizedShift = rawShift;
+          } else if (rawShift === 'FOUR_HOURS' || rawShift === 'HALF_DAY') {
+            // Legacy: old records stored stayDuration as shift — treat as MORNING
             normalizedShift = 'MORNING';
+          } else {
+            normalizedShift = assignedSeatNumber ? 'FULL_DAY' : '';
           }
         }
 
