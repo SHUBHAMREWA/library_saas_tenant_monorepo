@@ -11,13 +11,6 @@ const nextConfig = {
   transpilePackages: ['@library/types', '@library/validation'],
   serverExternalPackages: ['@prisma/client', '@library/database'],
   outputFileTracingRoot: path.join(__dirname, '../../'),
-  outputFileTracingIncludes: {
-    '/api/**/*': [
-      '../../node_modules/.prisma/client/**/*',
-      './node_modules/.prisma/client/**/*',
-      '../../node_modules/.pnpm/@prisma+client*/**/*',
-    ],
-  },
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.plugins = [...config.plugins, new PrismaPlugin()];
