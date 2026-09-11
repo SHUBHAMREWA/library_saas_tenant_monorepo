@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { otpStore } from '../request/route';
+import { otpStore } from '@/lib/otp-store';
 import crypto from 'crypto';
 
 const KNOWN_SUPER_ADMINS = new Set([

@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { emailService } from '@/lib/email-service';
-import crypto from 'crypto';
-
-// In-memory OTP store for Next.js API route
-const otpStore = new Map<string, { code: string; expiresAt: number; fullName?: string }>();
+import { otpStore } from '@/lib/otp-store';
 
 export async function POST(req: NextRequest) {
   try {
@@ -48,5 +45,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error?.message || 'Failed to request OTP' }, { status: 500 });
   }
 }
-
-export { otpStore };
