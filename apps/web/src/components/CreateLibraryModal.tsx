@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Building2, Phone, MapPin, Clock, CheckCircle } from 'lucide-react';
+import { X, Building2, Phone, MapPin, Clock, CheckCircle, Loader2 } from 'lucide-react';
 
 interface CreateLibraryModalProps {
   isOpen: boolean;
@@ -115,11 +115,20 @@ export function CreateLibraryModal({ isOpen, onClose, onCreated }: CreateLibrary
           <div className="pt-2">
             <button
               type="submit"
-              disabled={isLoading}
-              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              disabled={isLoading || !name.trim() || !contactPhone.trim()}
+              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <CheckCircle className="w-4 h-4" />
-              <span>{isLoading ? 'Creating Branch...' : 'Create & Activate Branch'}</span>
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Creating Branch...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="w-4 h-4" />
+                  <span>Create & Activate Branch</span>
+                </>
+              )}
             </button>
           </div>
         </form>

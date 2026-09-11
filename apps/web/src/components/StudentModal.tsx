@@ -49,6 +49,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({
   const [kycPhotoUrl, setKycPhotoUrl] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [isUploadingKyc, setIsUploadingKyc] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [studyPurposeChoice, setStudyPurposeChoice] = useState<string>('Civil Services / UPSC');
   const [customPurpose, setCustomPurpose] = useState<string>('');
 
@@ -165,26 +166,33 @@ export const StudentModal: React.FC<StudentModalProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const finalPurpose =
       studyPurposeChoice === 'Other'
         ? customPurpose.trim() || 'Other'
         : studyPurposeChoice;
 
-    onStudentCreated({
-      fullName: formData.fullName.trim(),
-      phone: formData.phone.trim(),
-      studyPurpose: finalPurpose,
-      shift: undefined,
-      seatNumber: null,
-      photoUrl: photoUrl || null,
-      kycPhotoUrl: kycPhotoUrl || null,
-      kycDocId: formData.kycDocId.trim() || undefined,
-      kycType: formData.kycType,
-    });
-    setStep(1);
-    onClose();
+    setIsSubmitting(true);
+    try {
+      await onStudentCreated({
+        fullName: formData.fullName.trim(),
+        phone: formData.phone.trim(),
+        studyPurpose: finalPurpose,
+        shift: undefined,
+        seatNumber: null,
+        photoUrl: photoUrl || null,
+        kycPhotoUrl: kycPhotoUrl || null,
+        kycDocId: formData.kycDocId.trim() || undefined,
+        kycType: formData.kycType,
+      });
+      setStep(1);
+      onClose();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -488,9 +496,20 @@ export const StudentModal: React.FC<StudentModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                disabled={isSubmitting || isUploadingPhoto || isUploadingKyc}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <CheckCircle2 className="w-4 h-4" /> Finish & Enroll
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Enrolling Student...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Finish & Enroll</span>
+                  </>
+                )}
               </button>
             </div>
           </form>

@@ -46,21 +46,68 @@ export async function POST(
 
     if (couponCode && typeof couponCode === 'string' && couponCode.trim()) {
       const cleanCoupon = couponCode.trim().toUpperCase();
-      const dbCoupon = await prisma.coupon.findUnique({
-        where: { code: cleanCoupon },
-      });
+      let dbCoupon: any = null;
+
+      try {
+        dbCoupon = await prisma.coupon.findUnique({
+          where: { code: cleanCoupon },
+        });
+      } catch (dbErr) {
+        console.warn('Prisma coupon query in verify route error:', dbErr);
+      }
+
+      // Backend fallback if not in local Prisma
+      if (!dbCoupon) {
+        try {
+          const rawBackendUrl =
+            process.env.NEXT_PUBLIC_API_URL ||
+            process.env.RENDER_BACKEND_URL ||
+            'https://seelibrarybackend.onrender.com';
+          const backendOrigin = rawBackendUrl.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
+          const bRes = await fetch(`${backendOrigin}/api/v1/admin/coupons`, {
+            cache: 'no-store',
+            signal: AbortSignal.timeout(4000),
+          });
+          if (bRes.ok) {
+            const bData = await bRes.json();
+            const list = bData.coupons || bData.data || [];
+            const found = list.find((c: any) => c.code?.toUpperCase() === cleanCoupon);
+            if (found) {
+              dbCoupon = {
+                id: found.id,
+                code: found.code,
+                discountType: found.discountType,
+                discountValue: Number(found.discountValue),
+                maxDiscountAmount: found.maxDiscount ? Number(found.maxDiscount) : null,
+                minOrderAmount: found.minOrderAmount ? Number(found.minOrderAmount) : null,
+                validFrom: new Date(found.validFrom),
+                validUntil: found.validUntil ? new Date(found.validUntil) : null,
+                isActive: Boolean(found.isActive),
+              };
+            }
+          }
+        } catch (bErr) {
+          console.warn('Backend coupon fallback error in verify route:', bErr);
+        }
+      }
 
       if (dbCoupon && dbCoupon.isActive) {
-        const nowIso = new Date().toISOString();
-        if (nowIso >= dbCoupon.validFrom.toISOString() && nowIso <= dbCoupon.validUntil.toISOString()) {
+        const now = new Date();
+        const isNotStarted = dbCoupon.validFrom && now < new Date(dbCoupon.validFrom);
+        const isExpired = dbCoupon.validUntil && now > new Date(dbCoupon.validUntil);
+        const minAmountFailed = dbCoupon.minOrderAmount && basePrice < Number(dbCoupon.minOrderAmount);
+
+        if (!isNotStarted && !isExpired && !minAmountFailed) {
           appliedCoupon = dbCoupon;
-          if (dbCoupon.discountType === 'PERCENTAGE') {
-            discountAmount = Math.round((basePrice * Number(dbCoupon.discountValue)) / 100);
+          const discVal = Number(dbCoupon.discountValue);
+          const discType = (dbCoupon.discountType || 'PERCENTAGE').toUpperCase();
+          if (discType === 'PERCENTAGE') {
+            discountAmount = Math.round((basePrice * discVal) / 100);
             if (dbCoupon.maxDiscountAmount && discountAmount > Number(dbCoupon.maxDiscountAmount)) {
               discountAmount = Number(dbCoupon.maxDiscountAmount);
             }
           } else {
-            discountAmount = Number(dbCoupon.discountValue);
+            discountAmount = discVal;
           }
           discountAmount = Math.min(discountAmount, basePrice);
         }
