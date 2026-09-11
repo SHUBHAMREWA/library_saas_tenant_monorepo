@@ -27,7 +27,7 @@ interface StudentModalProps {
     fullName: string;
     phone: string;
     studyPurpose?: string;
-    shift: string;
+    shift?: string;
     durationMonths?: number;
     feeAmount?: number;
     seatNumber?: string | null;
@@ -176,7 +176,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({
       fullName: formData.fullName.trim(),
       phone: formData.phone.trim(),
       studyPurpose: finalPurpose,
-      shift: 'FULL_DAY',
+      shift: undefined,
       seatNumber: null,
       photoUrl: photoUrl || null,
       kycPhotoUrl: kycPhotoUrl || null,

@@ -8,47 +8,59 @@ export interface BootstrapAdminOptions {
 }
 
 export async function bootstrapSuperAdmin(options?: BootstrapAdminOptions): Promise<any> {
-  const email = (options?.email || process.env.ADMIN_EMAIL || 'admin@libraryhub.com').trim().toLowerCase();
-  const fullName = options?.fullName || process.env.ADMIN_NAME || 'Platform Super Admin';
-  const phone = options?.phone || process.env.ADMIN_PHONE || '+919876543210';
+  const adminEmails = Array.from(new Set([
+    'shubhamrewamp17@gmail.com',
+    'kushwahashubham5932@gmail.com',
+    ...(process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.split(',').map((e: string) => e.trim().toLowerCase()) : []),
+    ...(options?.email ? [options.email.trim().toLowerCase()] : []),
+  ].filter(Boolean)));
 
-  try {
-    const existing = await prisma.user.findUnique({
-      where: { email },
-    });
+  let lastResult: any = null;
 
-    if (existing) {
-      if (existing.role !== 'SUPER_ADMIN') {
-        const updated = await prisma.user.update({
-          where: { email },
+  for (const email of adminEmails) {
+    const fullName = email === 'shubhamrewamp17@gmail.com' ? 'Shubham Rewa' : (options?.fullName || process.env.ADMIN_NAME || 'Platform Super Admin');
+    const phone = options?.phone || process.env.ADMIN_PHONE || '+919876543210';
+
+    try {
+      const existing = await prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (existing) {
+        if (existing.role !== 'SUPER_ADMIN') {
+          const updated = await prisma.user.update({
+            where: { email },
+            data: {
+              role: 'SUPER_ADMIN',
+              isActive: true,
+            },
+          });
+          console.log(`[Admin Bootstrap] Elevated existing user to SUPER_ADMIN: ${updated.email}`);
+          lastResult = updated;
+        } else {
+          console.log(`[Admin Bootstrap] Verified existing SUPER_ADMIN: ${existing.email}`);
+          lastResult = existing;
+        }
+      } else {
+        const created = await prisma.user.create({
           data: {
+            id: crypto.randomUUID(),
+            email,
+            fullName,
+            phone,
             role: 'SUPER_ADMIN',
             isActive: true,
           },
         });
-        console.log(`[Admin Bootstrap] Elevated existing user to SUPER_ADMIN: ${updated.email}`);
-        return updated;
+
+        console.log(`[Admin Bootstrap] Successfully created new SUPER_ADMIN: ${created.email} (${created.id})`);
+        lastResult = created;
       }
-      console.log(`[Admin Bootstrap] Verified existing SUPER_ADMIN: ${existing.email}`);
-      return existing;
+    } catch (error: any) {
+      console.warn(`[Admin Bootstrap] Note: Could not bootstrap admin ${email} in DB (${error?.message || error}).`);
     }
-
-    const created = await prisma.user.create({
-      data: {
-        id: crypto.randomUUID(),
-        email,
-        fullName,
-        phone,
-        role: 'SUPER_ADMIN',
-        isActive: true,
-      },
-    });
-
-    console.log(`[Admin Bootstrap] Successfully created new SUPER_ADMIN: ${created.email} (${created.id})`);
-    return created;
-  } catch (error: any) {
-    console.warn(`[Admin Bootstrap] Note: Could not bootstrap admin in DB (${error?.message || error}). Will retry on DB access.`);
-    return null;
   }
+
+  return lastResult;
 }
 

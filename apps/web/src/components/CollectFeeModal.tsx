@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, CheckCircle2, IndianRupee, Calendar, CreditCard, User, Armchair, ShieldCheck, Clock, AlertCircle, Printer, FileCheck, Copy } from 'lucide-react';
-import { StudentItem } from './StudentList';
+import { X, CheckCircle2, IndianRupee, Calendar, CreditCard, User, Armchair, ShieldCheck, Clock, AlertCircle, Printer, FileCheck, Copy, Search, ChevronDown, Check } from 'lucide-react';
+import { StudentItem, getStudentPreviousSeat } from './StudentList';
 import { WhatsAppIcon } from './WhatsAppIcon';
-import { generateWhatsAppReceiptText, openWhatsApp, FeeReceiptData } from '@/lib/receipt-utils';
+import { generateWhatsAppReceiptText, openWhatsApp, FeeReceiptData, formatShiftSummary } from '@/lib/receipt-utils';
 import { formatMonthPeriod, getDetailedPeriodLabel } from '@/lib/billing-periods';
 
 interface CollectFeeModalProps {
@@ -12,6 +12,11 @@ interface CollectFeeModalProps {
   onClose: () => void;
   students: StudentItem[];
   preselectedStudent?: StudentItem | null;
+  preselectedSeatNumber?: string | null;
+  preselectedShift?: 'MORNING' | 'EVENING' | 'FULL_DAY' | null;
+  preselectedDuration?: 'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY' | null;
+  availableSeats?: { id: string; seatNumber: string; rowName?: string }[];
+  onAssignSeat?: (studentId: string, seatNumber: string | null) => Promise<void> | void;
   libraryName?: string;
   libraryPhone?: string;
   onRecordPayment: (paymentData: {
@@ -27,7 +32,9 @@ interface CollectFeeModalProps {
     notes?: string;
     extendDays: number;
     shift?: string;
+    stayDuration?: string;
     isSettlingDue?: boolean;
+    assignedSeatNumber?: string;
   }) => Promise<any> | any;
 }
 
@@ -42,17 +49,24 @@ const getMonthOptions = () => {
   return options;
 };
 
-const getSuggestedFee = (shift: string, customMonthlyFee?: number) => {
+const getSuggestedFee = (shift: string, stayDuration: string, customMonthlyFee?: number) => {
   if (customMonthlyFee && customMonthlyFee > 0) return customMonthlyFee;
-  switch (shift) {
-    case 'FOUR_HOURS':
-      return 600;
-    case 'HALF_DAY':
-      return 900;
-    case 'FULL_DAY':
-    default:
-      return 1200;
+  if (shift === 'FULL_DAY') return 1200;
+  if (stayDuration === 'FOUR_HOURS') return 600;
+  if (stayDuration === 'HALF_DAY') return 900;
+  return 1200;
+};
+
+export const getStudentAgreedRate = (std?: StudentItem | null): number => {
+  if (!std) return 0;
+  const txs = std.transactions || [];
+  for (const tx of txs) {
+    if (tx.totalFee && Number(tx.totalFee) > 0) return Number(tx.totalFee);
+    if (tx.amount && Number(tx.amount) > 0) return Number(tx.amount);
   }
+  if (std.monthlyFee && Number(std.monthlyFee) > 0) return Number(std.monthlyFee);
+  if (std.totalFee && Number(std.totalFee) > 0) return Number(std.totalFee);
+  return 0;
 };
 
 export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
@@ -60,6 +74,11 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
   onClose,
   students,
   preselectedStudent,
+  preselectedSeatNumber,
+  preselectedShift,
+  preselectedDuration,
+  availableSeats = [],
+  onAssignSeat,
   libraryName = 'seeLibrary Study Center',
   libraryPhone,
   onRecordPayment,
@@ -68,6 +87,9 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
   const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
   const [selectedStudentId, setSelectedStudentId] = useState<string>('');
+  const [studentSearchQuery, setStudentSearchQuery] = useState<string>('');
+  const [isStudentDropdownOpen, setIsStudentDropdownOpen] = useState<boolean>(false);
+  const [assignedSeatNumber, setAssignedSeatNumber] = useState<string>('');
   const [paymentType, setPaymentType] = useState<'REMAINING_DUE' | 'NEW_MONTH'>('NEW_MONTH');
   const [totalFee, setTotalFee] = useState<number | ''>(1200);
   const [amount, setAmount] = useState<number | ''>(1200); // Get Fee / Collected
@@ -78,7 +100,8 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
     return d.toISOString().split('T')[0];
   });
   const [paidForMonth, setPaidForMonth] = useState<string>(currentMonth);
-  const [planDuration, setPlanDuration] = useState<string>('FULL_DAY');
+  const [selectedShift, setSelectedShift] = useState<'MORNING' | 'EVENING' | 'FULL_DAY'>('FULL_DAY');
+  const [stayDuration, setStayDuration] = useState<'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY'>('FULL_DAY');
   const [paymentMode, setPaymentMode] = useState<string>('UPI');
   const [paymentDate, setPaymentDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState<string>('');
@@ -86,10 +109,38 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
   const [recordedReceipt, setRecordedReceipt] = useState<FeeReceiptData | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
 
+  const resolveStudentShiftAndDuration = (std?: StudentItem | null) => {
+    if (!std) return { shift: 'FULL_DAY' as const, duration: 'FULL_DAY' as const };
+    const latestTx = std.transactions?.[0];
+    const rawShift = (latestTx?.shift || std.shift || 'FULL_DAY').toUpperCase();
+    const rawDuration = (latestTx?.stayDuration || std.stayDuration || 'FULL_DAY').toUpperCase();
+    if (rawShift === 'MORNING') {
+      return {
+        shift: 'MORNING' as const,
+        duration: rawDuration === 'FOUR_HOURS' ? ('FOUR_HOURS' as const) : ('HALF_DAY' as const),
+      };
+    }
+    if (rawShift === 'EVENING') {
+      return {
+        shift: 'EVENING' as const,
+        duration: rawDuration === 'FOUR_HOURS' ? ('FOUR_HOURS' as const) : ('HALF_DAY' as const),
+      };
+    }
+    if (rawShift === 'FOUR_HOURS') {
+      return { shift: 'MORNING' as const, duration: 'FOUR_HOURS' as const };
+    }
+    if (rawShift === 'HALF_DAY') {
+      return { shift: 'MORNING' as const, duration: 'HALF_DAY' as const };
+    }
+    return { shift: 'FULL_DAY' as const, duration: 'FULL_DAY' as const };
+  };
+
   useEffect(() => {
     if (isOpen) {
       setRecordedReceipt(null);
       setCopied(false);
+      setStudentSearchQuery('');
+      setIsStudentDropdownOpen(false);
       const activeStudent = preselectedStudent || (students.length > 0 ? students[0] : null);
       const todayStr = new Date().toISOString().split('T')[0];
       const nextMonth = new Date();
@@ -101,8 +152,21 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
 
       if (activeStudent) {
         setSelectedStudentId(activeStudent.id);
-        const shiftVal = activeStudent.shift || 'FULL_DAY';
-        setPlanDuration(shiftVal);
+        const prevSeat = getStudentPreviousSeat(activeStudent);
+        const seatToSet = preselectedSeatNumber || activeStudent.seatNumber || (prevSeat.seatNumber && availableSeats.some((s) => s.seatNumber === prevSeat.seatNumber) ? prevSeat.seatNumber : '');
+        setAssignedSeatNumber(seatToSet);
+
+        // If a specific shift or duration was requested (e.g. from AssignSeatModal), use it.
+        // Otherwise fall back to the student's historical shift.
+        const { shift: historicalShift, duration: historicalDuration } = resolveStudentShiftAndDuration(activeStudent);
+        const initShift: 'MORNING' | 'EVENING' | 'FULL_DAY' = preselectedShift || historicalShift;
+        const initDuration: 'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY' = preselectedDuration
+          ? preselectedDuration
+          : preselectedShift
+          ? (preselectedShift === 'FULL_DAY' ? 'FULL_DAY' : historicalDuration !== 'FULL_DAY' ? historicalDuration : 'HALF_DAY')
+          : historicalDuration;
+        setSelectedShift(initShift);
+        setStayDuration(initDuration);
 
         const hasDue = Boolean(activeStudent.remainingFee && activeStudent.remainingFee > 0);
         if (hasDue) {
@@ -116,7 +180,11 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
           setNotes(`Remaining fee clearance for ${targetMonth}`);
         } else {
           setPaymentType('NEW_MONTH');
-          const fee = getSuggestedFee(shiftVal, activeStudent.monthlyFee);
+          // For unenrolled students (no transactions), use suggested fee based on selected shift
+          // rather than their "agreed rate" (which defaults to 1200 for unenrolled students)
+          const isUnenrolled = !activeStudent.transactions?.length && !activeStudent.seatNumber;
+          const agreed = isUnenrolled ? 0 : getStudentAgreedRate(activeStudent);
+          const fee = getSuggestedFee(initShift, initDuration, agreed > 0 ? agreed : undefined);
           setTotalFee(fee);
           setAmount(fee);
           setPaidForMonth(currentMonth);
@@ -124,21 +192,37 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         }
       } else {
         setPaymentType('NEW_MONTH');
-        setTotalFee(1200);
-        setAmount(1200);
+        const initShift: 'MORNING' | 'EVENING' | 'FULL_DAY' = preselectedShift || 'FULL_DAY';
+        const initDuration: 'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY' = preselectedDuration
+          ? preselectedDuration
+          : initShift === 'FULL_DAY'
+          ? 'FULL_DAY'
+          : 'HALF_DAY';
+        setSelectedShift(initShift);
+        setStayDuration(initDuration);
+        const fee = getSuggestedFee(initShift, initDuration);
+        setTotalFee(fee);
+        setAmount(fee);
         setPaidForMonth(currentMonth);
+        setAssignedSeatNumber(preselectedSeatNumber || '');
         setNotes('');
       }
     }
-  }, [isOpen, preselectedStudent, students, currentMonth]);
+  }, [isOpen, preselectedStudent, preselectedSeatNumber, preselectedShift, preselectedDuration, students, currentMonth]);
 
   // When student selection changes, auto-update default amount & plan
   const handleStudentChange = (stdId: string) => {
     setSelectedStudentId(stdId);
     const found = students.find((s) => s.id === stdId);
     if (found) {
-      const shiftVal = found.shift || 'FULL_DAY';
-      setPlanDuration(shiftVal);
+      const prevSeat = getStudentPreviousSeat(found);
+      const seatToSet = found.seatNumber || (prevSeat.seatNumber && availableSeats.some((s) => s.seatNumber === prevSeat.seatNumber) ? prevSeat.seatNumber : '');
+      setAssignedSeatNumber(seatToSet);
+
+      const { shift: initShift, duration: initDuration } = resolveStudentShiftAndDuration(found);
+      setSelectedShift(initShift);
+      setStayDuration(initDuration);
+
       const hasDue = Boolean(found.remainingFee && found.remainingFee > 0);
       if (hasDue) {
         setPaymentType('REMAINING_DUE');
@@ -151,7 +235,9 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         setNotes(`Remaining fee clearance for ${targetMonth}`);
       } else {
         setPaymentType('NEW_MONTH');
-        const fee = getSuggestedFee(shiftVal, found.monthlyFee);
+        const isUnenrolled = !found.transactions?.length && !found.seatNumber;
+        const agreed = isUnenrolled ? 0 : getStudentAgreedRate(found);
+        const fee = getSuggestedFee(initShift, initDuration, agreed > 0 ? agreed : undefined);
         setTotalFee(fee);
         setAmount(fee);
         setPaidForMonth(currentMonth);
@@ -160,9 +246,122 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
     }
   };
 
-  if (!isOpen) return null;
-
   const currentStudent = students.find((s) => s.id === selectedStudentId) || preselectedStudent;
+
+  const filteredStudents = useMemo(() => {
+    if (!studentSearchQuery.trim()) return students;
+    const q = studentSearchQuery.toLowerCase().trim();
+    return students.filter((s) => {
+      const nameMatch = s.fullName.toLowerCase().includes(q);
+      const phoneMatch = s.phone.toLowerCase().includes(q);
+      const seatMatch = s.seatNumber ? `seat ${s.seatNumber}`.toLowerCase().includes(q) || s.seatNumber.toLowerCase().includes(q) : false;
+      const prevSeatMatch = s.previousSeatNumber ? `seat ${s.previousSeatNumber}`.toLowerCase().includes(q) || s.previousSeatNumber.toLowerCase().includes(q) : false;
+      const purposeMatch = s.studyPurpose ? s.studyPurpose.toLowerCase().includes(q) : false;
+      return nameMatch || phoneMatch || seatMatch || prevSeatMatch || purposeMatch;
+    });
+  }, [students, studentSearchQuery]);
+
+  const monthPeriodStatus = useMemo(() => {
+    if (!currentStudent) return null;
+
+    const studentTxs = currentStudent.transactions || [];
+    const targetMonth = (paidForMonth || '').trim();
+
+    // Try finding matching transaction for this month or date range
+    const matchingTx = studentTxs.find((tx) => {
+      // 1. Exact or partial string match on paidForMonth
+      if (tx.paidForMonth && targetMonth) {
+        const pMonth = tx.paidForMonth.toLowerCase().trim();
+        const tMonth = targetMonth.toLowerCase().trim();
+        if (pMonth === tMonth) return true;
+
+        // Extract month names and 4-digit years
+        const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec'];
+        const tMatchedMonths = months.filter((m) => tMonth.includes(m));
+        const pMatchedMonths = months.filter((m) => pMonth.includes(m));
+
+        const tYearMatch = tMonth.match(/\b(20\d\d)\b/);
+        const pYearMatch = pMonth.match(/\b(20\d\d)\b/);
+
+        if (tMatchedMonths.length > 0 && pMatchedMonths.length > 0) {
+          const monthOverlaps = tMatchedMonths.some((tm) =>
+            pMatchedMonths.some((pm) => tm.startsWith(pm) || pm.startsWith(tm))
+          );
+          const yearMatches = !tYearMatch || !pYearMatch || tYearMatch[1] === pYearMatch[1];
+          if (monthOverlaps && yearMatches) return true;
+        }
+      }
+
+      // 2. Date overlap match via validFrom/validTo
+      if (tx.validFrom && validFrom) {
+        const d1 = new Date(tx.validFrom);
+        const d2 = new Date(validFrom);
+        if (!isNaN(d1.getTime()) && !isNaN(d2.getTime())) {
+          if (d1.getFullYear() === d2.getFullYear() && d1.getMonth() === d2.getMonth()) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    });
+
+    const agreedRate = getStudentAgreedRate(currentStudent);
+
+    if (matchingTx) {
+      const txPaid = Number(matchingTx.amount || 0);
+      const txTotal = Number(matchingTx.totalFee || txPaid);
+      const txRemaining =
+        matchingTx.remainingFee !== undefined
+          ? Number(matchingTx.remainingFee)
+          : Math.max(0, txTotal - txPaid);
+
+      if (txRemaining === 0 && txPaid > 0) {
+        return {
+          status: 'ALREADY_PAID' as const,
+          paidAmount: txPaid,
+          totalFee: txTotal,
+          remainingDue: 0,
+          tx: matchingTx,
+        };
+      } else if (txRemaining > 0) {
+        return {
+          status: 'PARTIAL_DUE' as const,
+          paidAmount: txPaid,
+          totalFee: txTotal,
+          remainingDue: txRemaining,
+          tx: matchingTx,
+        };
+      }
+    }
+
+    // Check if student overall has remaining fee due
+    const studentDue = currentStudent.remainingFee || 0;
+    if (studentDue > 0) {
+      return {
+        status: 'PARTIAL_DUE' as const,
+        paidAmount: Math.max(0, agreedRate - studentDue),
+        totalFee: agreedRate,
+        remainingDue: studentDue,
+        tx: studentTxs[0] || null,
+      };
+    }
+
+    return {
+      status: 'NO_PAYMENT' as const,
+      paidAmount: 0,
+      totalFee: agreedRate,
+      remainingDue: agreedRate,
+      tx: null,
+    };
+  }, [currentStudent, paidForMonth, validFrom, validTo]);
+
+  const previousSeatInfo = useMemo(() => {
+    if (!currentStudent) return { seatNumber: null, inactiveDays: 0 };
+    return getStudentPreviousSeat(currentStudent);
+  }, [currentStudent]);
+
+  if (!isOpen) return null;
 
   const isSettlingDue = paymentType === 'REMAINING_DUE';
   const totalNum = totalFee === '' ? 0 : Number(totalFee);
@@ -171,8 +370,31 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
     ? Math.max(0, (currentStudent?.remainingFee || 0) - getFeeNum)
     : Math.max(0, totalNum - getFeeNum);
 
+  const isPeriodAlreadyPaid = monthPeriodStatus?.status === 'ALREADY_PAID';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Guard: Prevent duplicate fee collection if already paid for this period
+    if (isPeriodAlreadyPaid) {
+      if (assignedSeatNumber && assignedSeatNumber !== currentStudent?.seatNumber && onAssignSeat) {
+        setIsLoading(true);
+        try {
+          await onAssignSeat(selectedStudentId, assignedSeatNumber);
+          alert(`Seat ${assignedSeatNumber} successfully assigned to ${currentStudent?.fullName || 'student'}. Fee for this period (${paidForMonth}) was already cleared.`);
+          onClose();
+        } catch (err) {
+          console.error('Failed to assign seat:', err);
+          alert('Failed to assign seat. Please try again.');
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+      alert(`Fee for ${paidForMonth} is already fully paid (All dues cleared). You cannot record duplicate payment for the same month period. Click "Advance to Next Month / Cycle" if you want to record advance fee.`);
+      return;
+    }
+
     if (!selectedStudentId || amount === '' || Number(amount) <= 0) {
       alert('Please enter a valid received amount and select a student.');
       return;
@@ -190,6 +412,14 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
       ? Math.max(1, Math.round((new Date(validTo).getTime() - new Date(validFrom).getTime()) / (1000 * 60 * 60 * 24)))
       : 30;
 
+    if (assignedSeatNumber && assignedSeatNumber !== currentStudent?.seatNumber && onAssignSeat) {
+      try {
+        await onAssignSeat(selectedStudentId, assignedSeatNumber);
+      } catch (err) {
+        console.error('Failed to assign seat during fee collection:', err);
+      }
+    }
+
     setIsLoading(true);
     try {
       const res = await onRecordPayment({
@@ -204,8 +434,10 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         paymentDate: new Date(paymentDate).toISOString(),
         notes: notes.trim() || (isSettlingDue ? `Remaining fee clearance for ${paidForMonth}` : undefined),
         extendDays: calculatedDays,
-        shift: planDuration,
+        shift: selectedShift,
+        stayDuration: selectedShift === 'FULL_DAY' ? 'FULL_DAY' : stayDuration,
         isSettlingDue,
+        assignedSeatNumber: assignedSeatNumber || currentStudent?.seatNumber || undefined,
       });
 
       const receiptNum = res?.receiptNumber || `REC-${Date.now().toString().slice(-6)}`;
@@ -215,7 +447,8 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         studentName: currentStudent?.fullName || 'Student',
         studentPhone: currentStudent?.phone || '',
         seatNumber: currentStudent?.seatNumber || null,
-        shift: planDuration,
+        shift: selectedShift,
+        stayDuration: selectedShift === 'FULL_DAY' ? 'FULL_DAY' : stayDuration,
         receiptNumber: receiptNum,
         paidForMonth,
         validFrom,
@@ -279,6 +512,12 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                 <span className="text-slate-500 dark:text-neutral-400">Student & Seat:</span>
                 <span className="font-bold text-slate-900 dark:text-white">
                   {recordedReceipt.studentName} {recordedReceipt.seatNumber ? `(Seat ${recordedReceipt.seatNumber})` : ''}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-neutral-400">Shift & Duration:</span>
+                <span className="font-bold text-indigo-700 dark:text-indigo-300">
+                  {formatShiftSummary(recordedReceipt.shift, recordedReceipt.stayDuration)}
                 </span>
               </div>
               {recordedReceipt.isSettlingDue && (
@@ -398,51 +637,378 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3.5">
-          {/* Student Selector */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-              Select Enrolled Student *
-            </label>
-            {preselectedStudent ? (
-              <div className="p-3 bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  {currentStudent?.photoUrl ? (
+          {/* Searchable Student Selector */}
+          <div className="space-y-1.5 relative">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300">
+                Select Enrolled Student *
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsStudentDropdownOpen((prev) => !prev)}
+                className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
+              >
+                <Search className="w-3 h-3" />
+                <span>{isStudentDropdownOpen ? 'Close Search' : 'Search / Change Student'}</span>
+              </button>
+            </div>
+
+            {/* Selected Student Summary Card */}
+            {currentStudent && (
+              <div
+                onClick={() => setIsStudentDropdownOpen((prev) => !prev)}
+                className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                  isStudentDropdownOpen
+                    ? 'bg-indigo-50/70 dark:bg-indigo-950/40 border-indigo-500 dark:border-indigo-500 shadow-2xs'
+                    : 'bg-slate-50 dark:bg-[#1c1c1e] border-slate-200 dark:border-[#262626] hover:border-slate-300 dark:hover:border-[#363636]'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {currentStudent.photoUrl ? (
                     <img
                       src={currentStudent.photoUrl}
                       alt={currentStudent.fullName}
-                      className="w-9 h-9 rounded-full object-cover border border-slate-200 dark:border-[#363636]"
+                      className="w-9 h-9 rounded-full object-cover border border-slate-200 dark:border-[#363636] shrink-0"
                     />
                   ) : (
-                    <div className="w-9 h-9 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-xs">
-                      {currentStudent?.fullName.slice(0, 2).toUpperCase()}
+                    <div className="w-9 h-9 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-xs shrink-0">
+                      {currentStudent.fullName.slice(0, 2).toUpperCase()}
                     </div>
                   )}
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-900 dark:text-white">{currentStudent?.fullName}</h4>
-                    <p className="text-[11px] text-slate-500 dark:text-neutral-400">{currentStudent?.phone}</p>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">{currentStudent.fullName}</h4>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md ${
+                        currentStudent.status === 'ACTIVE'
+                          ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
+                          : 'bg-slate-200 dark:bg-neutral-800 text-slate-600 dark:text-neutral-400'
+                      }`}>
+                        {currentStudent.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-neutral-400 mt-0.5">
+                      <span>{currentStudent.phone}</span>
+                      <span>•</span>
+                      <span>
+                        {!currentStudent.transactions?.length && !currentStudent.seatNumber
+                          ? 'Admission Recorded (No Enrollment)'
+                          : formatShiftSummary(currentStudent.shift, currentStudent.stayDuration)}
+                      </span>
+                    </div>
                   </div>
                 </div>
-                {currentStudent?.seatNumber && (
-                  <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/50 px-2 py-0.5 rounded-lg flex items-center gap-1">
-                    <Armchair className="w-3 h-3" /> Seat {currentStudent.seatNumber}
-                  </span>
-                )}
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {currentStudent.seatNumber ? (
+                    <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/50 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                      <Armchair className="w-3 h-3" /> Seat {currentStudent.seatNumber}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-semibold text-slate-500 dark:text-neutral-400 bg-slate-100 dark:bg-[#262626] px-1.5 py-0.5 rounded-md">
+                      No Seat
+                    </span>
+                  )}
+                  {currentStudent.remainingFee && currentStudent.remainingFee > 0 ? (
+                    <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 px-2 py-0.5 rounded-md">
+                      Due: ₹{currentStudent.remainingFee}
+                    </span>
+                  ) : (!currentStudent.transactions?.length && !currentStudent.seatNumber) ? (
+                    <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/50 px-1.5 py-0.5 rounded-md">
+                      Unenrolled
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 px-1.5 py-0.5 rounded-md">
+                      Paid
+                    </span>
+                  )}
+                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isStudentDropdownOpen ? 'rotate-180 text-indigo-600' : ''}`} />
+                </div>
               </div>
-            ) : (
-              <select
-                value={selectedStudentId}
-                onChange={(e) => handleStudentChange(e.target.value)}
-                required
-                className="w-full px-3 py-2 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-              >
-                {students.map((s) => (
-                  <option key={s.id} value={s.id} className="dark:bg-[#1c1c1e] dark:text-neutral-100">
-                    {s.fullName} ({s.phone}) {s.seatNumber ? `• Seat ${s.seatNumber}` : ''} {s.remainingFee && s.remainingFee > 0 ? `• [Due: ₹${s.remainingFee}]` : ''}
-                  </option>
-                ))}
-              </select>
+            )}
+
+            {/* Search Dropdown Popup */}
+            {isStudentDropdownOpen && (
+              <div className="p-2.5 bg-white dark:bg-[#1a1a1c] border border-slate-300 dark:border-[#333] rounded-xl shadow-xl space-y-2 z-30 animate-in fade-in zoom-in-95 duration-100">
+                {/* Search Input */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400 dark:text-neutral-500" />
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="Search by student name, phone, or seat number..."
+                    value={studentSearchQuery}
+                    onChange={(e) => setStudentSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-8 py-1.5 bg-slate-50 dark:bg-[#141414] border border-slate-200 dark:border-[#2a2a2a] rounded-lg text-xs text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {studentSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setStudentSearchQuery('')}
+                      className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-neutral-200 text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* List of matching students */}
+                <div className="max-h-52 overflow-y-auto space-y-1 divide-y divide-slate-100 dark:divide-[#262626]/40 pr-0.5">
+                  {filteredStudents.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-400 dark:text-neutral-500">
+                      No students found matching &quot;{studentSearchQuery}&quot;
+                    </div>
+                  ) : (
+                    filteredStudents.map((s) => {
+                      const isSelected = s.id === selectedStudentId;
+                      const agreedRate = getStudentAgreedRate(s);
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => {
+                            handleStudentChange(s.id);
+                            setIsStudentDropdownOpen(false);
+                            setStudentSearchQuery('');
+                          }}
+                          className={`w-full p-2 rounded-lg flex items-center justify-between text-left transition-colors cursor-pointer pt-2 ${
+                            isSelected
+                              ? 'bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800'
+                              : 'hover:bg-slate-50 dark:hover:bg-[#222]'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className={`w-7 h-7 rounded-full font-bold flex items-center justify-center text-[10px] shrink-0 ${
+                              isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-[#2a2a2a] text-slate-700 dark:text-neutral-300'
+                            }`}>
+                              {s.fullName.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                {s.fullName}
+                              </div>
+                              <div className="text-[10px] text-slate-500 dark:text-neutral-400">
+                                {s.phone} {s.studyPurpose ? `• ${s.studyPurpose}` : ''}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {s.seatNumber && (
+                              <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-1.5 py-0.5 rounded border border-indigo-100 dark:border-indigo-900">
+                                Seat {s.seatNumber}
+                              </span>
+                            )}
+                            {s.remainingFee && s.remainingFee > 0 ? (
+                              <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded">
+                                Due: ₹{s.remainingFee}
+                              </span>
+                            ) : (!s.transactions?.length && !s.seatNumber) ? (
+                              <span className="text-[10px] font-bold text-slate-500 dark:text-neutral-500 bg-slate-100 dark:bg-[#2a2a2a] px-1.5 py-0.5 rounded">
+                                Not Enrolled
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded">
+                                ₹{agreedRate}/mo
+                              </span>
+                            )}
+                            {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 ml-1" />}
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
             )}
           </div>
+
+          {/* Seat Allocation Selector */}
+          {availableSeats && availableSeats.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Armchair className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span>Assign / Confirm Seat</span>
+                </span>
+                {currentStudent?.seatNumber ? (
+                  <span className="text-[10px] text-emerald-700 dark:text-emerald-300 font-bold bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 px-1.5 py-0.5 rounded-md">
+                    Seat {currentStudent.seatNumber}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-amber-700 dark:text-amber-300 font-bold bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 px-1.5 py-0.5 rounded-md">
+                    Seat Required
+                  </span>
+                )}
+              </label>
+
+              {/* Intelligent Previous Seat Quick Suggestion (< 30 days inactive) */}
+              {!currentStudent?.seatNumber && previousSeatInfo.seatNumber && (
+                (() => {
+                  const isPrevSeatAvail = availableSeats.some((s) => s.seatNumber === previousSeatInfo.seatNumber);
+                  return (
+                    <div className="p-2 bg-indigo-50/90 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/60 rounded-xl flex items-center justify-between text-xs animate-in fade-in duration-150">
+                      <div className="flex items-center gap-1.5 text-indigo-950 dark:text-indigo-200">
+                        <Armchair className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                        <span>
+                          Previous Seat: <strong className="font-bold text-indigo-700 dark:text-indigo-300">Seat {previousSeatInfo.seatNumber}</strong>
+                          {previousSeatInfo.inactiveDays > 0 ? (
+                            <span className="text-[11px] text-slate-500 dark:text-neutral-400 ml-1">
+                              ({previousSeatInfo.inactiveDays}d ago)
+                            </span>
+                          ) : ''}
+                        </span>
+                      </div>
+                      {isPrevSeatAvail ? (
+                        <button
+                          type="button"
+                          onClick={() => setAssignedSeatNumber(previousSeatInfo.seatNumber!)}
+                          className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer shadow-2xs ${
+                            assignedSeatNumber === previousSeatInfo.seatNumber
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95'
+                          }`}
+                        >
+                          {assignedSeatNumber === previousSeatInfo.seatNumber ? 'Selected ✓' : 'Assign Old Seat'}
+                        </button>
+                      ) : (
+                        <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100/70 dark:bg-amber-950/60 px-2 py-0.5 rounded-md border border-amber-300 dark:border-amber-800/60">
+                          Currently Occupied
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()
+              )}
+
+              <select
+                value={assignedSeatNumber}
+                onChange={(e) => setAssignedSeatNumber(e.target.value)}
+                className="w-full px-3 py-2 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">
+                  {currentStudent?.seatNumber
+                    ? `Keep Current (Seat ${currentStudent.seatNumber})`
+                    : previousSeatInfo.seatNumber
+                    ? `-- Select Seat to Assign (Old Seat: ${previousSeatInfo.seatNumber}) --`
+                    : '-- Select Seat to Assign --'}
+                </option>
+                {availableSeats.map((seat) => {
+                  const isOldSeat = previousSeatInfo.seatNumber && seat.seatNumber === previousSeatInfo.seatNumber;
+                  return (
+                    <option key={seat.id} value={seat.seatNumber}>
+                      {isOldSeat ? '⭐ ' : ''}Seat {seat.seatNumber} {seat.rowName ? `(${seat.rowName})` : ''} {isOldSeat ? '(Previous Seat)' : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
+
+          {/* Month / Period Payment Status Alert */}
+          {monthPeriodStatus && (
+            <div className="space-y-1.5">
+              {monthPeriodStatus.status === 'ALREADY_PAID' && (
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700/60 rounded-xl space-y-1.5 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-emerald-900 dark:text-emerald-200">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span>Fee Already Paid for this Period ({paidForMonth})</span>
+                    </div>
+                    <span className="text-[10px] font-extrabold text-emerald-800 dark:text-emerald-300 bg-emerald-200/70 dark:bg-emerald-900/60 px-2 py-0.5 rounded-full">
+                      All Dues Cleared (₹0 Due) ✅
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-emerald-800 dark:text-emerald-300 leading-snug">
+                    Student has already paid <strong className="font-bold">₹{monthPeriodStatus.paidAmount}</strong> for{' '}
+                    <strong className="font-bold">{paidForMonth}</strong>
+                    {monthPeriodStatus.tx?.paymentDate ? ` on ${new Date(monthPeriodStatus.tx.paymentDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
+                    {monthPeriodStatus.tx?.receiptNumber ? ` (Receipt #${monthPeriodStatus.tx.receiptNumber})` : ''}.
+                  </p>
+                  <div className="flex items-center justify-between pt-1 border-t border-emerald-200 dark:border-emerald-800/40">
+                    <span className="text-[10px] text-emerald-700 dark:text-emerald-400">
+                      Recording advance fee for next month?
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const currValidTo = validTo || new Date().toISOString().split('T')[0];
+                        const nextFrom = currValidTo;
+                        const d = new Date(nextFrom);
+                        d.setDate(d.getDate() + 30);
+                        const nextTo = d.toISOString().split('T')[0];
+                        setValidFrom(nextFrom);
+                        setValidTo(nextTo);
+                        setPaidForMonth(formatMonthPeriod(nextFrom, nextTo));
+                        const agreed = getStudentAgreedRate(currentStudent);
+                        setTotalFee(agreed);
+                        setAmount(agreed);
+                      }}
+                      className="text-[11px] font-bold text-emerald-800 dark:text-emerald-200 hover:underline cursor-pointer flex items-center gap-1"
+                    >
+                      <span>👉 Advance to Next Month / Cycle</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {monthPeriodStatus.status === 'PARTIAL_DUE' && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 rounded-xl space-y-1.5 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-amber-900 dark:text-amber-200">
+                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <span>Partial Fee Due for {paidForMonth}</span>
+                    </div>
+                    <span className="text-[10px] font-extrabold text-amber-900 dark:text-amber-200 bg-amber-200/80 dark:bg-amber-900/60 px-2 py-0.5 rounded-full">
+                      Pending Due: ₹{monthPeriodStatus.remainingDue} ⚠️
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-snug">
+                    Student previously paid <strong className="font-bold">₹{monthPeriodStatus.paidAmount}</strong> out of{' '}
+                    <strong className="font-bold">₹{monthPeriodStatus.totalFee}</strong>. Balance remaining due is{' '}
+                    <strong className="font-bold">₹{monthPeriodStatus.remainingDue}</strong>.
+                  </p>
+                  <div className="flex items-center justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentType('REMAINING_DUE');
+                        setTotalFee(monthPeriodStatus.remainingDue);
+                        setAmount(monthPeriodStatus.remainingDue);
+                        setNotes(`Remaining fee clearance for ${paidForMonth}`);
+                      }}
+                      className="px-2.5 py-1 text-[11px] font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-lg shadow-2xs transition-all cursor-pointer flex items-center gap-1"
+                    >
+                      <span>⚡ Clear Balance Due (₹{monthPeriodStatus.remainingDue})</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {monthPeriodStatus.status === 'NO_PAYMENT' && (
+                <div className="p-2.5 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/50 rounded-xl flex items-center justify-between text-xs animate-in fade-in duration-150">
+                  <div className="flex items-center gap-2">
+                    <IndianRupee className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                    <div className="text-[11px] text-indigo-950 dark:text-indigo-200">
+                      {!currentStudent?.transactions?.length && !currentStudent?.seatNumber ? (
+                        <>
+                          <span className="font-bold">Initial Enrollment Fee ({paidForMonth}):</span> Plan rate is{' '}
+                          <strong className="font-bold text-indigo-700 dark:text-indigo-300">₹{totalFee !== '' && Number(totalFee) > 0 ? totalFee : (monthPeriodStatus.totalFee || 1200)}</strong> ({formatShiftSummary(selectedShift, stayDuration)}).
+                        </>
+                      ) : (
+                        <>
+                          <span className="font-bold">Fee Pending for {paidForMonth}:</span> Agreed plan rate is{' '}
+                          <strong className="font-bold text-indigo-700 dark:text-indigo-300">₹{totalFee !== '' && Number(totalFee) > 0 ? totalFee : (monthPeriodStatus.totalFee || 1200)}</strong> ({formatShiftSummary(selectedShift, stayDuration)}).
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/60 px-2 py-0.5 rounded-full shrink-0">
+                    {!currentStudent?.transactions?.length && !currentStudent?.seatNumber ? 'New Admission' : 'Fee Pending'}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* DUAL MODE SELECTOR (Only when student has existing remaining fee) */}
           {Boolean(currentStudent?.remainingFee && currentStudent.remainingFee > 0) && (
@@ -474,9 +1040,11 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                   type="button"
                   onClick={() => {
                     setPaymentType('NEW_MONTH');
-                    const shiftVal = currentStudent?.shift || 'FULL_DAY';
-                    setPlanDuration(shiftVal);
-                    const fee = getSuggestedFee(shiftVal, currentStudent?.monthlyFee);
+                    const { shift: newShift, duration: newDuration } = resolveStudentShiftAndDuration(currentStudent);
+                    setSelectedShift(newShift);
+                    setStayDuration(newDuration);
+                    const agreed = getStudentAgreedRate(currentStudent);
+                    const fee = getSuggestedFee(newShift, newDuration, agreed);
                     setTotalFee(fee);
                     setAmount(fee);
                     setPaidForMonth(currentMonth);
@@ -504,60 +1072,156 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
             </div>
           )}
 
-          {/* STAY DURATION / PLAN SELECTOR (Only in NEW_MONTH mode) */}
+          {/* SHIFT & STAY DURATION SELECTOR (Only in NEW_MONTH mode) */}
           {paymentType === 'NEW_MONTH' ? (
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-neutral-300 flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                  <span>Stay Duration / Plan (For this month) *</span>
-                </label>
-                <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
-                  {planDuration === 'FOUR_HOURS'
-                    ? '4 Hours'
-                    : planDuration === 'HALF_DAY'
-                    ? 'Half Day'
-                    : 'Full Day'}
-                </span>
+            <div className="space-y-3">
+              {/* Tier 1: Shift Selector (Morning, Evening, Full Day) */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-neutral-300 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>Select Shift *</span>
+                  </label>
+                  <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
+                    {selectedShift === 'MORNING'
+                      ? 'Morning Shift'
+                      : selectedShift === 'EVENING'
+                      ? 'Evening Shift'
+                      : 'Full Day'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    {
+                      id: 'MORNING' as const,
+                      title: 'Morning Shift',
+                      subtitle: '6 AM – 2 PM',
+                      icon: '🌅',
+                    },
+                    {
+                      id: 'EVENING' as const,
+                      title: 'Evening Shift',
+                      subtitle: '2 PM – 10 PM',
+                      icon: '🌇',
+                    },
+                    {
+                      id: 'FULL_DAY' as const,
+                      title: 'Full Day',
+                      subtitle: '24/7 Unlimited',
+                      icon: '☀️',
+                    },
+                  ].map((shiftOption) => (
+                    <button
+                      key={shiftOption.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedShift(shiftOption.id);
+                        let nextDuration = stayDuration;
+                        if (shiftOption.id === 'FULL_DAY') {
+                          nextDuration = 'FULL_DAY';
+                          setStayDuration('FULL_DAY');
+                        } else if (stayDuration === 'FULL_DAY') {
+                          nextDuration = 'HALF_DAY';
+                          setStayDuration('HALF_DAY');
+                        }
+                        const isStudentDefaultPlan =
+                          currentStudent &&
+                          resolveStudentShiftAndDuration(currentStudent).shift === shiftOption.id &&
+                          resolveStudentShiftAndDuration(currentStudent).duration === nextDuration;
+                        const agreed = getStudentAgreedRate(currentStudent);
+                        const fee = getSuggestedFee(
+                          shiftOption.id,
+                          nextDuration,
+                          isStudentDefaultPlan ? agreed : undefined
+                        );
+                        setTotalFee(fee);
+                        setAmount(fee);
+                      }}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                        selectedShift === shiftOption.id
+                          ? 'bg-indigo-50 dark:bg-indigo-950/50 border-indigo-600 dark:border-indigo-500 text-indigo-900 dark:text-indigo-200 ring-1 ring-indigo-600 dark:ring-indigo-500 shadow-2xs font-bold'
+                          : 'bg-white dark:bg-[#1c1c1e] border-slate-200 dark:border-[#262626] text-slate-600 dark:text-neutral-300 hover:bg-slate-50 dark:hover:bg-[#262626]'
+                      }`}
+                    >
+                      <div className="text-xs font-bold flex items-center justify-center gap-1">
+                        <span>{shiftOption.icon}</span>
+                        <span>{shiftOption.title}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 dark:text-neutral-500 mt-0.5">{shiftOption.subtitle}</div>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  {
-                    id: 'FOUR_HOURS',
-                    title: '4 Hours',
-                    subtitle: '4 Hours / Day',
-                  },
-                  {
-                    id: 'HALF_DAY',
-                    title: 'Half Day',
-                    subtitle: '6-8 Hours / Day',
-                  },
-                  {
-                    id: 'FULL_DAY',
-                    title: 'Full Day',
-                    subtitle: '24/7 Unlimited',
-                  },
-                ].map((plan) => (
-                  <button
-                    key={plan.id}
-                    type="button"
-                    onClick={() => {
-                      setPlanDuration(plan.id);
-                      const fee = getSuggestedFee(plan.id);
-                      setTotalFee(fee);
-                      setAmount(fee);
-                    }}
-                    className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
-                      planDuration === plan.id
-                        ? 'bg-indigo-50 dark:bg-indigo-950/50 border-indigo-600 dark:border-indigo-500 text-indigo-900 dark:text-indigo-200 ring-1 ring-indigo-600 dark:ring-indigo-500 shadow-2xs font-bold'
-                        : 'bg-white dark:bg-[#1c1c1e] border-slate-200 dark:border-[#262626] text-slate-600 dark:text-neutral-300 hover:bg-slate-50 dark:hover:bg-[#262626]'
-                    }`}
-                  >
-                    <div className="text-xs font-bold">{plan.title}</div>
-                    <div className="text-[10px] text-slate-400 dark:text-neutral-500 mt-0.5">{plan.subtitle}</div>
-                  </button>
-                ))}
-              </div>
+
+              {/* Tier 2: Stay Duration (Conditional: only for Morning or Evening shifts) */}
+              {selectedShift !== 'FULL_DAY' ? (
+                <div className="p-2.5 bg-slate-50/80 dark:bg-[#161616] border border-slate-200 dark:border-[#262626] rounded-xl space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-semibold text-slate-700 dark:text-neutral-300 flex items-center gap-1">
+                      <span>Stay Duration for {selectedShift === 'MORNING' ? 'Morning' : 'Evening'} Shift *</span>
+                    </label>
+                    <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300">
+                      {stayDuration === 'FOUR_HOURS' ? '4 Hours / Day' : 'Half Day (6–8 Hours)'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      {
+                        id: 'FOUR_HOURS' as const,
+                        title: '4 Hours',
+                        subtitle: '4 Hours / Day',
+                      },
+                      {
+                        id: 'HALF_DAY' as const,
+                        title: 'Half Day',
+                        subtitle: '6–8 Hours / Day',
+                      },
+                    ].map((dur) => (
+                      <button
+                        key={dur.id}
+                        type="button"
+                        onClick={() => {
+                          setStayDuration(dur.id);
+                          const isStudentDefaultPlan =
+                            currentStudent &&
+                            resolveStudentShiftAndDuration(currentStudent).shift === selectedShift &&
+                            resolveStudentShiftAndDuration(currentStudent).duration === dur.id;
+                          const agreed = getStudentAgreedRate(currentStudent);
+                          const fee = getSuggestedFee(
+                            selectedShift,
+                            dur.id,
+                            isStudentDefaultPlan ? agreed : undefined
+                          );
+                          setTotalFee(fee);
+                          setAmount(fee);
+                        }}
+                        className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                          stayDuration === dur.id
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs font-bold'
+                            : 'bg-white dark:bg-[#1f1f1f] border-slate-200 dark:border-[#2d2d2d] text-slate-700 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-[#282828]'
+                        }`}
+                      >
+                        <div className="text-xs font-bold">{dur.title}</div>
+                        <div className={`text-[10px] ${stayDuration === dur.id ? 'text-indigo-100' : 'text-slate-400 dark:text-neutral-500'} mt-0.5`}>
+                          {dur.subtitle}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-2.5 bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 rounded-xl flex items-center justify-between text-xs text-indigo-900 dark:text-indigo-200">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    Full Day Membership
+                  </span>
+                  <span className="font-bold text-[11px] text-indigo-700 dark:text-indigo-300">
+                    24/7 Unlimited Access (No slot restriction)
+                  </span>
+                </div>
+              )}
             </div>
           ) : (
             <div className="p-2.5 bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-[#2a2a2a] rounded-xl flex items-center justify-between text-xs">
@@ -566,7 +1230,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                 Current Active Plan:
               </span>
               <span className="font-bold text-slate-800 dark:text-neutral-200">
-                {planDuration === 'FOUR_HOURS' ? '4 Hours' : planDuration === 'HALF_DAY' ? 'Half Day' : 'Full Day'} (₹{currentStudent?.monthlyFee || 1200}/mo)
+                {formatShiftSummary(selectedShift, stayDuration)} (₹{currentStudent?.monthlyFee || 1200}/mo)
               </span>
             </div>
           )}
@@ -604,6 +1268,21 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                   />
                 </div>
               </div>
+            </div>
+          ) : isPeriodAlreadyPaid ? (
+            <div className="p-3 bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700/60 rounded-xl space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span>Fee for {paidForMonth} is Fully Cleared</span>
+                </span>
+                <span className="text-[10px] font-extrabold text-emerald-800 dark:text-emerald-300 bg-emerald-200/70 dark:bg-emerald-900/60 px-2 py-0.5 rounded-full">
+                  ₹0 Due (Paid)
+                </span>
+              </div>
+              <p className="text-[11px] text-emerald-800 dark:text-emerald-300">
+                Student already has an active paid enrollment for this cycle. Duplicate fees cannot be added for the same month period.
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-2.5">
@@ -812,14 +1491,36 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={isLoading || !selectedStudentId}
-              className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-            >
-              <IndianRupee className="w-3.5 h-3.5" />
-              <span>{isLoading ? 'Saving...' : 'Confirm & Collect Fee'}</span>
-            </button>
+            {isPeriodAlreadyPaid ? (
+              assignedSeatNumber && assignedSeatNumber !== currentStudent?.seatNumber ? (
+                <button
+                  type="submit"
+                  disabled={isLoading || !selectedStudentId}
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Armchair className="w-3.5 h-3.5" />
+                  <span>{isLoading ? 'Assigning Seat...' : `Assign Seat ${assignedSeatNumber} (Fee Cleared)`}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={true}
+                  className="flex-1 py-2.5 bg-slate-200 dark:bg-[#262626] text-slate-500 dark:text-neutral-400 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-not-allowed opacity-80"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Fee Already Paid for this Period</span>
+                </button>
+              )
+            ) : (
+              <button
+                type="submit"
+                disabled={isLoading || !selectedStudentId}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <IndianRupee className="w-3.5 h-3.5" />
+                <span>{isLoading ? 'Saving...' : 'Confirm & Collect Fee'}</span>
+              </button>
+            )}
           </div>
         </form>
         </>

@@ -14,11 +14,15 @@ interface JwtPayload {
 export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
   const adminEmailHeader = (req.headers['x-admin-email'] as string || '').toLowerCase().trim();
-  const configuredAdminEmail = (process.env.ADMIN_EMAIL || 'admin@libraryhub.com').toLowerCase().trim();
+  const KNOWN_SUPER_ADMINS = new Set([
+    'shubhamrewamp17@gmail.com',
+    'kushwahashubham5932@gmail.com',
+    ...(process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.split(',').map((e: string) => e.trim().toLowerCase()) : [])
+  ]);
 
   // 1. Check x-admin-email header for super admin verification
   if (adminEmailHeader) {
-    if (configuredAdminEmail && adminEmailHeader === configuredAdminEmail) {
+    if (KNOWN_SUPER_ADMINS.has(adminEmailHeader)) {
       req.userId = 'super-admin-root';
       req.isSuperAdmin = true;
       return next();

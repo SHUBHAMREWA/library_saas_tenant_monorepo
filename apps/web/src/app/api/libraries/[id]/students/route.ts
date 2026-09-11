@@ -65,6 +65,8 @@ export async function POST(
     const startDate = new Date();
     const expectedEndDate = new Date(startDate.getTime() + months * 30 * 86400000);
 
+    // Create membership record — status PAUSED until student is enrolled (fee paid)
+    // feeAmount stays 0 until first enrollment fee is recorded via CollectFeeModal
     const membership = await prisma.membership.create({
       data: {
         id: crypto.randomUUID(),
@@ -72,8 +74,8 @@ export async function POST(
         studentId: student.id,
         startDate,
         expectedEndDate,
-        status: 'ACTIVE',
-        feeAmount: initialAmount > 0 ? initialAmount : 1000,
+        status: initialAmount > 0 ? 'ACTIVE' : 'PAUSED',
+        feeAmount: initialAmount > 0 ? initialAmount : 0,
         shift: (shift || 'FULL_DAY') as any,
       },
     });
@@ -155,7 +157,7 @@ export async function POST(
         kycPhotoUrl: student.kycPhotoUrl || undefined,
         kycDocId: student.kycDocId || undefined,
         kycType: student.kycDocType,
-        shift: membership.shift,
+        shift: (initialAmount > 0 || finalAssignedSeatNumber || shift) ? membership.shift : undefined,
         seatNumber: finalAssignedSeatNumber,
         status: !finalAssignedSeatNumber ? 'INACTIVE' : 'ACTIVE',
         membershipEndsInDays: initialAmount > 0 ? months * 30 : 0,

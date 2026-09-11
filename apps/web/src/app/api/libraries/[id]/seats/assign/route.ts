@@ -96,15 +96,36 @@ export async function POST(
         return NextResponse.json({ error: 'Seat not found' }, { status: 404 });
       }
 
-      // If this target seat had an active assignment by someone else, complete it
+      // 4. Determine target shift collision logic
+      const targetShift = (shift || membership.shift || 'FULL_DAY').toUpperCase();
+      const isMorning = targetShift === 'MORNING' || targetShift === 'FOUR_HOURS' || targetShift === 'HALF_DAY';
+      const isEvening = targetShift === 'EVENING';
+
       const prevOccupantAssignments = await prisma.seatAssignment.findMany({
         where: { seatId: targetSeat.id, libraryId, status: 'ACTIVE' },
       });
+
       for (const poa of prevOccupantAssignments) {
-        await prisma.seatAssignment.update({
-          where: { id: poa.id },
-          data: { status: 'RELEASED', endDate: new Date() },
-        });
+        // Skip if this assignment is for the same student
+        if (poa.studentId === student.id) continue;
+
+        const poaShift = (poa.shift || 'FULL_DAY').toUpperCase();
+        const poaIsMorning = poaShift === 'MORNING' || poaShift === 'FOUR_HOURS' || poaShift === 'HALF_DAY';
+        const poaIsEvening = poaShift === 'EVENING';
+
+        // Conflict occurs if assigning FULL_DAY, or existing is FULL_DAY, or same shift (Morning vs Morning, Evening vs Evening)
+        const isConflict =
+          targetShift === 'FULL_DAY' ||
+          poaShift === 'FULL_DAY' ||
+          (isMorning && poaIsMorning) ||
+          (isEvening && poaIsEvening);
+
+        if (isConflict) {
+          await prisma.seatAssignment.update({
+            where: { id: poa.id },
+            data: { status: 'RELEASED', endDate: new Date() },
+          });
+        }
       }
 
       // Update target seat to RESERVED or OCCUPIED

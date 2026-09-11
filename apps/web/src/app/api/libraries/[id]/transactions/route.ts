@@ -102,6 +102,7 @@ export async function POST(
       notes,
       extendDays,
       shift,
+      stayDuration,
       isSettlingDue,
     } = body;
 
@@ -146,7 +147,8 @@ export async function POST(
       where: { id: studentId, libraryId },
       include: {
         memberships: {
-          where: { status: 'ACTIVE' },
+          // Include ACTIVE or PAUSED memberships — PAUSED is the initial state for newly admitted students
+          where: { status: { in: ['ACTIVE', 'PAUSED'] } },
           orderBy: { createdAt: 'desc' },
           take: 1,
         },
@@ -308,6 +310,7 @@ export async function POST(
         remainingFee: remainingFee !== undefined ? Number(remainingFee) : 0,
         membershipEndsInDays: newDaysRemaining,
         shift: shift || activeMembership?.shift || 'FULL_DAY',
+        stayDuration: stayDuration || (shift === 'FULL_DAY' ? 'FULL_DAY' : 'FOUR_HOURS'),
       },
     });
   } catch (error: any) {

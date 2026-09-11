@@ -17,7 +17,6 @@ interface QuickCheckHeroProps {
   onOpenAuth: () => void;
   onOpenCreateLibrary: () => void;
   onOpenAddRoom: () => void;
-  onOpenGenerateSeats: () => void;
   onOpenAddStudent: () => void;
   isLoggedIn: boolean;
   libraryName: string;
@@ -27,7 +26,6 @@ export function QuickCheckHero({
   onOpenAuth,
   onOpenCreateLibrary,
   onOpenAddRoom,
-  onOpenGenerateSeats,
   onOpenAddStudent,
   isLoggedIn,
   libraryName,
@@ -55,22 +53,12 @@ export function QuickCheckHero({
     },
     {
       step: '3',
-      title: 'Generate Seats',
-      description: 'Auto-sequence seat grids from A-01 to A-50',
-      icon: Armchair,
-      action: onOpenGenerateSeats,
-      actionText: 'Batch Seats',
-      badge: 'Step 3',
-      color: 'from-violet-600 to-purple-600',
-    },
-    {
-      step: '4',
       title: 'Add Students',
       description: 'Assign shift seats, upload KYC, track fee dues',
       icon: Users,
       action: onOpenAddStudent,
       actionText: 'Enroll Student',
-      badge: 'Step 4',
+      badge: 'Step 3',
       color: 'from-emerald-600 to-teal-600',
     },
   ];

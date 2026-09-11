@@ -7,7 +7,10 @@ const rawBackendUrl =
 
 const RENDER_BACKEND_ORIGIN = rawBackendUrl
   .replace(/\/api\/v1\/?$/, '')
-  .replace(/\/$/, '');
+  .replace(/\/$/, '')
+  .replace('://localhost:', '://127.0.0.1:');
+
+const PRODUCTION_RENDER_ORIGIN = 'https://seelibrarybackend.onrender.com';
 
 export async function proxyAdminRequest(req: NextRequest, subpath: string): Promise<NextResponse> {
   const url = new URL(req.url);
@@ -41,7 +44,7 @@ export async function proxyAdminRequest(req: NextRequest, subpath: string): Prom
       headers: forwardHeaders,
       body: body || undefined,
       cache: 'no-store',
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(7000),
     });
 
     const data = await res.text();
@@ -52,7 +55,32 @@ export async function proxyAdminRequest(req: NextRequest, subpath: string): Prom
       },
     });
   } catch (error: any) {
-    console.error(`[Admin Proxy] Error forwarding to ${targetUrl}:`, error);
+    console.warn(`[Admin Proxy] Local endpoint ${targetUrl} failed (${error?.message || error}), attempting production fallback...`);
+
+    // If local endpoint failed and is not already production, try Render production backend
+    if (RENDER_BACKEND_ORIGIN !== PRODUCTION_RENDER_ORIGIN) {
+      try {
+        const fallbackUrl = `${PRODUCTION_RENDER_ORIGIN}/api/v1/admin/${cleanSubpath}${url.search}`;
+        const fbRes = await fetch(fallbackUrl, {
+          method: req.method,
+          headers: forwardHeaders,
+          body: body || undefined,
+          cache: 'no-store',
+          signal: AbortSignal.timeout(10000),
+        });
+
+        const fbData = await fbRes.text();
+        return new NextResponse(fbData, {
+          status: fbRes.status,
+          headers: {
+            'content-type': fbRes.headers.get('content-type') || 'application/json',
+          },
+        });
+      } catch (fbErr: any) {
+        console.error(`[Admin Proxy] Fallback to production also failed:`, fbErr);
+      }
+    }
+
     return NextResponse.json(
       { error: error?.message || 'Failed to reach backend service' },
       { status: 502 }

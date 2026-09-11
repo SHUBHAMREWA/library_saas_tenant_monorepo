@@ -72,11 +72,12 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   const [selectedMode, setSelectedMode] = useState<string>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
 
-  // Derive unique years available in transactions
+  // Derive unique years available in transactions (spanning 2024 to 2050)
   const availableYears = useMemo(() => {
     const years = new Set<string>();
-    const currentYear = new Date().getFullYear().toString();
-    years.add(currentYear);
+    for (let yr = 2024; yr <= 2050; yr++) {
+      years.add(yr.toString());
+    }
     transactions.forEach((t) => {
       if (t.paymentDate) {
         const yr = new Date(t.paymentDate).getFullYear().toString();
@@ -91,7 +92,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         if (match) years.add(match[1]);
       }
     });
-    return Array.from(years).sort((a, b) => b.localeCompare(a));
+    return Array.from(years).sort((a, b) => Number(a) - Number(b));
   }, [transactions]);
 
   // Statistics calculation
@@ -153,7 +154,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   }, [transactions, searchQuery, selectedYear, selectedMonth, selectedMode, selectedStatus]);
 
   return (
-    <div className="space-y-4 text-slate-900 dark:text-white transition-colors">
+    <div className="space-y-4 text-slate-900 dark:text-white transition-colors w-full max-w-full overflow-x-hidden">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-[#121212] p-4 rounded-2xl border border-slate-200 dark:border-[#262626] shadow-xs">
         <div>

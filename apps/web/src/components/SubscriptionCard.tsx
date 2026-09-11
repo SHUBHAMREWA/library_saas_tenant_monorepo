@@ -36,7 +36,9 @@ export interface SubscriptionPaymentRecord {
   daysAdjusted?: number | null;
   previousEndDate?: string | null;
   newEndDate?: string | null;
+  originalAmount?: number;
   discountApplied?: number;
+  couponCode?: string | null;
   failureReason?: string | null;
   statusDetail?: string | null;
 }
@@ -93,11 +95,21 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
   const [coupon, setCoupon] = useState('');
   const [discount, setDiscount] = useState<number | null>(null);
   const [couponFeedback, setCouponFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [celebrationSavings, setCelebrationSavings] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [paymentsHistory, setPaymentsHistory] = useState<SubscriptionPaymentRecord[]>([]);
   const [availablePlans, setAvailablePlans] = useState<AvailablePlanItem[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<'ALL' | 'SUCCESS' | 'PENDING' | 'FAILED'>('ALL');
+
+  const triggerCelebration = (savings: number) => {
+    setCelebrationSavings(savings);
+    setShowCelebration(true);
+    setTimeout(() => {
+      setShowCelebration(false);
+    }, 400);
+  };
   
   // Autopay States
   const [isAutopaySelected, setIsAutopaySelected] = useState(true);
@@ -172,6 +184,31 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
     } finally {
       setIsLoadingHistory(false);
     }
+
+    // Always fetch latest live plans from /api/plans
+    try {
+      const pRes = await fetch('/api/plans');
+      if (pRes.ok) {
+        const pData = await pRes.json();
+        const livePlans = pData.plans || pData.data;
+        if (Array.isArray(livePlans) && livePlans.length > 0) {
+          const mapped: AvailablePlanItem[] = livePlans.map((p: any) => ({
+            id: p.id,
+            code: p.code,
+            name: p.name,
+            price: Number(p.price ?? p.priceMonthly),
+            originalPrice: Number(p.originalPrice ?? p.priceYearly),
+            durationMonths: Number(p.durationMonths || 1),
+            badge: p.badge || '',
+            description: p.description || '',
+          }));
+          setAvailablePlans(mapped);
+          if (!mapped.some((p) => p.code === selectedPlanCode)) {
+            setSelectedPlanCode(mapped[0].code);
+          }
+        }
+      }
+    } catch {}
   };
 
   const handleCancelAutopay = async () => {
@@ -240,6 +277,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
         type: 'success',
         message: `Coupon '${clean}' applied! You saved ₹${disc.toLocaleString('en-IN')}.`,
       });
+      triggerCelebration(disc);
       return;
     }
 
@@ -257,6 +295,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
           type: 'success',
           message: `Coupon '${clean}' applied! You saved ₹${data.discountAmount.toLocaleString('en-IN')}.`,
         });
+        triggerCelebration(data.discountAmount);
       } else {
         setDiscount(null);
         setCouponFeedback({
@@ -706,13 +745,32 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                           <span className="text-slate-400 dark:text-[#737373] text-[11px] italic">Not applied</span>
                         )}
                       </td>
-                      <td className="px-4 py-3.5 whitespace-nowrap font-bold text-slate-900 dark:text-white">
-                        ₹{item.amount.toLocaleString('en-IN')}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="font-bold text-slate-900 dark:text-white">
+                          ₹{item.amount.toLocaleString('en-IN')}
+                        </div>
+                        {item.discountApplied && item.discountApplied > 0 ? (
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800/60 inline-flex items-center gap-0.5">
+                              <Tag className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                              {item.couponCode ? item.couponCode : 'Coupon'} (-₹{item.discountApplied.toLocaleString('en-IN')})
+                            </span>
+                            {item.originalAmount && item.originalAmount > item.amount && (
+                              <span className="text-[10px] text-slate-400 dark:text-[#737373] line-through">
+                                ₹{item.originalAmount.toLocaleString('en-IN')}
+                              </span>
+                            )}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3.5 whitespace-nowrap">
-                        <span className="font-mono text-[11px] text-slate-600 dark:text-slate-300 block">{item.paymentId}</span>
+                        <span className="font-mono text-[11px] text-slate-700 dark:text-slate-300 block select-all font-medium">
+                          {item.paymentId}
+                        </span>
                         {item.orderId && (
-                          <span className="text-[10px] text-slate-400 dark:text-[#737373] font-mono block">Order: {item.orderId}</span>
+                          <span className="text-[10px] text-slate-400 dark:text-[#737373] font-mono block select-all">
+                            Order: {item.orderId}
+                          </span>
                         )}
                       </td>
                       <td className="px-5 py-3.5 whitespace-nowrap text-right">
@@ -902,36 +960,39 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
             </div>
 
             {/* Price Summary */}
-            <div className="bg-slate-50 dark:bg-[#1a1a1a] p-4 rounded-2xl border border-slate-200 dark:border-[#262626] text-xs space-y-1.5">
+            <div className="bg-slate-50 dark:bg-[#1a1a1a] p-4 rounded-2xl border border-slate-200 dark:border-[#262626] text-xs space-y-2">
               <div className="flex justify-between text-slate-600 dark:text-[#a8a8a8]">
                 <span>Selected Plan</span>
                 <span className="font-semibold text-slate-900 dark:text-white">{activeSelectedPlan.name} ({activeSelectedPlan.durationMonths} Mo)</span>
               </div>
               <div className="flex justify-between text-slate-600 dark:text-[#a8a8a8]">
-                <span>Plan Price</span>
-                <span className="text-slate-900 dark:text-white">₹{baseTotal}</span>
+                <span>Plan Original Price</span>
+                <span className={`font-semibold ${discount !== null && discount > 0 ? 'line-through text-slate-400 dark:text-[#737373]' : 'text-slate-900 dark:text-white'}`}>
+                  ₹{baseTotal.toLocaleString('en-IN')}
+                </span>
               </div>
-              {discount !== null && (
-                <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-semibold">
-                  <span>Coupon Discount</span>
-                  <span>-₹{discount}</span>
+              {discount !== null && discount > 0 && (
+                <div className="flex justify-between items-center bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded-xl border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <Tag className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Coupon Offer Applied ({coupon.trim().toUpperCase()})</span>
+                  </div>
+                  <span className="font-extrabold text-xs text-emerald-700 dark:text-emerald-300">
+                    -₹{discount.toLocaleString('en-IN')} Saved
+                  </span>
                 </div>
               )}
-              <div className="flex justify-between text-slate-900 dark:text-white font-black border-t border-slate-200 dark:border-[#262626] pt-2 text-sm">
-                <span>Total Payable</span>
-                <span className="text-base text-indigo-700 dark:text-indigo-400">₹{finalPrice}</span>
+              <div className="flex justify-between items-baseline text-slate-900 dark:text-white font-black border-t border-slate-200 dark:border-[#262626] pt-2 text-sm">
+                <span>Total Payable Amount</span>
+                <div className="text-right">
+                  <span className="text-base text-indigo-700 dark:text-indigo-400">₹{finalPrice.toLocaleString('en-IN')}</span>
+                  {discount !== null && discount > 0 && (
+                    <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5">
+                      You are saving ₹{discount.toLocaleString('en-IN')} on this order!
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-
-            {/* Test Mode Helper Banner */}
-            <div className="p-3 bg-amber-50/80 dark:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200 space-y-1">
-              <div className="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-300 text-[11px]">
-                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                <span>Test Mode Simulation Guide</span>
-              </div>
-              <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-snug">
-                For test success, choose <strong>Netbanking</strong> (SBI / HDFC) or <strong>Cards</strong> (Indian RuPay: <code className="bg-amber-100 dark:bg-amber-900/60 font-mono px-1 py-0.5 rounded text-amber-900 dark:text-amber-200 font-bold">6527 6589 0000 1005</code>, CVV: 123).
-              </p>
             </div>
 
             <button
@@ -948,6 +1009,21 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
               <span>100% Secured by Razorpay • UPI, Cards & NetBanking</span>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 400ms Celebration Pop-up Effect */}
+      {showCelebration && (
+        <div className="fixed inset-0 z-[100] pointer-events-none flex items-center justify-center p-4 animate-in fade-in zoom-in-90 duration-150">
+          <div className="relative bg-white dark:bg-[#18181b] border-2 border-emerald-500 rounded-3xl px-8 py-5 shadow-2xl shadow-emerald-500/40 flex flex-col items-center gap-2 text-center max-w-xs animate-bounce">
+            <div className="text-4xl">🎉</div>
+            <span className="text-base font-black text-emerald-600 dark:text-emerald-400">
+              Coupon Applied!
+            </span>
+            <p className="text-xs font-bold text-slate-700 dark:text-neutral-300">
+              Saved <span className="text-emerald-600 dark:text-emerald-400 font-black text-sm">₹{celebrationSavings.toLocaleString('en-IN')}</span> on your plan!
+            </p>
           </div>
         </div>
       )}
