@@ -35,6 +35,8 @@ import {
   Moon,
   FlaskConical,
   TrendingUp,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import type { SeatStatus } from '@library/types';
 import dynamic from 'next/dynamic';
@@ -124,6 +126,11 @@ const EditRoomModal = dynamic(
 
 const AddRowModal = dynamic(
   () => import('../components/AddRowModal').then((m) => m.AddRowModal),
+  { ssr: false }
+);
+
+const BatchSeatModal = dynamic(
+  () => import('../components/BatchSeatModal').then((m) => m.BatchSeatModal),
   { ssr: false }
 );
 
@@ -254,6 +261,9 @@ export default function MobileDashboard() {
   const [isEditLibraryModalOpen, setIsEditLibraryModalOpen] = useState(false);
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
   const [isAddRowModalOpen, setIsAddRowModalOpen] = useState(false);
+  const [isBatchSeatModalOpen, setIsBatchSeatModalOpen] = useState(false);
+  const [batchSeatTargetRow, setBatchSeatTargetRow] = useState<string>('');
+  const [batchSeatTargetRoom, setBatchSeatTargetRoom] = useState<{ id: string; name: string } | null>(null);
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
   const [isSubscriptionRequiredModalOpen, setIsSubscriptionRequiredModalOpen] = useState(false);
   const [subscriptionGateAction, setSubscriptionGateAction] = useState<string>('Enroll Students');
@@ -276,104 +286,100 @@ export default function MobileDashboard() {
     localFallbackLibs?: LibraryBranch[],
     options?: { skipAuthSync?: boolean }
   ) => {
+    if (!userEmail) return;
     setIsSyncingData(true);
-    try {
-      if (!options?.skipAuthSync) {
-        let authData: any = null;
-        try {
-          const authController = new AbortController();
-          const authTimeout = setTimeout(() => authController.abort(), 4000);
-          const authRes = await fetch('/api/auth/sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: userEmail, fullName: currentUser?.fullName || '' }),
-            signal: authController.signal,
-          });
-          clearTimeout(authTimeout);
-          if (authRes.ok) {
-            authData = await authRes.json();
-          }
-        } catch (e) {
-          console.warn('Next.js /api/auth/sync call failed:', e);
-        }
 
-        // Only fallback to Render if local auth sync completely failed to return a user
-        if (!authData?.user && !userEmail.includes('demo') && !userEmail.includes('test')) {
-          try {
-            const directController = new AbortController();
-            const directTimeout = setTimeout(() => directController.abort(), 3000);
-            const directRes = await fetch('https://seelibrarybackend.onrender.com/api/v1/auth/sync', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email: userEmail, fullName: currentUser?.fullName || '' }),
-              signal: directController.signal,
-            });
-            clearTimeout(directTimeout);
-            if (directRes.ok) {
-              const renderData = await directRes.json();
-              if (renderData?.user) {
-                authData = renderData;
-              }
-            }
-          } catch (e) {
-            console.warn('Render direct sync fallback failed:', e);
-          }
-        }
+    // 1. Non-blocking Auth Sync in background
+    if (!options?.skipAuthSync) {
+      fetch('/api/auth/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: userEmail, fullName: currentUser?.fullName || '' }),
+        signal: AbortSignal.timeout(6000),
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((authData) => {
+          if (authData?.user) {
+            const canonicalUser = {
+              fullName: authData.user.fullName || currentUser?.fullName || userEmail.split('@')[0],
+              email: authData.user.email,
+              phone: authData.user.phone || '',
+              role: authData.user.role || 'USER',
+              avatar: authData.user.avatar || undefined,
+            };
+            setCurrentUser(canonicalUser);
+            try {
+              localStorage.setItem('seelibrary_user', JSON.stringify(canonicalUser));
+              document.cookie = `seelibrary_role=${canonicalUser.role}; path=/; max-age=604800`;
+            } catch {}
 
-        if (authData?.user) {
-          const canonicalUser = {
-            fullName: authData.user.fullName || currentUser?.fullName || '',
-            email: authData.user.email,
-            phone: authData.user.phone || '',
-            role: authData.user.role || 'USER',
-            avatar: authData.user.avatar || undefined,
-          };
-          setCurrentUser(canonicalUser);
-          try {
-            localStorage.setItem('seelibrary_user', JSON.stringify(canonicalUser));
-            document.cookie = `seelibrary_role=${canonicalUser.role}; path=/; max-age=604800`;
-          } catch {}
-
-          // If SUPER_ADMIN — go to dedicated /admin page unless user explicitly chose library view
-          if (authData.user.role === 'SUPER_ADMIN') {
-            if (!isLibraryViewPreferred()) {
+            if (authData.user.role === 'SUPER_ADMIN' && !isLibraryViewPreferred()) {
               setIsAdminPortalView(true);
               router.replace('/admin');
-              return;
-            } else {
-              setIsAdminPortalView(false);
             }
           }
+        })
+        .catch((e) => {
+          console.warn('[loadUserLibrariesFromDb] Non-blocking auth sync warning:', e);
+        });
+    }
+
+    // 2. Fetch libraries directly from cloud PostgreSQL database
+    try {
+      let fetchedLibraries: LibraryBranch[] | null = null;
+
+      // Primary: sync-all route (handles existing libraries + local migrations)
+      try {
+        const syncRes = await fetch('/api/libraries/sync-all', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userEmail, localLibraries: localFallbackLibs || [] }),
+          signal: AbortSignal.timeout(12000),
+        });
+
+        if (syncRes.ok) {
+          const syncData = await syncRes.json();
+          if (Array.isArray(syncData?.libraries)) {
+            fetchedLibraries = syncData.libraries;
+          }
+        }
+      } catch (syncErr) {
+        console.warn('[loadUserLibrariesFromDb] sync-all failed or timed out, trying fast GET /api/libraries:', syncErr);
+      }
+
+      // Secondary Fallback: Direct fast GET /api/libraries
+      if (!fetchedLibraries) {
+        try {
+          const getRes = await fetch(`/api/libraries?email=${encodeURIComponent(userEmail.toLowerCase().trim())}`, {
+            signal: AbortSignal.timeout(8000),
+          });
+          if (getRes.ok) {
+            const getData = await getRes.json();
+            if (Array.isArray(getData?.libraries)) {
+              fetchedLibraries = getData.libraries;
+            }
+          }
+        } catch (getErr) {
+          console.warn('[loadUserLibrariesFromDb] GET /api/libraries fallback error:', getErr);
         }
       }
 
-      // 2. Sync and fetch all libraries for this user from DB with timeout
-      const syncController = new AbortController();
-      const syncTimeout = setTimeout(() => syncController.abort(), 8000);
-      const res = await fetch('/api/libraries/sync-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userEmail, localLibraries: localFallbackLibs || [] }),
-        signal: syncController.signal,
-      });
-      clearTimeout(syncTimeout);
+      if (fetchedLibraries && Array.isArray(fetchedLibraries)) {
+        setLibraries(fetchedLibraries);
+        try {
+          localStorage.setItem('seelibrary_libraries', JSON.stringify(fetchedLibraries));
+        } catch {}
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.libraries && Array.isArray(data.libraries)) {
-          setLibraries(data.libraries);
+        if (fetchedLibraries.length > 0) {
+          setActiveLibraryId((prev) => {
+            if (prev && fetchedLibraries.some((l: any) => l.id === prev)) return prev;
+            return fetchedLibraries[0].id;
+          });
           try {
-            localStorage.setItem('seelibrary_libraries', JSON.stringify(data.libraries));
+            localStorage.setItem('seelibrary_active_lib_id', fetchedLibraries[0].id);
           } catch {}
-
-          if (data.libraries.length > 0) {
-            setActiveLibraryId((prev) => {
-              if (prev && data.libraries.some((l: any) => l.id === prev)) return prev;
-              return data.libraries[0].id;
-            });
-          } else {
-            setActiveLibraryId(null);
-          }
+        } else {
+          setActiveLibraryId(null);
         }
       }
     } catch (err) {
@@ -956,6 +962,88 @@ export default function MobileDashboard() {
       seats: [...lib.seats, ...fallbackSeats],
     }));
     setIsAddRowModalOpen(false);
+  };
+
+  const handleAddSeatsToRow = async (data: {
+    rowName: string;
+    startNumber: number;
+    count: number;
+    prefix?: string;
+    hasLocker?: boolean;
+  }) => {
+    if (!activeLibrary) return;
+    const targetRoomId =
+      batchSeatTargetRoom?.id ||
+      currentSelectedRoom?.id ||
+      activeLibrary.rooms?.[0]?.id;
+
+    try {
+      const res = await fetch(`/api/libraries/${activeLibrary.id}/seats`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rowName: data.rowName,
+          roomId: targetRoomId,
+          startNumber: data.startNumber,
+          count: data.count,
+          prefix: data.prefix,
+        }),
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        const createdSeats = (result.seats || []).map((s: any) => ({
+          ...s,
+          hasLocker: data.hasLocker ?? false,
+          roomId: targetRoomId,
+          rowName: data.rowName,
+        }));
+
+        updateActiveLibrary((lib) => ({
+          ...lib,
+          rooms: (lib.rooms || []).map((r) =>
+            r.id === targetRoomId && !r.rows.includes(data.rowName)
+              ? { ...r, rows: [...r.rows, data.rowName] }
+              : r
+          ),
+          seats: [...lib.seats, ...createdSeats],
+        }));
+        setIsBatchSeatModalOpen(false);
+        return;
+      }
+    } catch (e) {
+      console.error('Failed to add seats to row:', e);
+    }
+
+    // Fallback if offline
+    const fallbackSeats: VisualSeatItem[] = [];
+    let currentNum = Math.max(1, data.startNumber || 1);
+    const seatPrefix = data.prefix || '';
+
+    for (let i = 0; i < data.count; i++) {
+      const num = currentNum < 10 && !seatPrefix ? `${currentNum}` : `${currentNum}`;
+      fallbackSeats.push({
+        id: `seat-${Date.now()}-${data.rowName}-${currentNum}`,
+        seatNumber: `${seatPrefix}${num}`,
+        rowName: data.rowName,
+        status: 'AVAILABLE',
+        studentName: null,
+        roomId: targetRoomId,
+        hasLocker: data.hasLocker ?? false,
+      });
+      currentNum++;
+    }
+
+    updateActiveLibrary((lib) => ({
+      ...lib,
+      rooms: (lib.rooms || []).map((r) =>
+        r.id === targetRoomId && !r.rows.includes(data.rowName)
+          ? { ...r, rows: [...r.rows, data.rowName] }
+          : r
+      ),
+      seats: [...lib.seats, ...fallbackSeats],
+    }));
+    setIsBatchSeatModalOpen(false);
   };
 
   const handleSaveRoomName = async (newName: string) => {
@@ -1805,6 +1893,23 @@ export default function MobileDashboard() {
     );
   }
 
+  // 1.5. INITIAL DATA LOADING (When logged in, syncing with cloud DB and libraries not yet loaded in memory)
+  if (mounted && currentUser && libraries.length === 0 && isSyncingData) {
+    return (
+      <div className="flex flex-col min-h-screen bg-slate-900 text-white items-center justify-center p-6 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 flex items-center justify-center mb-6 shadow-lg shadow-indigo-500/10">
+          <Loader2 className="w-8 h-8 animate-spin" />
+        </div>
+        <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+          Loading your study center...
+        </h2>
+        <p className="text-xs sm:text-sm text-slate-400 mt-2 max-w-sm">
+          Fetching your branch libraries, study halls, seat layouts, and student details from cloud database.
+        </p>
+      </div>
+    );
+  }
+
   // 2. WELCOME / BLANK DASHBOARD (When logged in, but ZERO libraries created yet)
   if (mounted && currentUser && libraries.length === 0) {
     return (
@@ -1912,14 +2017,30 @@ export default function MobileDashboard() {
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={() => setIsLibraryModalOpen(true)}
-              className="mt-8 px-8 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-sm rounded-2xl shadow-xl shadow-indigo-600/30 active:scale-95 transition-all flex items-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              <span>Create Your First Library (Free)</span>
-            </button>
+            <div className="mt-8 flex flex-col sm:flex-row items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setIsLibraryModalOpen(true)}
+                className="px-8 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-sm rounded-2xl shadow-xl shadow-indigo-600/30 active:scale-95 transition-all flex items-center gap-2 cursor-pointer"
+              >
+                <Plus className="w-5 h-5" />
+                <span>Create Your First Library (Free)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (currentUser?.email) {
+                    loadUserLibrariesFromDb(currentUser.email);
+                  }
+                }}
+                disabled={isSyncingData}
+                className="px-5 py-4 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs rounded-2xl border border-slate-700/80 active:scale-95 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-60"
+              >
+                <RefreshCw className={`w-4 h-4 ${isSyncingData ? 'animate-spin' : ''}`} />
+                <span>{isSyncingData ? 'Syncing...' : 'Sync Cloud Data'}</span>
+              </button>
+            </div>
 
             {/* Quick 3-Step Guide */}
             <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-4 w-full text-left">
@@ -2909,7 +3030,15 @@ export default function MobileDashboard() {
                     }
                   }}
                   onAddRow={() => setIsAddRowModalOpen(true)}
-                  onAddRoom={() => setIsAddRowModalOpen(true)}
+                  onAddRoom={() => setIsRoomModalOpen(true)}
+                  onAddSeatsToRow={(rowName, roomId) => {
+                    const targetRoom = roomId
+                      ? activeLibrary?.rooms.find((r) => r.id === roomId) || null
+                      : currentSelectedRoom || activeLibrary?.rooms?.[0] || null;
+                    setBatchSeatTargetRow(rowName);
+                    setBatchSeatTargetRoom(targetRoom);
+                    setIsBatchSeatModalOpen(true);
+                  }}
                   onDeleteRow={handleDeleteRow}
                   onDeleteSeat={handleDeleteSeat}
                 />
@@ -2932,13 +3061,42 @@ export default function MobileDashboard() {
                   )}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetRoom = currentSelectedRoom || activeLibrary?.rooms?.[0] || null;
+                    if (targetRoom) {
+                      setSelectedRoomId(targetRoom.id);
+                    }
+                    setIsAddRowModalOpen(true);
+                  }}
+                  className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Add Row</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBatchSeatTargetRow('');
+                    setBatchSeatTargetRoom(currentSelectedRoom || activeLibrary?.rooms?.[0] || null);
+                    setIsBatchSeatModalOpen(true);
+                  }}
+                  className="bg-white dark:bg-[#1c1c1e] hover:bg-slate-50 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                >
+                  <Armchair className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span>+ Add Seats</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setIsRoomModalOpen(true)}
-                  className="bg-white dark:bg-[#1c1c1e] hover:bg-slate-50 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-xs transition-colors"
+                  className="bg-white dark:bg-[#1c1c1e] hover:bg-slate-50 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
                 >
-                  <Building2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Add Room/Row
+                  <Building2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span>+ Add Room</span>
                 </button>
               </div>
             </div>
@@ -3000,8 +3158,21 @@ export default function MobileDashboard() {
                   setPreselectedShiftForAssignment(preselectedShift);
                 }
               }}
-              onAddRow={currentSelectedRoom ? () => setIsAddRowModalOpen(true) : undefined}
-              onAddRoom={() => (currentSelectedRoom ? setIsAddRowModalOpen(true) : setIsRoomModalOpen(true))}
+              onAddRow={() => {
+                if (!currentSelectedRoom && activeLibrary?.rooms?.[0]) {
+                  setSelectedRoomId(activeLibrary.rooms[0].id);
+                }
+                setIsAddRowModalOpen(true);
+              }}
+              onAddRoom={() => setIsRoomModalOpen(true)}
+              onAddSeatsToRow={(rowName, roomId) => {
+                const targetRoom = roomId
+                  ? activeLibrary?.rooms.find((r) => r.id === roomId) || null
+                  : currentSelectedRoom || activeLibrary?.rooms?.[0] || null;
+                setBatchSeatTargetRow(rowName);
+                setBatchSeatTargetRoom(targetRoom);
+                setIsBatchSeatModalOpen(true);
+              }}
               onDeleteRow={handleDeleteRow}
               onDeleteSeat={handleDeleteSeat}
             />
@@ -3336,10 +3507,33 @@ export default function MobileDashboard() {
         <AddRowModal
           isOpen={isAddRowModalOpen}
           onClose={() => setIsAddRowModalOpen(false)}
-          roomName={currentSelectedRoom?.name || 'Current Room'}
-          existingRows={currentSelectedRoom?.rows || []}
-          existingSeats={currentRoomSeats}
+          roomName={currentSelectedRoom?.name || activeLibrary?.rooms?.[0]?.name || 'Current Room'}
+          existingRows={currentSelectedRoom?.rows || activeLibrary?.rooms?.[0]?.rows || []}
+          existingSeats={currentSelectedRoom ? currentRoomSeats : seats}
           onAddRows={handleAddRowsToRoom}
+        />
+      )}
+
+      {/* Add Seat(s) to Row Modal */}
+      {isBatchSeatModalOpen && (
+        <BatchSeatModal
+          isOpen={isBatchSeatModalOpen}
+          onClose={() => {
+            setIsBatchSeatModalOpen(false);
+            setBatchSeatTargetRow('');
+            setBatchSeatTargetRoom(null);
+          }}
+          targetRoomName={batchSeatTargetRoom?.name || currentSelectedRoom?.name || activeLibrary?.rooms?.[0]?.name}
+          targetRowName={batchSeatTargetRow}
+          availableRows={
+            batchSeatTargetRoom
+              ? (activeLibrary?.rooms.find((r) => r.id === batchSeatTargetRoom.id)?.rows || [])
+              : currentSelectedRoom
+              ? currentSelectedRoom.rows
+              : activeLibrary?.rooms?.[0]?.rows || Array.from(new Set((activeLibrary?.seats || []).map((s) => s.rowName || 'Row A')))
+          }
+          existingSeats={activeLibrary?.seats || []}
+          onAddSeats={handleAddSeatsToRow}
         />
       )}
 

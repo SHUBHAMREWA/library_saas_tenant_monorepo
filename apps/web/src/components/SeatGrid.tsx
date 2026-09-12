@@ -30,6 +30,7 @@ interface SeatGridProps {
   onAssignStudent?: (seatId: string, preselectedShift?: string) => void;
   onAddRoom?: () => void;
   onAddRow?: () => void;
+  onAddSeatsToRow?: (rowName: string, roomId?: string) => void;
   onDeleteSeat?: (seatId: string) => void;
   onDeleteRow?: (rowName: string) => void;
 }
@@ -40,6 +41,7 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
   onAssignStudent,
   onAddRoom,
   onAddRow,
+  onAddSeatsToRow,
   onDeleteSeat,
   onDeleteRow,
 }) => {
@@ -202,21 +204,34 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                       {rowSeats.length} {rowSeats.length === 1 ? 'seat' : 'seats'}
                     </span>
                   </div>
-                  {onDeleteRow && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm(`Are you sure you want to delete row "${rName}" and all its ${rowSeats.length} seats?`)) {
-                          onDeleteRow(rName);
-                        }
-                      }}
-                      className="text-slate-400 dark:text-[#737373] hover:text-rose-600 dark:hover:text-rose-400 p-1 px-2 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
-                      title={`Delete ${rName}`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Delete Row</span>
-                    </button>
-                  )}
+                  <div className="flex items-center gap-1.5">
+                    {onAddSeatsToRow && (
+                      <button
+                        type="button"
+                        onClick={() => onAddSeatsToRow(rName, rowSeats[0]?.roomId || undefined)}
+                        className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 p-1 px-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer border border-indigo-200/70 dark:border-indigo-800/60"
+                        title={`Add seat(s) into ${rName}`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Seat</span>
+                      </button>
+                    )}
+                    {onDeleteRow && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`Are you sure you want to delete row "${rName}" and all its ${rowSeats.length} seats?`)) {
+                            onDeleteRow(rName);
+                          }
+                        }}
+                        className="text-slate-400 dark:text-[#737373] hover:text-rose-600 dark:hover:text-rose-400 p-1 px-2 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                        title={`Delete ${rName}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Delete Row</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
                   {rowSeats.map((seat) => {
@@ -232,6 +247,17 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                       </button>
                     );
                   })}
+                  {onAddSeatsToRow && (
+                    <button
+                      type="button"
+                      onClick={() => onAddSeatsToRow(rName, rowSeats[0]?.roomId || undefined)}
+                      className="flex flex-col items-center justify-center p-2 rounded-xl border-2 border-dashed border-indigo-200 dark:border-indigo-900/50 hover:border-indigo-500 dark:hover:border-indigo-400 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 text-center transition-all cursor-pointer min-h-[50px] active:scale-95 group"
+                      title={`Add new seat to ${rName}`}
+                    >
+                      <Plus className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                      <span className="text-[10px] font-bold mt-0.5">+ Seat</span>
+                    </button>
+                  )}
                 </div>
               </div>
             );
