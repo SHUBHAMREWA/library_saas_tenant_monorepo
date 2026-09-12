@@ -317,11 +317,7 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
 
   const executeAssignment = async (student: StudentItem) => {
     setAssigningId(student.id);
-    // For morning/evening, also pass the duration so the backend knows FOUR_HOURS vs HALF_DAY
-    const shiftToPass =
-      selectedShift === 'MORNING' || selectedShift === 'EVENING'
-        ? selectedDuration // FOUR_HOURS or HALF_DAY — backend reads morning/evening from seat assignment shift
-        : selectedShift;
+    const shiftToPass = selectedShift; // 'MORNING' | 'EVENING' | 'FULL_DAY'
     try {
       await onAssign(student.id, seat.seatNumber, shiftToPass, isReserved);
       onClose();

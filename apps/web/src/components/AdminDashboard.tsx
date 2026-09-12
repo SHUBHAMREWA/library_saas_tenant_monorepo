@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Building2,
   Users,
@@ -41,9 +41,18 @@ import {
   Filter,
   UserCheck,
   FileText,
+  User,
+  CalendarDays,
+  Check,
+  UserX,
+  ArrowUpRight,
+  ArrowRight,
+  Receipt,
+  ZoomIn,
 } from 'lucide-react';
 import { AdminSkeleton } from './Skeleton';
 import { useTheme } from './ThemeProvider';
+import { getAdminCache, setAdminCache } from '../lib/indexed-db';
 
 interface AdminPlanItem {
   id: string;
@@ -195,6 +204,16 @@ interface AdminStudentItem {
     endDate: string | null;
     feeAmount: number;
   } | null;
+  memberships?: Array<{
+    id: string;
+    status: string;
+    shift: string;
+    startDate: string | null;
+    endDate: string | null;
+    feeAmount: number;
+  }>;
+  feeTransactions?: any[];
+  transactions?: any[];
   seat?: {
     seatNumber: string;
     roomName?: string | null;
@@ -289,6 +308,41 @@ async function adminApiFetch(path: string, options: RequestInit = {}, userEmail?
   return fetch(path, proxyOptions);
 }
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+function formatFriendlyDate(dateStr?: string | null): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function formatFriendlyPeriod(fromStr?: string | null, toStr?: string | null): string {
+  if (!fromStr) return '';
+  const f = new Date(fromStr);
+  if (isNaN(f.getTime())) return '';
+  const fromFormatted = f.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  if (!toStr) return fromFormatted;
+  const t = new Date(toStr);
+  if (isNaN(t.getTime())) return fromFormatted;
+  const toFormatted = t.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  return `${fromFormatted} – ${toFormatted}`;
+}
+
+function formatTimeAgo(timestamp?: number): string {
+  if (!timestamp) return '';
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 10) return 'Just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
+
 export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }: AdminDashboardProps) {
   const adminFetch = (path: string, options: RequestInit = {}) => {
     return adminApiFetch(path, options, currentUser.email);
@@ -311,6 +365,11 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
   const [studentStatusFilter, setStudentStatusFilter] = useState<'ALL' | 'ACTIVE' | 'EXPIRED' | 'DUE' | 'MORNING' | 'EVENING' | 'FULL_DAY'>('ALL');
   const [selectedStudentForInspect, setSelectedStudentForInspect] = useState<AdminStudentItem | null>(null);
   const [isInspectStudentModalOpen, setIsInspectStudentModalOpen] = useState(false);
+  const [inspectStudentTab, setInspectStudentTab] = useState<'profile' | 'enrollmentTimeline' | 'feeHistory' | 'kyc'>('profile');
+  const [inspectTimelineYear, setInspectTimelineYear] = useState<string>(new Date().getFullYear().toString());
+  const [inspectFeeYear, setInspectFeeYear] = useState<string>('ALL');
+  const [inspectFeeMonth, setInspectFeeMonth] = useState<string>('ALL');
+  const [adminPreviewingImage, setAdminPreviewingImage] = useState<string | null>(null);
   
   // Push Broadcast States
   const [broadcastTitle, setBroadcastTitle] = useState('');
@@ -321,6 +380,18 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   
   const [isLoading, setIsLoading] = useState(true);
+  const [tabLoading, setTabLoading] = useState<Record<string, boolean>>({
+    overview: false,
+    students: false,
+    plans: false,
+    coupons: false,
+    users: false,
+    payments: false,
+    broadcast: false,
+    audit: false,
+  });
+  const [tabLastUpdated, setTabLastUpdated] = useState<Record<string, number>>({});
+  const [tabLoaded, setTabLoaded] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [libraryFilter, setLibraryFilter] = useState<'all' | 'active' | 'suspended'>('all');
 
@@ -372,9 +443,12 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
   const [selectedCouponForDelete, setSelectedCouponForDelete] = useState<AdminCoupon | null>(null);
   const [isDeletingCoupon, setIsDeletingCoupon] = useState(false);
 
-  // Library Toggle Confirmation
+  // Library Toggle & Delete Confirmation
   const [selectedLibForToggle, setSelectedLibForToggle] = useState<AdminLibrary | null>(null);
   const [isTogglingLib, setIsTogglingLib] = useState(false);
+  const [selectedLibForDelete, setSelectedLibForDelete] = useState<AdminLibrary | null>(null);
+  const [isDeletingLib, setIsDeletingLib] = useState(false);
+  const [deleteConfirmLibName, setDeleteConfirmLibName] = useState('');
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Subscription Adjust Modal
@@ -454,7 +528,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
         });
         setSelectedLibForSubAdjust(null);
         setAdjustNotes('');
-        await fetchAllData();
+        await Promise.all([fetchOverviewData(true), fetchPaymentsData(true)]);
       } else {
         setStatusMessage({
           type: 'error',
@@ -498,6 +572,169 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
     }
   };
 
+  // Inspect Student Monthly Enrollment & Fee Helpers
+  const availableInspectFeeYears = useMemo(() => {
+    if (!selectedStudentForInspect) return [new Date().getFullYear().toString()];
+    const years = new Set<string>();
+    const currentYr = new Date().getFullYear().toString();
+    years.add(currentYr);
+    years.add((new Date().getFullYear() + 1).toString());
+    years.add((new Date().getFullYear() - 1).toString());
+
+    const txList = selectedStudentForInspect.transactions || selectedStudentForInspect.feeTransactions || [];
+    txList.forEach((tx: any) => {
+      if (tx.validFrom) {
+        const y = new Date(tx.validFrom).getFullYear();
+        if (!isNaN(y)) years.add(y.toString());
+      }
+      if (tx.paymentDate) {
+        const y = new Date(tx.paymentDate).getFullYear();
+        if (!isNaN(y)) years.add(y.toString());
+      }
+      if (tx.paidForMonth) {
+        const match = tx.paidForMonth.match(/\d{4}/);
+        if (match) years.add(match[0]);
+      }
+    });
+
+    return Array.from(years).sort((a, b) => b.localeCompare(a));
+  }, [selectedStudentForInspect]);
+
+  const inspectFilteredTxs = useMemo(() => {
+    if (!selectedStudentForInspect) return [];
+    const txList = selectedStudentForInspect.transactions || selectedStudentForInspect.feeTransactions || [];
+    return txList.filter((tx: any) => {
+      let matchYear = true;
+      if (inspectFeeYear !== 'ALL') {
+        const targetYr = parseInt(inspectFeeYear, 10);
+        let txYr: number | null = null;
+        if (tx.validFrom) txYr = new Date(tx.validFrom).getFullYear();
+        else if (tx.paymentDate) txYr = new Date(tx.paymentDate).getFullYear();
+        else if (tx.paidForMonth) {
+          const match = tx.paidForMonth.match(/\d{4}/);
+          if (match) txYr = parseInt(match[0], 10);
+        }
+        matchYear = txYr === targetYr;
+      }
+
+      let matchMonth = true;
+      if (inspectFeeMonth !== 'ALL') {
+        let txMo: number | null = null;
+        if (tx.validFrom) txMo = new Date(tx.validFrom).getMonth();
+        else if (tx.paymentDate) txMo = new Date(tx.paymentDate).getMonth();
+        else if (tx.paidForMonth) {
+          const mIdx = MONTH_NAMES.findIndex((m) =>
+            tx.paidForMonth.toLowerCase().includes(m.toLowerCase())
+          );
+          if (mIdx !== -1) txMo = mIdx;
+        }
+        const targetMoIdx = MONTH_NAMES.indexOf(inspectFeeMonth);
+        matchMonth = txMo === targetMoIdx;
+      }
+
+      return matchYear && matchMonth;
+    });
+  }, [selectedStudentForInspect, inspectFeeYear, inspectFeeMonth]);
+
+  const inspectMonthlyEnrollmentList = useMemo(() => {
+    if (!selectedStudentForInspect) return [];
+    const now = new Date();
+    const currentCalYear = now.getFullYear();
+    const currentCalMonthIdx = now.getMonth();
+    const targetYearNum = parseInt(inspectTimelineYear, 10) || currentCalYear;
+
+    const txList = selectedStudentForInspect.transactions || selectedStudentForInspect.feeTransactions || [];
+
+    return MONTH_NAMES.map((mName, mIdx) => {
+      const isCurrentMonth = targetYearNum === currentCalYear && mIdx === currentCalMonthIdx;
+      const isFutureMonth = targetYearNum > currentCalYear || (targetYearNum === currentCalYear && mIdx > currentCalMonthIdx);
+      const isPastMonth = targetYearNum < currentCalYear || (targetYearNum === currentCalYear && mIdx < currentCalMonthIdx);
+
+      const matchingTxs = txList.filter((tx: any) => {
+        if (tx.validFrom) {
+          const vFrom = new Date(tx.validFrom);
+          if (!isNaN(vFrom.getTime())) {
+            return vFrom.getFullYear() === targetYearNum && vFrom.getMonth() === mIdx;
+          }
+        }
+
+        let matchY = false;
+        if (tx.paidForMonth && tx.paidForMonth.includes(targetYearNum.toString())) matchY = true;
+        if (tx.paymentDate && new Date(tx.paymentDate).getFullYear() === targetYearNum) matchY = true;
+
+        let matchM = false;
+        if (tx.paidForMonth && tx.paidForMonth.toLowerCase().includes(mName.toLowerCase())) matchM = true;
+        if (tx.paymentDate && new Date(tx.paymentDate).getMonth() === mIdx && new Date(tx.paymentDate).getFullYear() === targetYearNum) matchM = true;
+
+        return matchY && matchM;
+      });
+
+      const totalPaid = matchingTxs.reduce((sum: number, t: any) => sum + (Number(t.amount) || 0), 0);
+      const totalDue = matchingTxs.reduce((sum: number, t: any) => sum + (Number(t.remainingFee) || 0), 0);
+      const hasFullPaid = matchingTxs.some((t: any) => t.status === 'PAID' && (!t.remainingFee || t.remainingFee === 0));
+      const hasPartialPaid = matchingTxs.some((t: any) => t.status === 'PARTIAL' || (t.remainingFee && t.remainingFee > 0));
+
+      let periodSpan: string | undefined = undefined;
+      const txWithPeriod = matchingTxs.find((t: any) => t.validFrom) || matchingTxs[0];
+      if (txWithPeriod?.validFrom) {
+        periodSpan = formatFriendlyPeriod(txWithPeriod.validFrom, txWithPeriod.validTo);
+      }
+
+      let statusType: 'ACTIVE' | 'PARTIAL' | 'INACTIVE' | 'UPCOMING' = 'UPCOMING';
+      let statusLabel = 'Upcoming Month';
+
+      if (isFutureMonth) {
+        if (matchingTxs.length > 0) {
+          statusType = hasFullPaid ? 'ACTIVE' : 'PARTIAL';
+          statusLabel = hasFullPaid ? 'Advance Enrolled' : 'Advance Partial';
+        } else {
+          statusType = 'UPCOMING';
+          statusLabel = 'Upcoming';
+        }
+      } else if (isCurrentMonth) {
+        if (hasFullPaid || (matchingTxs.length > 0 && totalPaid > 0 && totalDue === 0)) {
+          statusType = 'ACTIVE';
+          statusLabel = 'Enrolled & Active';
+        } else if (hasPartialPaid || totalDue > 0) {
+          statusType = 'PARTIAL';
+          statusLabel = `Partial Due (₹${totalDue})`;
+        } else if (selectedStudentForInspect.isActive && selectedStudentForInspect.seat) {
+          statusType = 'ACTIVE';
+          statusLabel = 'Active in Library';
+        } else {
+          statusType = 'INACTIVE';
+          statusLabel = 'Inactive / Unpaid';
+        }
+      } else if (isPastMonth) {
+        if (hasFullPaid || totalPaid > 0) {
+          statusType = 'ACTIVE';
+          statusLabel = 'Enrolled & Attended';
+        } else if (matchingTxs.length > 0) {
+          statusType = 'PARTIAL';
+          statusLabel = 'Partial Fee Paid';
+        } else {
+          statusType = 'INACTIVE';
+          statusLabel = 'Inactive (Did Not Attend)';
+        }
+      }
+
+      return {
+        monthName: mName,
+        monthIdx: mIdx,
+        year: targetYearNum,
+        isCurrentMonth,
+        isFutureMonth,
+        isPastMonth,
+        statusType,
+        statusLabel,
+        periodSpan,
+        matchingTxs,
+        totalPaid,
+        totalDue,
+      };
+    });
+  }, [selectedStudentForInspect, inspectTimelineYear]);
+
   const handleSendBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!broadcastTitle.trim() || !broadcastBody.trim()) {
@@ -539,30 +776,44 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
     }
   };
 
-  const fetchAllData = async () => {
-    setIsLoading(true);
+  const fetchOverviewData = async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = await getAdminCache<{ metrics: PlatformMetrics; libraries: AdminLibrary[] }>('admin_overview');
+      if (cached?.data) {
+        if (cached.data.metrics) setMetrics(cached.data.metrics);
+        if (cached.data.libraries) setLibraries(cached.data.libraries);
+        setTabLastUpdated((prev) => ({ ...prev, overview: cached.updatedAt }));
+        setTabLoaded((prev) => ({ ...prev, overview: true }));
+        setIsLoading(false);
+        if (Date.now() - cached.updatedAt < 5 * 60 * 1000) {
+          return;
+        }
+      }
+    }
+
+    setTabLoading((prev) => ({ ...prev, overview: true }));
     try {
       const headers = { 'x-admin-email': currentUser.email };
-
-      const [metricsRes, libsRes, plansRes, couponsRes, usersRes, auditRes, paymentsRes, studentsRes] = await Promise.all([
+      const [metricsRes, libsRes] = await Promise.all([
         adminFetch('/api/admin/metrics', { headers }),
         adminFetch('/api/admin/libraries', { headers }),
-        adminFetch('/api/admin/plans', { headers }),
-        adminFetch('/api/admin/coupons', { headers }),
-        adminFetch('/api/admin/users', { headers }),
-        adminFetch('/api/admin/audit-logs?limit=30', { headers }),
-        adminFetch('/api/admin/payments', { headers }),
-        adminFetch('/api/admin/students', { headers }),
       ]);
+
+      let newMetrics: PlatformMetrics | null = null;
+      let newLibraries: AdminLibrary[] = [];
 
       if (metricsRes.ok) {
         const m = await metricsRes.json();
-        if (m.data) setMetrics(m.data);
+        if (m.data) {
+          newMetrics = m.data;
+          setMetrics(m.data);
+        }
       }
+
       if (libsRes.ok) {
         const l = await libsRes.json();
         const rawLibs = l.libraries || l.data || [];
-        const normalized = rawLibs.map((lib: any) => ({
+        newLibraries = rawLibs.map((lib: any) => ({
           ...lib,
           owner: lib.owner || {
             id: lib.ownerId || '',
@@ -576,26 +827,190 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
             rooms: lib.counts?.rooms ?? lib.roomCount ?? 0,
           },
         }));
-        setLibraries(normalized);
+        setLibraries(newLibraries);
       }
-      if (plansRes.ok) {
-        const p = await plansRes.json();
-        if (p.plans) setPlans(p.plans);
+
+      const finalMetrics = newMetrics || metrics || {
+        totalLibraries: newLibraries.length,
+        activeLibraries: newLibraries.filter((l) => l.isActive).length,
+        suspendedLibraries: newLibraries.filter((l) => !l.isActive).length,
+        totalStudents: 0,
+        totalSeats: 0,
+        totalUsers: 1,
+        activeSubscriptions: 0,
+        totalRevenue: 0,
+      };
+      setMetrics(finalMetrics);
+
+      const now = Date.now();
+      setTabLastUpdated((prev) => ({ ...prev, overview: now }));
+      setTabLoaded((prev) => ({ ...prev, overview: true }));
+      await setAdminCache('admin_overview', { metrics: finalMetrics, libraries: newLibraries });
+    } catch (err) {
+      console.error('Failed to load overview data:', err);
+      setMetrics((prev) => prev || {
+        totalLibraries: 0,
+        activeLibraries: 0,
+        suspendedLibraries: 0,
+        totalStudents: 0,
+        totalSeats: 0,
+        totalUsers: 1,
+        activeSubscriptions: 0,
+        totalRevenue: 0,
+      });
+    } finally {
+      setTabLoading((prev) => ({ ...prev, overview: false }));
+      setIsLoading(false);
+    }
+  };
+
+  const fetchStudentsData = async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = await getAdminCache<AdminStudentItem[]>('admin_students');
+      if (cached?.data) {
+        setStudentsList(cached.data);
+        setTabLastUpdated((prev) => ({ ...prev, students: cached.updatedAt }));
+        setTabLoaded((prev) => ({ ...prev, students: true }));
+        if (Date.now() - cached.updatedAt < 5 * 60 * 1000) {
+          if (libraries.length === 0) fetchOverviewData(false);
+          return;
+        }
       }
-      if (couponsRes.ok) {
-        const c = await couponsRes.json();
-        if (c.coupons) setCoupons(c.coupons);
-      }
-      if (usersRes.ok) {
-        const u = await usersRes.json();
-        if (u.users) setUsers(u.users);
-      }
+    }
+
+    setTabLoading((prev) => ({ ...prev, students: true }));
+    try {
+      const headers = { 'x-admin-email': currentUser.email };
+      const [studentsRes] = await Promise.all([
+        adminFetch('/api/admin/students', { headers }),
+        libraries.length === 0 ? adminFetch('/api/admin/libraries', { headers }) : Promise.resolve(null),
+      ]);
+
       if (studentsRes && studentsRes.ok) {
         const sData = await studentsRes.json();
-        const rawStudents = sData.students || sData.data || [];
+        const rawStudents: AdminStudentItem[] = sData.students || sData.data || [];
         setStudentsList(rawStudents);
+        const now = Date.now();
+        setTabLastUpdated((prev) => ({ ...prev, students: now }));
+        setTabLoaded((prev) => ({ ...prev, students: true }));
+        await setAdminCache('admin_students', rawStudents);
       }
-      if (paymentsRes && paymentsRes.ok) {
+    } catch (err) {
+      console.error('Failed to load students data:', err);
+    } finally {
+      setTabLoading((prev) => ({ ...prev, students: false }));
+    }
+  };
+
+  const fetchPlansData = async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = await getAdminCache<AdminPlanItem[]>('admin_plans');
+      if (cached?.data) {
+        setPlans(cached.data);
+        setTabLastUpdated((prev) => ({ ...prev, plans: cached.updatedAt }));
+        setTabLoaded((prev) => ({ ...prev, plans: true }));
+        if (Date.now() - cached.updatedAt < 5 * 60 * 1000) return;
+      }
+    }
+
+    setTabLoading((prev) => ({ ...prev, plans: true }));
+    try {
+      const headers = { 'x-admin-email': currentUser.email };
+      const plansRes = await adminFetch('/api/admin/plans', { headers });
+      if (plansRes.ok) {
+        const p = await plansRes.json();
+        const planList: AdminPlanItem[] = p.plans || p.data || [];
+        setPlans(planList);
+        const now = Date.now();
+        setTabLastUpdated((prev) => ({ ...prev, plans: now }));
+        setTabLoaded((prev) => ({ ...prev, plans: true }));
+        await setAdminCache('admin_plans', planList);
+      }
+    } catch (err) {
+      console.error('Failed to load plans:', err);
+    } finally {
+      setTabLoading((prev) => ({ ...prev, plans: false }));
+    }
+  };
+
+  const fetchCouponsData = async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = await getAdminCache<AdminCoupon[]>('admin_coupons');
+      if (cached?.data) {
+        setCoupons(cached.data);
+        setTabLastUpdated((prev) => ({ ...prev, coupons: cached.updatedAt }));
+        setTabLoaded((prev) => ({ ...prev, coupons: true }));
+        if (Date.now() - cached.updatedAt < 5 * 60 * 1000) return;
+      }
+    }
+
+    setTabLoading((prev) => ({ ...prev, coupons: true }));
+    try {
+      const headers = { 'x-admin-email': currentUser.email };
+      const couponsRes = await adminFetch('/api/admin/coupons', { headers });
+      if (couponsRes.ok) {
+        const c = await couponsRes.json();
+        const couponList: AdminCoupon[] = c.coupons || c.data || [];
+        setCoupons(couponList);
+        const now = Date.now();
+        setTabLastUpdated((prev) => ({ ...prev, coupons: now }));
+        setTabLoaded((prev) => ({ ...prev, coupons: true }));
+        await setAdminCache('admin_coupons', couponList);
+      }
+    } catch (err) {
+      console.error('Failed to load coupons:', err);
+    } finally {
+      setTabLoading((prev) => ({ ...prev, coupons: false }));
+    }
+  };
+
+  const fetchUsersData = async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = await getAdminCache<AdminUser[]>('admin_users');
+      if (cached?.data) {
+        setUsers(cached.data);
+        setTabLastUpdated((prev) => ({ ...prev, users: cached.updatedAt }));
+        setTabLoaded((prev) => ({ ...prev, users: true }));
+        if (Date.now() - cached.updatedAt < 5 * 60 * 1000) return;
+      }
+    }
+
+    setTabLoading((prev) => ({ ...prev, users: true }));
+    try {
+      const headers = { 'x-admin-email': currentUser.email };
+      const usersRes = await adminFetch('/api/admin/users', { headers });
+      if (usersRes.ok) {
+        const u = await usersRes.json();
+        const userList: AdminUser[] = u.users || u.data || [];
+        setUsers(userList);
+        const now = Date.now();
+        setTabLastUpdated((prev) => ({ ...prev, users: now }));
+        setTabLoaded((prev) => ({ ...prev, users: true }));
+        await setAdminCache('admin_users', userList);
+      }
+    } catch (err) {
+      console.error('Failed to load users:', err);
+    } finally {
+      setTabLoading((prev) => ({ ...prev, users: false }));
+    }
+  };
+
+  const fetchPaymentsData = async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = await getAdminCache<AdminPaymentItem[]>('admin_payments');
+      if (cached?.data) {
+        setPayments(cached.data);
+        setTabLastUpdated((prev) => ({ ...prev, payments: cached.updatedAt }));
+        setTabLoaded((prev) => ({ ...prev, payments: true }));
+        if (Date.now() - cached.updatedAt < 5 * 60 * 1000) return;
+      }
+    }
+
+    setTabLoading((prev) => ({ ...prev, payments: true }));
+    try {
+      const headers = { 'x-admin-email': currentUser.email };
+      const paymentsRes = await adminFetch('/api/admin/payments', { headers });
+      if (paymentsRes.ok) {
         const pData = await paymentsRes.json();
         const rawPayments = pData.payments || pData.data || [];
         const normalizedPayments: AdminPaymentItem[] = rawPayments.map((p: any) => {
@@ -634,38 +1049,119 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
           };
         });
         setPayments(normalizedPayments);
+        const now = Date.now();
+        setTabLastUpdated((prev) => ({ ...prev, payments: now }));
+        setTabLoaded((prev) => ({ ...prev, payments: true }));
+        await setAdminCache('admin_payments', normalizedPayments);
       }
+    } catch (err) {
+      console.error('Failed to load payments:', err);
+    } finally {
+      setTabLoading((prev) => ({ ...prev, payments: false }));
+    }
+  };
+
+  const fetchAuditLogsData = async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = await getAdminCache<AuditLogEntry[]>('admin_audit');
+      if (cached?.data) {
+        setAuditLogs(cached.data);
+        setTabLastUpdated((prev) => ({ ...prev, audit: cached.updatedAt }));
+        setTabLoaded((prev) => ({ ...prev, audit: true }));
+        if (Date.now() - cached.updatedAt < 5 * 60 * 1000) return;
+      }
+    }
+
+    setTabLoading((prev) => ({ ...prev, audit: true }));
+    try {
+      const headers = { 'x-admin-email': currentUser.email };
+      const auditRes = await adminFetch('/api/admin/audit-logs?limit=50', { headers });
       if (auditRes.ok) {
         const a = await auditRes.json();
-        if (a.logs) setAuditLogs(a.logs);
+        const logs: AuditLogEntry[] = a.logs || a.data || [];
+        setAuditLogs(logs);
+        const now = Date.now();
+        setTabLastUpdated((prev) => ({ ...prev, audit: now }));
+        setTabLoaded((prev) => ({ ...prev, audit: true }));
+        await setAdminCache('admin_audit', logs);
       }
-
-      // Guarantee metrics state is not null so skeleton unlocks even if API is empty
-      setMetrics((prev) => prev || {
-        totalLibraries: 0,
-        activeLibraries: 0,
-        suspendedLibraries: 0,
-        totalStudents: 0,
-        totalSeats: 0,
-        totalUsers: 1,
-        activeSubscriptions: 0,
-        totalRevenue: 0,
-      });
     } catch (err) {
-      console.error('Failed to load admin data:', err);
-      setMetrics((prev) => prev || {
-        totalLibraries: 0,
-        activeLibraries: 0,
-        suspendedLibraries: 0,
-        totalStudents: 0,
-        totalSeats: 0,
-        totalUsers: 1,
-        activeSubscriptions: 0,
-        totalRevenue: 0,
-      });
+      console.error('Failed to load audit logs:', err);
     } finally {
-      setIsLoading(false);
+      setTabLoading((prev) => ({ ...prev, audit: false }));
     }
+  };
+
+  const fetchCurrentTabData = async (forceRefresh = false) => {
+    switch (activeTab) {
+      case 'overview':
+        return fetchOverviewData(forceRefresh);
+      case 'students':
+        return fetchStudentsData(forceRefresh);
+      case 'plans':
+        return fetchPlansData(forceRefresh);
+      case 'coupons':
+        return fetchCouponsData(forceRefresh);
+      case 'users':
+        return fetchUsersData(forceRefresh);
+      case 'payments':
+        return fetchPaymentsData(forceRefresh);
+      case 'audit':
+        return fetchAuditLogsData(forceRefresh);
+      case 'broadcast':
+        if (libraries.length === 0) fetchOverviewData(false);
+        return;
+    }
+  };
+
+  const fetchAllData = async () => {
+    return Promise.all([
+      fetchOverviewData(true),
+      fetchStudentsData(true),
+      fetchPlansData(true),
+      fetchCouponsData(true),
+      fetchUsersData(true),
+      fetchPaymentsData(true),
+      fetchAuditLogsData(true),
+    ]);
+  };
+
+  const renderTabRefreshButton = (tabKey: string, label: string = 'Refresh') => {
+    const isThisLoading = Boolean(tabLoading[tabKey]);
+    const lastUpdatedTime = tabLastUpdated[tabKey];
+    const timeAgoStr = formatTimeAgo(lastUpdatedTime);
+
+    const handleRefreshClick = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      switch (tabKey) {
+        case 'overview': fetchOverviewData(true); break;
+        case 'students': fetchStudentsData(true); break;
+        case 'plans': fetchPlansData(true); break;
+        case 'coupons': fetchCouponsData(true); break;
+        case 'users': fetchUsersData(true); break;
+        case 'payments': fetchPaymentsData(true); break;
+        case 'audit': fetchAuditLogsData(true); break;
+        case 'broadcast': fetchOverviewData(true); break;
+      }
+    };
+
+    return (
+      <button
+        type="button"
+        onClick={handleRefreshClick}
+        disabled={isThisLoading}
+        title={`Refresh ${label} data`}
+        className="px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-white dark:bg-[#1c1c1e] hover:bg-slate-100 dark:hover:bg-[#2c2c2e] rounded-xl transition-all flex items-center gap-1.5 border border-slate-200 dark:border-[#2a2a2a] cursor-pointer shadow-2xs shrink-0 disabled:opacity-60"
+      >
+        <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 ${isThisLoading ? 'animate-spin' : ''}`} />
+        <span>{isThisLoading ? 'Refreshing...' : label}</span>
+        {timeAgoStr && !isThisLoading && (
+          <span className="text-[10px] font-normal text-slate-400 dark:text-neutral-400 border-l border-slate-200 dark:border-neutral-700 pl-1.5">
+            {timeAgoStr}
+          </span>
+        )}
+      </button>
+    );
   };
 
   const handleOpenEditPlan = (plan: AdminPlanItem) => {
@@ -781,8 +1277,8 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
   };
 
   useEffect(() => {
-    fetchAllData();
-  }, [currentUser.email]);
+    fetchCurrentTabData(false);
+  }, [activeTab, currentUser.email]);
 
   const handleToggleLibraryStatus = async () => {
     if (!selectedLibForToggle) return;
@@ -821,6 +1317,72 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
     } finally {
       setIsTogglingLib(false);
       setTimeout(() => setStatusMessage(null), 4000);
+    }
+  };
+
+  const handleDeleteLibrary = async () => {
+    if (!selectedLibForDelete) return;
+    setIsDeletingLib(true);
+    try {
+      const res = await adminFetch(`/api/admin/libraries/${selectedLibForDelete.id}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-email': currentUser.email },
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const deletedId = selectedLibForDelete.id;
+        const deletedName = selectedLibForDelete.name;
+        const isLibActive = selectedLibForDelete.isActive;
+        const libStudentCount = selectedLibForDelete.counts?.students ?? (selectedLibForDelete as any).studentCount ?? 0;
+        const libSeatCount = selectedLibForDelete.counts?.seats ?? (selectedLibForDelete as any).seatCount ?? 0;
+
+        // Update libraries state
+        const updatedLibs = libraries.filter((lib) => lib.id !== deletedId);
+        setLibraries(updatedLibs);
+
+        // Update students state if any belong to deleted library
+        setStudentsList((prev) => prev.filter((s) => s.libraryId !== deletedId));
+
+        // Update metrics
+        if (metrics) {
+          const updatedMetrics: PlatformMetrics = {
+            ...metrics,
+            totalLibraries: Math.max(0, metrics.totalLibraries - 1),
+            activeLibraries: isLibActive ? Math.max(0, metrics.activeLibraries - 1) : metrics.activeLibraries,
+            suspendedLibraries: !isLibActive ? Math.max(0, metrics.suspendedLibraries - 1) : metrics.suspendedLibraries,
+            totalStudents: Math.max(0, metrics.totalStudents - libStudentCount),
+            totalSeats: Math.max(0, metrics.totalSeats - libSeatCount),
+          };
+          setMetrics(updatedMetrics);
+          await setAdminCache('admin_overview', { metrics: updatedMetrics, libraries: updatedLibs });
+        } else {
+          await setAdminCache('admin_overview', { metrics: null, libraries: updatedLibs });
+        }
+
+        // Invalidate students cache
+        await setAdminCache('admin_students', studentsList.filter((s) => s.libraryId !== deletedId));
+
+        setStatusMessage({
+          type: 'success',
+          text: `Library "${deletedName}" and all associated documents & records have been permanently deleted.`,
+        });
+        setSelectedLibForDelete(null);
+        setDeleteConfirmLibName('');
+      } else {
+        setStatusMessage({
+          type: 'error',
+          text: data.error?.message || data.error || 'Failed to delete library',
+        });
+      }
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err.message || 'Network error while deleting library',
+      });
+    } finally {
+      setIsDeletingLib(false);
+      setTimeout(() => setStatusMessage(null), 5000);
     }
   };
 
@@ -1033,11 +1595,14 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
             </button>
 
             <button
-              onClick={fetchAllData}
-              disabled={isLoading}
+              onClick={() => {
+                fetchOverviewData(true);
+                if (activeTab !== 'overview') fetchCurrentTabData(true);
+              }}
+              disabled={tabLoading[activeTab] || tabLoading.overview}
               className="px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-[#1c1c1e] hover:bg-slate-200 dark:hover:bg-[#2c2c2e] rounded-xl transition-colors flex items-center gap-2 border border-slate-200 dark:border-[#2a2a2a] cursor-pointer"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${tabLoading[activeTab] || tabLoading.overview ? 'animate-spin' : ''}`} />
               Refresh
             </button>
             {onSwitchToLibraryView && (
@@ -1301,6 +1866,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                   Suspended ({libraries.filter((l) => !l.isActive).length})
                 </button>
               </div>
+              {renderTabRefreshButton('overview', 'Refresh')}
             </div>
           </div>
 
@@ -1449,11 +2015,21 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                               onClick={() => setSelectedLibForToggle(lib)}
                               className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors border cursor-pointer ${
                                 lib.isActive
-                                    ? 'text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/50 hover:bg-rose-50 dark:hover:bg-rose-950/30'
+                                    ? 'text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800/50 hover:bg-amber-50 dark:hover:bg-amber-950/30'
                                     : 'text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
                               }`}
                             >
                               {lib.isActive ? 'Suspend' : 'Activate'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedLibForDelete(lib);
+                                setDeleteConfirmLibName('');
+                              }}
+                              title="Delete library and all related records"
+                              className="p-1.5 text-rose-500 hover:text-white hover:bg-rose-600 rounded-lg transition-colors border border-rose-200 dark:border-rose-900/40 hover:border-rose-600 cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
                         </td>
@@ -1534,52 +2110,55 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                 </div>
               </div>
 
-              {/* Status Filter Pills */}
-              <div className="flex flex-wrap items-center bg-slate-100 dark:bg-[#1c1c1e] p-1 rounded-xl text-xs font-semibold gap-1 border border-slate-200 dark:border-[#2a2a2a]">
-                <button
-                  type="button"
-                  onClick={() => setStudentStatusFilter('ALL')}
-                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                    studentStatusFilter === 'ALL'
-                      ? 'bg-white dark:bg-[#2a2a2a] text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-500 dark:text-neutral-400 hover:text-slate-800 dark:hover:text-white'
-                  }`}
-                >
-                  All ({filteredStudents.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStudentStatusFilter('ACTIVE')}
-                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                    studentStatusFilter === 'ACTIVE'
-                      ? 'bg-white dark:bg-[#2a2a2a] text-emerald-700 dark:text-emerald-400 shadow-xs font-bold'
-                      : 'text-slate-500 dark:text-neutral-400 hover:text-emerald-700 dark:hover:text-emerald-400'
-                  }`}
-                >
-                  Active ({activeCount})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStudentStatusFilter('EXPIRED')}
-                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                    studentStatusFilter === 'EXPIRED'
-                      ? 'bg-white dark:bg-[#2a2a2a] text-rose-700 dark:text-rose-400 shadow-xs font-bold'
-                      : 'text-slate-500 dark:text-neutral-400 hover:text-rose-700 dark:hover:text-rose-400'
-                  }`}
-                >
-                  Expired ({expiredCount})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStudentStatusFilter('DUE')}
-                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                    studentStatusFilter === 'DUE'
-                      ? 'bg-white dark:bg-[#2a2a2a] text-amber-700 dark:text-amber-400 shadow-xs font-bold'
-                      : 'text-slate-500 dark:text-neutral-400 hover:text-amber-700 dark:hover:text-amber-400'
-                  }`}
-                >
-                  Due Pending ({dueCount})
-                </button>
+              {/* Status Filter Pills + Refresh */}
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                <div className="flex flex-wrap items-center bg-slate-100 dark:bg-[#1c1c1e] p-1 rounded-xl text-xs font-semibold gap-1 border border-slate-200 dark:border-[#2a2a2a]">
+                  <button
+                    type="button"
+                    onClick={() => setStudentStatusFilter('ALL')}
+                    className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                      studentStatusFilter === 'ALL'
+                        ? 'bg-white dark:bg-[#2a2a2a] text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500 dark:text-neutral-400 hover:text-slate-800 dark:hover:text-white'
+                    }`}
+                  >
+                    All ({filteredStudents.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStudentStatusFilter('ACTIVE')}
+                    className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                      studentStatusFilter === 'ACTIVE'
+                        ? 'bg-white dark:bg-[#2a2a2a] text-emerald-700 dark:text-emerald-400 shadow-xs font-bold'
+                        : 'text-slate-500 dark:text-neutral-400 hover:text-emerald-700 dark:hover:text-emerald-400'
+                    }`}
+                  >
+                    Active ({activeCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStudentStatusFilter('EXPIRED')}
+                    className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                      studentStatusFilter === 'EXPIRED'
+                        ? 'bg-white dark:bg-[#2a2a2a] text-rose-700 dark:text-rose-400 shadow-xs font-bold'
+                        : 'text-slate-500 dark:text-neutral-400 hover:text-rose-700 dark:hover:text-rose-400'
+                    }`}
+                  >
+                    Expired ({expiredCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStudentStatusFilter('DUE')}
+                    className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                      studentStatusFilter === 'DUE'
+                        ? 'bg-white dark:bg-[#2a2a2a] text-amber-700 dark:text-amber-400 shadow-xs font-bold'
+                        : 'text-slate-500 dark:text-neutral-400 hover:text-amber-700 dark:hover:text-amber-400'
+                    }`}
+                  >
+                    Due Pending ({dueCount})
+                  </button>
+                </div>
+                {renderTabRefreshButton('students', 'Refresh')}
               </div>
             </div>
 
@@ -1722,17 +2301,46 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
 
                           {/* KYC / Doc */}
                           <td className="px-4 py-3.5 whitespace-nowrap">
-                            {std.kycDocId ? (
-                              <div className="space-y-0.5">
-                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-[#1e1e1e] text-slate-700 dark:text-neutral-300 border border-slate-200 dark:border-[#2a2a2a]">
-                                  <FileText className="w-3 h-3 text-indigo-500" />
-                                  {std.kycDocType || 'AADHAAR'}: {std.kycDocId}
-                                </span>
-                                {std.kycPhotoUrl && (
-                                  <div className="text-[9px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                                    ✓ Document Attached
+                            {std.kycDocId || std.kycPhotoUrl ? (
+                              <div className="flex items-center gap-2.5">
+                                {std.kycPhotoUrl ? (
+                                  <div
+                                    className="relative group cursor-pointer shrink-0"
+                                    onClick={() => setAdminPreviewingImage(std.kycPhotoUrl || null)}
+                                  >
+                                    <img
+                                      src={std.kycPhotoUrl}
+                                      alt="KYC Document"
+                                      className="w-11 h-8 object-cover rounded-md border border-slate-200 dark:border-[#363636] shadow-2xs group-hover:scale-105 group-hover:border-indigo-500 transition-all"
+                                      title="Click to view KYC document image"
+                                    />
+                                    <div className="absolute inset-0 bg-black/30 rounded-md opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                      <ZoomIn className="w-3 h-3 text-white" />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-[#1e1e1e] border border-slate-200 dark:border-[#2a2a2a] flex items-center justify-center shrink-0">
+                                    <ShieldCheck className="w-4 h-4 text-slate-400" />
                                   </div>
                                 )}
+
+                                <div className="space-y-0.5">
+                                  {std.kycDocId && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-[#1e1e1e] text-slate-700 dark:text-neutral-300 border border-slate-200 dark:border-[#2a2a2a]">
+                                      <FileText className="w-3 h-3 text-indigo-500" />
+                                      {std.kycDocType || 'AADHAAR'}: {std.kycDocId}
+                                    </span>
+                                  )}
+                                  {std.kycPhotoUrl ? (
+                                    <div className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
+                                      <CheckCircle2 className="w-3 h-3" /> WebP Document
+                                    </div>
+                                  ) : (
+                                    <div className="text-[9px] text-amber-600 dark:text-amber-400 font-medium">
+                                      No Image Attached
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             ) : (
                               <span className="text-[10px] text-slate-400 dark:text-neutral-500 italic">Not Submitted</span>
@@ -1741,18 +2349,36 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
 
                           {/* Actions */}
                           <td className="px-5 py-3.5 whitespace-nowrap text-right">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedStudentForInspect(std);
-                                setIsInspectStudentModalOpen(true);
-                              }}
-                              title="Inspect Student Profile"
-                              className="px-3 py-1.5 text-xs font-bold rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-600 hover:text-white border border-indigo-200 dark:border-indigo-800/50 transition-colors cursor-pointer inline-flex items-center gap-1"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                              <span>Profile</span>
-                            </button>
+                            <div className="inline-flex items-center gap-1.5">
+                              {std.kycPhotoUrl && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedStudentForInspect(std);
+                                    setInspectStudentTab('kyc');
+                                    setIsInspectStudentModalOpen(true);
+                                  }}
+                                  title="View KYC Document"
+                                  className="px-2.5 py-1.5 text-xs font-bold rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-600 hover:text-white border border-emerald-200 dark:border-emerald-800/50 transition-colors cursor-pointer inline-flex items-center gap-1"
+                                >
+                                  <ShieldCheck className="w-3.5 h-3.5" />
+                                  <span>KYC</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedStudentForInspect(std);
+                                  setInspectStudentTab('profile');
+                                  setIsInspectStudentModalOpen(true);
+                                }}
+                                title="Inspect Student Profile"
+                                className="px-3 py-1.5 text-xs font-bold rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-600 hover:text-white border border-indigo-200 dark:border-indigo-800/50 transition-colors cursor-pointer inline-flex items-center gap-1"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Profile</span>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1775,13 +2401,16 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                 Configure user plans, duration, pricing & discounts. All plans include 100% full platform features.
               </p>
             </div>
-            <button
-              onClick={() => setIsCreatePlanModalOpen(true)}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              Create New Plan
-            </button>
+            <div className="flex items-center gap-2">
+              {renderTabRefreshButton('plans', 'Refresh Plans')}
+              <button
+                onClick={() => setIsCreatePlanModalOpen(true)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                Create New Plan
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1875,13 +2504,16 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
               <h2 className="text-base font-bold text-slate-900 dark:text-white">Platform Promotion Coupons</h2>
               <p className="text-xs text-slate-500 dark:text-neutral-400">Manage promotional discounts for SaaS subscriptions</p>
             </div>
-            <button
-              onClick={() => setIsCreateCouponOpen(true)}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              Create Coupon
-            </button>
+            <div className="flex items-center gap-2">
+              {renderTabRefreshButton('coupons', 'Refresh Coupons')}
+              <button
+                onClick={() => setIsCreateCouponOpen(true)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                Create Coupon
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1958,9 +2590,12 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
       {/* TAB 3: USERS */}
       {activeTab === 'users' && (
         <div className="bg-white dark:bg-[#121212] rounded-2xl border border-slate-200 dark:border-[#262626] shadow-xs overflow-hidden">
-          <div className="p-4 border-b border-slate-100 dark:border-[#262626]">
-            <h2 className="text-base font-bold text-slate-900 dark:text-white">Registered Platform Users</h2>
-            <p className="text-xs text-slate-500 dark:text-neutral-400">All registered library owners, staff, and super administrators</p>
+          <div className="p-4 border-b border-slate-100 dark:border-[#262626] flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">Registered Platform Users</h2>
+              <p className="text-xs text-slate-500 dark:text-neutral-400">All registered library owners, staff, and super administrators</p>
+            </div>
+            {renderTabRefreshButton('users', 'Refresh Users')}
           </div>
 
           <div className="overflow-x-auto">
@@ -2045,64 +2680,67 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
               </p>
             </div>
 
-            {/* Filter Pills */}
-            <div className="flex flex-wrap items-center bg-slate-100 dark:bg-[#1c1c1e] p-1 rounded-xl text-xs font-semibold gap-1 border border-slate-200 dark:border-[#2a2a2a]">
-              <button
-                type="button"
-                onClick={() => setAdminPaymentFilter('ALL')}
-                className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                  adminPaymentFilter === 'ALL'
-                    ? 'bg-white dark:bg-[#2a2a2a] text-slate-900 dark:text-white shadow-xs'
-                    : 'text-slate-500 dark:text-neutral-400 hover:text-slate-800 dark:hover:text-white'
-                }`}
-              >
-                All ({payments.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setAdminPaymentFilter('SUCCESS')}
-                className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                  adminPaymentFilter === 'SUCCESS'
-                    ? 'bg-white dark:bg-[#2a2a2a] text-emerald-700 dark:text-emerald-400 shadow-xs font-bold'
-                    : 'text-slate-500 dark:text-neutral-400 hover:text-emerald-700 dark:hover:text-emerald-400'
-                }`}
-              >
-                Success ({payments.filter((p) => p.status === 'SUCCESS').length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setAdminPaymentFilter('CANCELLED_AUTOPAY')}
-                className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
-                  adminPaymentFilter === 'CANCELLED_AUTOPAY'
-                    ? 'bg-white dark:bg-[#2a2a2a] text-rose-700 dark:text-rose-400 shadow-xs font-bold'
-                    : 'text-slate-500 dark:text-neutral-400 hover:text-rose-700 dark:hover:text-rose-400'
-                }`}
-              >
-                <XCircle className="w-3.5 h-3.5" />
-                <span>Cancelled Autopay ({payments.filter((p) => p.isCancelled).length})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setAdminPaymentFilter('PENDING')}
-                className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                  adminPaymentFilter === 'PENDING'
-                    ? 'bg-white dark:bg-[#2a2a2a] text-amber-700 dark:text-amber-400 shadow-xs font-bold'
-                    : 'text-slate-500 dark:text-neutral-400 hover:text-amber-700 dark:hover:text-amber-400'
-                }`}
-              >
-                Initiated ({payments.filter((p) => p.status === 'PENDING').length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setAdminPaymentFilter('FAILED')}
-                className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                  adminPaymentFilter === 'FAILED'
-                    ? 'bg-white dark:bg-[#2a2a2a] text-rose-700 dark:text-rose-400 shadow-xs font-bold'
-                    : 'text-slate-500 dark:text-neutral-400 hover:text-rose-700 dark:hover:text-rose-400'
-                }`}
-              >
-                Rejected ({payments.filter((p) => p.status === 'FAILED' && !p.isCancelled).length})
-              </button>
+            {/* Filter Pills + Refresh */}
+            <div className="flex items-center gap-2 flex-wrap shrink-0">
+              <div className="flex flex-wrap items-center bg-slate-100 dark:bg-[#1c1c1e] p-1 rounded-xl text-xs font-semibold gap-1 border border-slate-200 dark:border-[#2a2a2a]">
+                <button
+                  type="button"
+                  onClick={() => setAdminPaymentFilter('ALL')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                    adminPaymentFilter === 'ALL'
+                      ? 'bg-white dark:bg-[#2a2a2a] text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-500 dark:text-neutral-400 hover:text-slate-800 dark:hover:text-white'
+                  }`}
+                >
+                  All ({payments.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminPaymentFilter('SUCCESS')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                    adminPaymentFilter === 'SUCCESS'
+                      ? 'bg-white dark:bg-[#2a2a2a] text-emerald-700 dark:text-emerald-400 shadow-xs font-bold'
+                      : 'text-slate-500 dark:text-neutral-400 hover:text-emerald-700 dark:hover:text-emerald-400'
+                  }`}
+                >
+                  Success ({payments.filter((p) => p.status === 'SUCCESS').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminPaymentFilter('CANCELLED_AUTOPAY')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                    adminPaymentFilter === 'CANCELLED_AUTOPAY'
+                      ? 'bg-white dark:bg-[#2a2a2a] text-rose-700 dark:text-rose-400 shadow-xs font-bold'
+                      : 'text-slate-500 dark:text-neutral-400 hover:text-rose-700 dark:hover:text-rose-400'
+                  }`}
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span>Cancelled Autopay ({payments.filter((p) => p.isCancelled).length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminPaymentFilter('PENDING')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                    adminPaymentFilter === 'PENDING'
+                      ? 'bg-white dark:bg-[#2a2a2a] text-amber-700 dark:text-amber-400 shadow-xs font-bold'
+                      : 'text-slate-500 dark:text-neutral-400 hover:text-amber-700 dark:hover:text-amber-400'
+                  }`}
+                >
+                  Initiated ({payments.filter((p) => p.status === 'PENDING').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminPaymentFilter('FAILED')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                    adminPaymentFilter === 'FAILED'
+                      ? 'bg-white dark:bg-[#2a2a2a] text-rose-700 dark:text-rose-400 shadow-xs font-bold'
+                      : 'text-slate-500 dark:text-neutral-400 hover:text-rose-700 dark:hover:text-rose-400'
+                  }`}
+                >
+                  Rejected ({payments.filter((p) => p.status === 'FAILED' && !p.isCancelled).length})
+                </button>
+              </div>
+              {renderTabRefreshButton('payments', 'Refresh')}
             </div>
           </div>
 
@@ -2269,9 +2907,12 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
       {/* TAB 4: AUDIT */}
       {activeTab === 'audit' && (
         <div className="bg-white dark:bg-[#121212] rounded-2xl border border-slate-200 dark:border-[#262626] shadow-xs overflow-hidden">
-          <div className="p-4 border-b border-slate-100 dark:border-[#262626]">
-            <h2 className="text-base font-bold text-slate-900 dark:text-white">System Audit Trail</h2>
-            <p className="text-xs text-slate-500 dark:text-neutral-400">Security and administrative actions executed on the platform</p>
+          <div className="p-4 border-b border-slate-100 dark:border-[#262626] flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">System Audit Trail</h2>
+              <p className="text-xs text-slate-500 dark:text-neutral-400">Security and administrative actions executed on the platform</p>
+            </div>
+            {renderTabRefreshButton('audit', 'Refresh Logs')}
           </div>
 
           <div className="divide-y divide-slate-100 dark:divide-[#222222] max-h-[600px] overflow-y-auto">
@@ -3076,11 +3717,106 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                 disabled={isTogglingLib}
                 className={`px-4 py-2 text-xs font-semibold text-white rounded-xl transition-colors shadow-xs cursor-pointer ${
                   selectedLibForToggle.isActive
-                    ? 'bg-rose-600 hover:bg-rose-700'
+                    ? 'bg-amber-600 hover:bg-amber-700'
                     : 'bg-emerald-600 hover:bg-emerald-700'
                 }`}
               >
                 {isTogglingLib ? 'Updating...' : selectedLibForToggle.isActive ? 'Suspend Library' : 'Activate Library'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIRM DELETE LIBRARY */}
+      {selectedLibForDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] rounded-2xl w-full max-w-lg p-6 shadow-2xl border border-rose-200 dark:border-rose-900/50">
+            <div className="flex items-start justify-between pb-4 border-b border-slate-100 dark:border-[#262626]">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Delete Library Permanently
+                  </h3>
+                  <p className="text-xs text-rose-600 dark:text-rose-400 font-medium mt-0.5">
+                    Irreversible action: All tenant records will be purged from database
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedLibForDelete(null);
+                  setDeleteConfirmLibName('');
+                }}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <div className="p-3.5 bg-rose-50 dark:bg-rose-950/30 rounded-xl border border-rose-200/80 dark:border-rose-900/40 text-xs text-rose-900 dark:text-rose-200 space-y-2">
+                <p className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
+                  Warning: The following data will be permanently wiped:
+                </p>
+                <ul className="list-disc pl-5 space-y-1 text-slate-700 dark:text-neutral-300">
+                  <li>
+                    <strong>{selectedLibForDelete.counts?.students ?? (selectedLibForDelete as any).studentCount ?? 0} Students</strong> profiles, uploaded photos & KYC documents
+                  </li>
+                  <li>
+                    <strong>{selectedLibForDelete.counts?.seats ?? (selectedLibForDelete as any).seatCount ?? 0} Seats</strong>, rooms & floor arrangements
+                  </li>
+                  <li>
+                    All memberships, active seat allocations & student attendance history
+                  </li>
+                  <li>
+                    All fee transactions, payment receipts & ledger records
+                  </li>
+                  <li>
+                    Subscriptions, push alert tokens & staff branch authorizations
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1.5">
+                  Type <span className="font-mono text-rose-600 dark:text-rose-400 font-bold select-all">"{selectedLibForDelete.name}"</span> to confirm deletion:
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmLibName}
+                  onChange={(e) => setDeleteConfirmLibName(e.target.value)}
+                  placeholder={selectedLibForDelete.name}
+                  className="w-full px-3.5 py-2.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-neutral-600 bg-white dark:bg-[#18181b] border border-rose-300 dark:border-rose-900/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 shadow-2xs font-medium"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-2 pt-4 border-t border-slate-100 dark:border-[#262626]">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedLibForDelete(null);
+                  setDeleteConfirmLibName('');
+                }}
+                disabled={isDeletingLib}
+                className="px-4 py-2.5 text-xs font-semibold text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteLibrary}
+                disabled={isDeletingLib || deleteConfirmLibName.trim().toLowerCase() !== selectedLibForDelete.name.trim().toLowerCase()}
+                className="px-4 py-2.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isDeletingLib ? 'Purging Everything...' : 'Delete Library & All Data'}</span>
               </button>
             </div>
           </div>
@@ -3405,19 +4141,28 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
         </div>
       )}
 
-      {/* MODAL: INSPECT STUDENT PROFILE */}
+      {/* MODAL: INSPECT STUDENT PROFILE WITH 4 TABS (Profile, Enrollment Timeline, Fees, KYC) */}
       {isInspectStudentModalOpen && selectedStudentForInspect && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl my-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl my-6 text-slate-900 dark:text-white">
             {/* Header */}
-            <div className="px-6 py-5 border-b border-slate-100 dark:border-[#262626] flex items-center justify-between bg-slate-50/50 dark:bg-[#18181b]/50">
+            <div className="px-5 sm:px-6 py-4 border-b border-slate-100 dark:border-[#262626] flex items-center justify-between bg-slate-50/70 dark:bg-[#18181b]/70">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 flex items-center justify-center font-bold">
                   <GraduationCap className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                    Student Full Profile
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>{selectedStudentForInspect.fullName}</span>
+                    {selectedStudentForInspect.isActive ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
+                        ACTIVE
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-[#2a2a2a] text-slate-600 dark:text-neutral-400">
+                        INACTIVE
+                      </span>
+                    )}
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-neutral-400">
                     Enrolled at <span className="font-semibold text-slate-700 dark:text-neutral-300">{selectedStudentForInspect.libraryName}</span> (/{selectedStudentForInspect.librarySlug})
@@ -3436,137 +4181,207 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
               </button>
             </div>
 
-            {/* Content */}
-            <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
-              {/* Primary Info card */}
-              <div className="flex flex-col sm:flex-row items-start gap-4 p-4 rounded-xl bg-slate-50 dark:bg-[#18181b] border border-slate-100 dark:border-[#262626]">
-                {selectedStudentForInspect.photoUrl ? (
-                  <img
-                    src={selectedStudentForInspect.photoUrl}
-                    alt={selectedStudentForInspect.fullName}
-                    className="w-16 h-16 rounded-2xl object-cover border border-slate-200 dark:border-[#333] shrink-0"
-                  />
-                ) : (
-                  <div className="w-16 h-16 rounded-2xl bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-black text-xl flex items-center justify-center border border-indigo-200 dark:border-indigo-800 shrink-0">
-                    {selectedStudentForInspect.fullName.slice(0, 2).toUpperCase()}
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h4 className="text-lg font-bold text-slate-900 dark:text-white">
-                      {selectedStudentForInspect.fullName}
-                    </h4>
-                    {selectedStudentForInspect.isActive ? (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
-                        ACTIVE RECORD
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-[#2a2a2a] text-slate-600 dark:text-neutral-400">
-                        INACTIVE RECORD
-                      </span>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3 text-xs">
-                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-neutral-300">
-                      <Phone className="w-3.5 h-3.5 text-slate-400" />
-                      <span className="font-semibold">{selectedStudentForInspect.phone}</span>
-                    </div>
-                    {selectedStudentForInspect.email && (
-                      <div className="flex items-center gap-1.5 text-slate-600 dark:text-neutral-300 truncate">
-                        <Mail className="w-3.5 h-3.5 text-slate-400" />
-                        <span>{selectedStudentForInspect.email}</span>
-                      </div>
-                    )}
-                    {selectedStudentForInspect.fatherName && (
-                      <div className="text-slate-600 dark:text-neutral-300">
-                        <span className="text-slate-400 dark:text-neutral-500">Father:</span> {selectedStudentForInspect.fatherName}
-                      </div>
-                    )}
-                    {selectedStudentForInspect.studyPurpose && (
-                      <div className="text-slate-600 dark:text-neutral-300">
-                        <span className="text-slate-400 dark:text-neutral-500">Goal:</span> {selectedStudentForInspect.studyPurpose}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
+            {/* Tab Navigation Pill Bar */}
+            <div className="px-5 sm:px-6 pt-3 pb-2 border-b border-slate-100 dark:border-[#262626] bg-slate-50/40 dark:bg-[#151518]">
+              <div className="grid grid-cols-4 gap-1 p-1 bg-slate-200/70 dark:bg-[#1c1c1e] rounded-xl text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setInspectStudentTab('profile')}
+                  className={`py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    inspectStudentTab === 'profile'
+                      ? 'bg-white dark:bg-[#262626] text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                      : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
+                  }`}
+                >
+                  <User className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">Profile</span>
+                </button>
 
-              {/* Detail Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                {/* Seat & Shift Details */}
-                <div className="p-4 rounded-xl border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#121212] space-y-2">
-                  <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-[#262626] pb-2">
-                    <Armchair className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                    <span>Seat & Shift Allocation</span>
-                  </div>
-                  {selectedStudentForInspect.seat ? (
-                    <div className="space-y-1.5 pt-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500 dark:text-neutral-400">Seat Number:</span>
-                        <span className="font-bold text-emerald-700 dark:text-emerald-400 font-mono text-sm bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800/50">
-                          {selectedStudentForInspect.seat.seatNumber}
-                        </span>
-                      </div>
-                      {selectedStudentForInspect.seat.roomName && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-500 dark:text-neutral-400">Room / Hall:</span>
-                          <span className="font-semibold text-slate-800 dark:text-neutral-200">
-                            {selectedStudentForInspect.seat.roomName}
-                          </span>
-                        </div>
-                      )}
-                      {selectedStudentForInspect.seat.rowName && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-500 dark:text-neutral-400">Row:</span>
-                          <span className="font-semibold text-slate-800 dark:text-neutral-200">
-                            {selectedStudentForInspect.seat.rowName}
-                          </span>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500 dark:text-neutral-400">Shift Type:</span>
-                        <span className="font-bold text-indigo-600 dark:text-indigo-400">
-                          {selectedStudentForInspect.seat.shift === 'MORNING'
-                            ? 'Morning Shift'
-                            : selectedStudentForInspect.seat.shift === 'EVENING'
-                            ? 'Evening Shift'
-                            : 'Full Day'}
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-slate-400 dark:text-neutral-500 italic pt-2">No seat currently assigned</p>
+                <button
+                  type="button"
+                  onClick={() => setInspectStudentTab('enrollmentTimeline')}
+                  className={`py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    inspectStudentTab === 'enrollmentTimeline'
+                      ? 'bg-white dark:bg-[#262626] text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                      : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
+                  }`}
+                >
+                  <CalendarDays className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span className="truncate">Enrollment</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setInspectStudentTab('feeHistory')}
+                  className={`py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    inspectStudentTab === 'feeHistory'
+                      ? 'bg-white dark:bg-[#262626] text-emerald-700 dark:text-emerald-300 shadow-2xs'
+                      : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
+                  }`}
+                >
+                  <IndianRupee className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span className="truncate">Fees</span>
+                  {((selectedStudentForInspect.transactions || selectedStudentForInspect.feeTransactions || []).length > 0) && (
+                    <span
+                      className={`text-[9px] px-1 py-0.2 rounded-full font-bold shrink-0 ${
+                        inspectStudentTab === 'feeHistory'
+                          ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200'
+                          : 'bg-slate-300 dark:bg-[#363636] text-slate-700 dark:text-neutral-300'
+                      }`}
+                    >
+                      {(selectedStudentForInspect.transactions || selectedStudentForInspect.feeTransactions || []).length}
+                    </span>
                   )}
-                </div>
+                </button>
 
-                {/* Membership & Due Details */}
-                <div className="p-4 rounded-xl border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#121212] space-y-2">
-                  <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-[#262626] pb-2">
-                    <IndianRupee className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    <span>Membership & Fees</span>
-                  </div>
-                  {selectedStudentForInspect.membership ? (
-                    <div className="space-y-1.5 pt-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500 dark:text-neutral-400">Status:</span>
-                        <span className={`px-2 py-0.5 rounded font-extrabold text-[10px] uppercase ${
-                          selectedStudentForInspect.membership.status === 'ACTIVE'
-                            ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
-                            : selectedStudentForInspect.membership.status === 'EXPIRED'
-                            ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300'
-                            : selectedStudentForInspect.membership.status === 'PAUSED' && selectedStudentForInspect.membership.feeAmount === 0
-                            ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
-                            : 'bg-slate-100 dark:bg-[#222] text-slate-700 dark:text-neutral-300'
-                        }`}>
-                          {selectedStudentForInspect.membership.status === 'PAUSED' && selectedStudentForInspect.membership.feeAmount === 0 ? 'Not Enrolled' : selectedStudentForInspect.membership.status}
-                        </span>
+                <button
+                  type="button"
+                  onClick={() => setInspectStudentTab('kyc')}
+                  className={`py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    inspectStudentTab === 'kyc'
+                      ? 'bg-white dark:bg-[#262626] text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                      : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">KYC</span>
+                  {selectedStudentForInspect.kycPhotoUrl && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 sm:p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+              {/* TAB 1: PROFILE & DETAILS */}
+              {inspectStudentTab === 'profile' && (
+                <div className="space-y-4 animate-in fade-in duration-150">
+                  {/* Primary Info card */}
+                  <div className="flex flex-col sm:flex-row items-start gap-4 p-4 rounded-xl bg-slate-50 dark:bg-[#18181b] border border-slate-100 dark:border-[#262626]">
+                    {selectedStudentForInspect.photoUrl ? (
+                      <img
+                        src={selectedStudentForInspect.photoUrl}
+                        alt={selectedStudentForInspect.fullName}
+                        onClick={() => setAdminPreviewingImage(selectedStudentForInspect.photoUrl || null)}
+                        className="w-16 h-16 rounded-2xl object-cover border border-slate-200 dark:border-[#333] shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
+                        title="Click to view full profile photo"
+                      />
+                    ) : (
+                      <div className="w-16 h-16 rounded-2xl bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-black text-xl flex items-center justify-center border border-indigo-200 dark:border-indigo-800 shrink-0">
+                        {selectedStudentForInspect.fullName.slice(0, 2).toUpperCase()}
                       </div>
-                      {selectedStudentForInspect.membership.feeAmount > 0 ? (
-                        <>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h4 className="text-lg font-bold text-slate-900 dark:text-white">
+                          {selectedStudentForInspect.fullName}
+                        </h4>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3 text-xs">
+                        <div className="flex items-center gap-1.5 text-slate-600 dark:text-neutral-300">
+                          <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className="font-semibold">{selectedStudentForInspect.phone}</span>
+                        </div>
+                        {selectedStudentForInspect.email && (
+                          <div className="flex items-center gap-1.5 text-slate-600 dark:text-neutral-300 truncate">
+                            <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span>{selectedStudentForInspect.email}</span>
+                          </div>
+                        )}
+                        {selectedStudentForInspect.fatherName && (
+                          <div className="text-slate-600 dark:text-neutral-300">
+                            <span className="text-slate-400 dark:text-neutral-500">Father:</span> {selectedStudentForInspect.fatherName}
+                          </div>
+                        )}
+                        {selectedStudentForInspect.studyPurpose && (
+                          <div className="text-slate-600 dark:text-neutral-300">
+                            <span className="text-slate-400 dark:text-neutral-500">Goal:</span> {selectedStudentForInspect.studyPurpose}
+                          </div>
+                        )}
+                        {selectedStudentForInspect.address && (
+                          <div className="text-slate-600 dark:text-neutral-300 col-span-1 sm:col-span-2">
+                            <span className="text-slate-400 dark:text-neutral-500">Address:</span> {selectedStudentForInspect.address}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Detail Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                    {/* Seat & Shift Details */}
+                    <div className="p-4 rounded-xl border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#121212] space-y-2">
+                      <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-[#262626] pb-2">
+                        <Armchair className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                        <span>Seat & Shift Allocation</span>
+                      </div>
+                      {selectedStudentForInspect.seat ? (
+                        <div className="space-y-1.5 pt-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500 dark:text-neutral-400">Seat Number:</span>
+                            <span className="font-bold text-emerald-700 dark:text-emerald-400 font-mono text-sm bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800/50">
+                              Seat {selectedStudentForInspect.seat.seatNumber}
+                            </span>
+                          </div>
+                          {selectedStudentForInspect.seat.roomName && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-500 dark:text-neutral-400">Room / Hall:</span>
+                              <span className="font-semibold text-slate-800 dark:text-neutral-200">
+                                {selectedStudentForInspect.seat.roomName}
+                              </span>
+                            </div>
+                          )}
+                          {selectedStudentForInspect.seat.rowName && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-500 dark:text-neutral-400">Row:</span>
+                              <span className="font-semibold text-slate-800 dark:text-neutral-200">
+                                {selectedStudentForInspect.seat.rowName}
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500 dark:text-neutral-400">Shift Type:</span>
+                            <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                              {selectedStudentForInspect.seat.shift === 'MORNING'
+                                ? 'Morning Shift'
+                                : selectedStudentForInspect.seat.shift === 'EVENING'
+                                ? 'Evening Shift'
+                                : selectedStudentForInspect.seat.shift === 'NIGHT'
+                                ? 'Night Shift'
+                                : 'Full Day'}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-slate-400 dark:text-neutral-500 italic pt-2">No seat currently assigned</p>
+                      )}
+                    </div>
+
+                    {/* Membership & Due Details */}
+                    <div className="p-4 rounded-xl border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#121212] space-y-2">
+                      <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-[#262626] pb-2">
+                        <IndianRupee className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <span>Membership & Fees</span>
+                      </div>
+                      {selectedStudentForInspect.membership ? (
+                        <div className="space-y-1.5 pt-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500 dark:text-neutral-400">Status:</span>
+                            <span className={`px-2 py-0.5 rounded font-extrabold text-[10px] uppercase ${
+                              selectedStudentForInspect.membership.status === 'ACTIVE'
+                                ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
+                                : selectedStudentForInspect.membership.status === 'EXPIRED'
+                                ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300'
+                                : 'bg-slate-100 dark:bg-[#222] text-slate-700 dark:text-neutral-300'
+                            }`}>
+                              {selectedStudentForInspect.membership.status}
+                            </span>
+                          </div>
                           <div className="flex items-center justify-between">
                             <span className="text-slate-500 dark:text-neutral-400">Monthly Fee:</span>
                             <span className="font-bold text-slate-900 dark:text-white">
-                              ₹{selectedStudentForInspect.membership.feeAmount.toLocaleString('en-IN')}
+                              ₹{(selectedStudentForInspect.membership.feeAmount || 0).toLocaleString('en-IN')}
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
@@ -3585,108 +4400,468 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                             <div className="flex items-center justify-between">
                               <span className="text-slate-500 dark:text-neutral-400">Valid Until:</span>
                               <span className="font-mono text-slate-700 dark:text-neutral-300">
-                                {new Date(selectedStudentForInspect.membership.endDate).toLocaleDateString('en-IN', {
-                                  day: 'numeric',
-                                  month: 'short',
-                                  year: 'numeric',
-                                })}
+                                {formatFriendlyDate(selectedStudentForInspect.membership.endDate)}
                               </span>
                             </div>
                           )}
-                        </>
-                      ) : (
-                        <p className="text-amber-600 dark:text-amber-400 text-xs italic pt-1">
-                          ⚠️ Student has not been enrolled for any month yet. Use <strong>Record Fee</strong> to enroll.
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-slate-400 dark:text-neutral-500 italic pt-2">No active membership plan</p>
-                  )}
-                </div>
-              </div>
-
-              {/* KYC & Branch Location Info */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                {/* KYC Card */}
-                <div className="p-4 rounded-xl border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#121212] space-y-2">
-                  <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-[#262626] pb-2">
-                    <ShieldCheck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                    <span>Identity Verification (KYC)</span>
-                  </div>
-                  {selectedStudentForInspect.kycDocId ? (
-                    <div className="space-y-2 pt-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500 dark:text-neutral-400">Doc Type:</span>
-                        <span className="font-bold text-slate-800 dark:text-neutral-200">
-                          {selectedStudentForInspect.kycDocType || 'AADHAAR'}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500 dark:text-neutral-400">Document ID:</span>
-                        <span className="font-mono font-semibold text-slate-900 dark:text-white bg-slate-100 dark:bg-[#1c1c1e] px-2 py-0.5 rounded">
-                          {selectedStudentForInspect.kycDocId}
-                        </span>
-                      </div>
-                      {selectedStudentForInspect.kycPhotoUrl && (
-                        <div className="pt-1">
-                          <a
-                            href={selectedStudentForInspect.kycPhotoUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 hover:bg-indigo-100 transition-colors"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                            <span>View KYC Document Attachment</span>
-                          </a>
                         </div>
+                      ) : (
+                        <p className="text-slate-400 dark:text-neutral-500 italic pt-2">No active membership plan</p>
                       )}
                     </div>
-                  ) : (
-                    <p className="text-slate-400 dark:text-neutral-500 italic pt-2">No KYC verification document attached</p>
-                  )}
-                </div>
 
-                {/* Library Branch Owner Card */}
-                <div className="p-4 rounded-xl border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#121212] space-y-2">
-                  <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-[#262626] pb-2">
-                    <Building2 className="w-4 h-4 text-slate-600 dark:text-neutral-400" />
-                    <span>Library & Branch Details</span>
-                  </div>
-                  <div className="space-y-1.5 pt-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500 dark:text-neutral-400">Library Name:</span>
-                      <span className="font-bold text-slate-900 dark:text-white">
-                        {selectedStudentForInspect.libraryName}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500 dark:text-neutral-400">Slug / Route:</span>
-                      <span className="font-mono text-indigo-600 dark:text-indigo-400">
-                        /{selectedStudentForInspect.librarySlug}
-                      </span>
-                    </div>
-                    {selectedStudentForInspect.ownerName && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500 dark:text-neutral-400">Branch Owner:</span>
-                        <span className="font-semibold text-slate-800 dark:text-neutral-200">
-                          {selectedStudentForInspect.ownerName}
-                        </span>
+                    {/* Library Branch Owner Card */}
+                    <div className="p-4 rounded-xl border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#121212] space-y-2 col-span-1 sm:col-span-2">
+                      <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-[#262626] pb-2">
+                        <Building2 className="w-4 h-4 text-slate-600 dark:text-neutral-400" />
+                        <span>Library & Branch Details</span>
                       </div>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500 dark:text-neutral-400">Joined On:</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                        <div>
+                          <span className="text-slate-500 dark:text-neutral-400 block">Library Name:</span>
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            {selectedStudentForInspect.libraryName}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 dark:text-neutral-400 block">Route / Slug:</span>
+                          <span className="font-mono text-indigo-600 dark:text-indigo-400">
+                            /{selectedStudentForInspect.librarySlug}
+                          </span>
+                        </div>
+                        {selectedStudentForInspect.ownerName && (
+                          <div>
+                            <span className="text-slate-500 dark:text-neutral-400 block">Owner:</span>
+                            <span className="font-semibold text-slate-800 dark:text-neutral-200">
+                              {selectedStudentForInspect.ownerName}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: MONTHLY ENROLLMENT TIMELINE (Matches screenshot 2) */}
+              {inspectStudentTab === 'enrollmentTimeline' && (
+                <div className="space-y-4 animate-in fade-in duration-150">
+                  {/* Header & Year Switcher */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-1 border-b border-slate-100 dark:border-[#262626]">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <CalendarDays className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                        <span>Monthly Enrollment Status</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-neutral-400">
+                        Enrollment and attendance matrix for {selectedStudentForInspect.fullName}
+                      </p>
+                    </div>
+
+                    {/* Year Dropdown */}
+                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                      <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#333] px-2.5 py-1 rounded-xl shadow-2xs">
+                        <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                        <select
+                          value={inspectTimelineYear}
+                          onChange={(e) => setInspectTimelineYear(e.target.value)}
+                          className="bg-transparent text-xs font-bold text-slate-900 dark:text-white focus:outline-hidden cursor-pointer"
+                        >
+                          {availableInspectFeeYears.map((yr) => (
+                            <option key={yr} value={yr}>
+                              Year {yr}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Status Legend (Green, Orange, Light Blue) */}
+                  <div className="bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200/80 dark:border-[#262626] p-2.5 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-[10px] font-semibold">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-xs shadow-emerald-500/50 shrink-0" />
+                      <span className="text-emerald-800 dark:text-emerald-300 font-bold">Green: Enrolled / Present</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-xs shadow-amber-500/50 shrink-0" />
+                      <span className="text-amber-800 dark:text-amber-300 font-bold">Orange: Inactive / Absent</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-sky-400 shadow-xs shadow-sky-400/50 shrink-0" />
+                      <span className="text-sky-800 dark:text-sky-300 font-bold">Light Blue: Upcoming Month</span>
+                    </div>
+                  </div>
+
+                  {/* 12-Month Interactive Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[360px] overflow-y-auto pr-0.5">
+                    {inspectMonthlyEnrollmentList.map((m) => {
+                      const isGreen = m.statusType === 'ACTIVE';
+                      const isOrange = m.statusType === 'INACTIVE' || m.statusType === 'PARTIAL';
+                      const isLightBlue = m.statusType === 'UPCOMING';
+
+                      return (
+                        <div
+                          key={m.monthIdx}
+                          className={`p-3 rounded-2xl border transition-all relative overflow-hidden flex flex-col justify-between group shadow-2xs ${
+                            isGreen
+                              ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800/60 hover:border-emerald-400 hover:shadow-md'
+                              : isOrange
+                              ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800/60 hover:border-amber-400 hover:shadow-md'
+                              : 'bg-sky-50/60 dark:bg-sky-950/20 border-sky-200 dark:border-sky-800/50 hover:border-sky-300 hover:shadow-md'
+                          }`}
+                        >
+                          {/* Current Month Highlight Dot */}
+                          {m.isCurrentMonth && (
+                            <div className="absolute top-2.5 right-2.5 flex items-center gap-1 bg-white/90 dark:bg-[#121212] px-1.5 py-0.5 rounded-full border border-slate-200 dark:border-[#333] shadow-2xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
+                              <span className="text-[9px] font-extrabold text-indigo-600 dark:text-indigo-400 leading-none">NOW</span>
+                            </div>
+                          )}
+
+                          <div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-black text-slate-900 dark:text-white">
+                                {m.monthName}
+                              </span>
+                            </div>
+
+                            <div className="mt-1.5 flex items-center gap-1.5">
+                              {isGreen && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold shadow-2xs">
+                                  <Check className="w-3 h-3" />
+                                  <span>Enrolled</span>
+                                </span>
+                              )}
+                              {isOrange && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-bold shadow-2xs">
+                                  <UserX className="w-3 h-3" />
+                                  <span>{m.statusType === 'PARTIAL' ? 'Due' : 'Inactive'}</span>
+                                </span>
+                              )}
+                              {isLightBlue && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500 text-white text-[10px] font-bold shadow-2xs">
+                                  <Clock className="w-3 h-3" />
+                                  <span>Upcoming</span>
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Period Date Span */}
+                            {m.periodSpan && (
+                              <div className="mt-1.5 flex items-center gap-1 text-[10px] font-semibold text-slate-700 dark:text-neutral-300 bg-white/80 dark:bg-black/40 px-1.5 py-0.5 rounded-md border border-slate-200/70 dark:border-white/10 shadow-2xs">
+                                <CalendarDays className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                <span className="truncate">{m.periodSpan}</span>
+                              </div>
+                            )}
+
+                            <p className="text-[10px] text-slate-600 dark:text-neutral-400 mt-1.5 leading-snug">
+                              {m.statusLabel}
+                            </p>
+
+                            {/* Paid / Due metrics */}
+                            {m.totalPaid > 0 && (
+                              <p className="text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400 mt-1">
+                                Paid: ₹{m.totalPaid.toLocaleString('en-IN')}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Action Link to Fee Receipts */}
+                          {m.matchingTxs.length > 0 && (
+                            <div className="mt-2.5 pt-2 border-t border-slate-200/60 dark:border-[#2a2a2d] flex items-center justify-between">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setInspectFeeYear(m.year.toString());
+                                  setInspectFeeMonth(m.monthName);
+                                  setInspectStudentTab('feeHistory');
+                                }}
+                                className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+                              >
+                                <span>View Receipts ({m.matchingTxs.length})</span>
+                                <ArrowUpRight className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Annual Enrollment Summary Card */}
+                  <div className="p-3 bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200/80 dark:border-[#262626] rounded-2xl flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       <span className="text-slate-700 dark:text-neutral-300">
-                        {new Date(selectedStudentForInspect.createdAt).toLocaleDateString('en-IN', {
+                        <strong>{selectedStudentForInspect.fullName}</strong> was enrolled/active in{' '}
+                        <strong className="text-emerald-600 dark:text-emerald-400">
+                          {inspectMonthlyEnrollmentList.filter((m) => m.statusType === 'ACTIVE').length} / 12
+                        </strong>{' '}
+                        months in {inspectTimelineYear}.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: FEES & TRANSACTIONS */}
+              {inspectStudentTab === 'feeHistory' && (
+                <div className="space-y-4 animate-in fade-in duration-150">
+                  {/* Header & Filter Bar */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-1 border-b border-slate-100 dark:border-[#262626]">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <IndianRupee className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <span>Fee & Payment Records</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-neutral-400">
+                        Historical fee transactions recorded for {selectedStudentForInspect.fullName}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {/* Year Filter */}
+                      <div className="flex items-center gap-1 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#333] rounded-lg px-2 py-1 shadow-2xs">
+                        <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                        <select
+                          value={inspectFeeYear}
+                          onChange={(e) => setInspectFeeYear(e.target.value)}
+                          className="bg-transparent text-xs font-semibold text-slate-800 dark:text-neutral-200 focus:outline-hidden cursor-pointer"
+                        >
+                          <option value="ALL">All Years</option>
+                          {availableInspectFeeYears.map((yr) => (
+                            <option key={yr} value={yr}>
+                              {yr}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Month Filter */}
+                      <div className="flex items-center gap-1 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#333] rounded-lg px-2 py-1 shadow-2xs">
+                        <select
+                          value={inspectFeeMonth}
+                          onChange={(e) => setInspectFeeMonth(e.target.value)}
+                          className="bg-transparent text-xs font-semibold text-slate-800 dark:text-neutral-200 focus:outline-hidden cursor-pointer"
+                        >
+                          <option value="ALL">All Months</option>
+                          {MONTH_NAMES.map((m) => (
+                            <option key={m} value={m}>
+                              {m}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {(inspectFeeYear !== 'ALL' || inspectFeeMonth !== 'ALL') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInspectFeeYear('ALL');
+                            setInspectFeeMonth('ALL');
+                          }}
+                          className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Transactions List */}
+                  {inspectFilteredTxs.length > 0 ? (
+                    <div className="space-y-2 max-h-[340px] overflow-y-auto pr-0.5">
+                      {inspectFilteredTxs.map((tx: any) => {
+                        const d = new Date(tx.paymentDate);
+                        const formattedD = d.toLocaleDateString('en-IN', {
                           day: 'numeric',
                           month: 'short',
                           year: 'numeric',
-                        })}
+                        });
+                        return (
+                          <div
+                            key={tx.id}
+                            className="bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl p-3 shadow-2xs space-y-2"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-800/40 font-bold shrink-0">
+                                  <Receipt className="w-4 h-4" />
+                                </div>
+                                <div>
+                                  <span className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm block">
+                                    {tx.paidForMonth || 'Fee Payment'}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 dark:text-neutral-500 block">
+                                    {formattedD}
+                                  </span>
+                                  {tx.validFrom && tx.validTo && (
+                                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium block mt-0.5">
+                                      {formatFriendlyPeriod(tx.validFrom, tx.validTo)}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="text-right">
+                                <span className="font-extrabold text-emerald-700 dark:text-emerald-400 text-sm block">
+                                  ₹{Number(tx.amount).toLocaleString('en-IN')}
+                                </span>
+                                <div className="flex items-center justify-end gap-1 mt-0.5">
+                                  <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-md uppercase ${
+                                    tx.status === 'PARTIAL' || (tx.remainingFee && tx.remainingFee > 0)
+                                      ? 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50'
+                                      : 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50'
+                                  }`}>
+                                    {tx.status || 'PAID'}
+                                  </span>
+                                  {tx.remainingFee !== undefined && tx.remainingFee > 0 && (
+                                    <span className="text-[9px] font-bold text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 px-1 py-0.2 rounded">
+                                      Due: ₹{tx.remainingFee}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Metadata */}
+                            <div className="pt-2 border-t border-slate-100 dark:border-[#262626] flex items-center justify-between text-[11px] text-slate-500 dark:text-neutral-400">
+                              <div>
+                                Mode: <strong className="text-slate-700 dark:text-neutral-200">{tx.paymentMode || 'CASH'}</strong>
+                              </div>
+                              {tx.receiptNumber && (
+                                <span className="font-mono text-[10px] text-slate-500 dark:text-neutral-400 bg-slate-100 dark:bg-[#262626] px-2 py-0.5 rounded-md">
+                                  #{tx.receiptNumber}
+                                </span>
+                              )}
+                            </div>
+
+                            {tx.notes && (
+                              <div className="text-[10px] bg-white dark:bg-[#121212] p-2 rounded-lg text-slate-600 dark:text-neutral-400 italic border border-slate-100 dark:border-[#262626]">
+                                &quot;{tx.notes}&quot;
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50 dark:bg-[#1c1c1e] border border-dashed border-slate-200 dark:border-[#262626] rounded-2xl p-6 text-center space-y-2">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-100/60 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto shadow-2xs">
+                        <Receipt className="w-5 h-5" />
+                      </div>
+                      <h5 className="text-xs font-bold text-slate-800 dark:text-neutral-200">
+                        No Fee Payment Records Found
+                      </h5>
+                      <p className="text-[11px] text-slate-500 dark:text-neutral-400">
+                        {inspectFeeYear !== 'ALL' || inspectFeeMonth !== 'ALL'
+                          ? 'No payments found under selected year/month filter.'
+                          : 'No fee transactions have been recorded for this student yet.'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 4: KYC & DOCUMENT VERIFICATION (Matches screenshot 1) */}
+              {inspectStudentTab === 'kyc' && (
+                <div className="space-y-4 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <ShieldCheck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                        <span>KYC & Document Verification</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-neutral-400">
+                        Identity verification records for {selectedStudentForInspect.fullName}
+                      </p>
+                    </div>
+
+                    {selectedStudentForInspect.kycPhotoUrl ? (
+                      <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> Verified
                       </span>
+                    ) : (
+                      <span className="text-[10px] font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 px-2 py-0.5 rounded-full">
+                        Pending Photo
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="bg-slate-50 dark:bg-[#1c1c1e] rounded-2xl p-4 border border-slate-200 dark:border-[#262626] text-xs space-y-3">
+                    <div className="flex items-center justify-between text-slate-600 dark:text-neutral-400 pb-2 border-b border-slate-200/60 dark:border-[#262626]">
+                      <span>Document Type:</span>
+                      <span className="font-semibold text-slate-900 dark:text-white">
+                        {selectedStudentForInspect.kycDocType === 'AADHAAR'
+                          ? 'Aadhaar Card'
+                          : selectedStudentForInspect.kycDocType || 'Aadhaar Card'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-slate-600 dark:text-neutral-400 pb-2 border-b border-slate-200/60 dark:border-[#262626]">
+                      <span>Card Reference Number:</span>
+                      <span className="font-mono font-bold text-slate-800 dark:text-neutral-200">
+                        {selectedStudentForInspect.kycDocId || 'Not provided'}
+                      </span>
+                    </div>
+
+                    {/* Uploaded Document Image Thumbnail + Stored in Cloudinary (WebP) Badge */}
+                    <div>
+                      <span className="block text-slate-600 dark:text-neutral-400 font-medium mb-1.5">
+                        Uploaded Document Image:
+                      </span>
+                      {selectedStudentForInspect.kycPhotoUrl ? (
+                        <div className="p-3 bg-white dark:bg-[#121212] rounded-xl border border-slate-200 dark:border-[#262626] flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={selectedStudentForInspect.kycPhotoUrl}
+                              alt="Aadhaar Card Document"
+                              onClick={() => setAdminPreviewingImage(selectedStudentForInspect.kycPhotoUrl || null)}
+                              className="w-16 h-12 object-cover rounded-lg border border-slate-200 dark:border-[#363636] shadow-2xs cursor-pointer hover:opacity-90 hover:border-indigo-500 transition-all"
+                              title="Click to view full image"
+                            />
+                            <div>
+                              <span className="block font-bold text-slate-800 dark:text-neutral-200 text-xs">
+                                {selectedStudentForInspect.kycDocType === 'AADHAAR' ? 'Aadhaar Card Photo' : 'ID Document Photo'}
+                              </span>
+                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1 mt-0.5">
+                                <CheckCircle2 className="w-3 h-3" /> Stored in Cloudinary (WebP)
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setAdminPreviewingImage(selectedStudentForInspect.kycPhotoUrl || null)}
+                              className="px-2.5 py-1.5 text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-800/50 rounded-lg cursor-pointer flex items-center gap-1 transition-colors"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>View Full</span>
+                            </button>
+                            <a
+                              href={selectedStudentForInspect.kycPhotoUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-neutral-300 border border-slate-200 dark:border-[#262626] rounded-lg hover:bg-slate-50 dark:hover:bg-[#1c1c1e] transition-colors"
+                              title="Open original in new tab"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-4 bg-white dark:bg-[#121212] border border-dashed border-slate-300 dark:border-[#363636] rounded-xl text-center space-y-1">
+                          <p className="text-[11px] text-slate-400 dark:text-neutral-500 italic">
+                            No document photo uploaded yet for this student.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Modal Footer */}
@@ -3702,6 +4877,44 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                 Close Profile
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* High-Resolution Image Lightbox Modal for Admin */}
+      {adminPreviewingImage && (
+        <div
+          className="fixed inset-0 z-60 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setAdminPreviewingImage(null)}
+        >
+          <div
+            className="relative max-w-2xl w-full bg-slate-900 rounded-2xl p-3 shadow-2xl border border-white/10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
+              <a
+                href={adminPreviewingImage}
+                target="_blank"
+                rel="noreferrer"
+                className="p-1.5 rounded-full bg-black/60 hover:bg-black text-white cursor-pointer transition-colors"
+                title="Open in new window"
+              >
+                <ExternalLink className="w-4 h-4" />
+              </a>
+              <button
+                type="button"
+                onClick={() => setAdminPreviewingImage(null)}
+                className="p-1.5 rounded-full bg-black/60 hover:bg-black text-white cursor-pointer transition-colors"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <img
+              src={adminPreviewingImage}
+              alt="Full Preview"
+              className="w-full max-h-[80vh] object-contain rounded-xl"
+            />
           </div>
         </div>
       )}

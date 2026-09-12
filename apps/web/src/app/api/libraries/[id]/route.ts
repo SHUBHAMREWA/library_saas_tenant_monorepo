@@ -89,11 +89,92 @@ export async function DELETE(
       return NextResponse.json({ error: 'Library ID is required' }, { status: 400 });
     }
 
-    await prisma.library.delete({
+    const existingLib = await prisma.library.findUnique({
       where: { id: libraryId },
+      select: { id: true, name: true },
     });
 
-    return NextResponse.json({ success: true, deletedLibraryId: libraryId });
+    if (!existingLib) {
+      return NextResponse.json({ error: 'Library not found' }, { status: 404 });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Delete coupon usages linked to payments
+      const payments = await tx.payment.findMany({
+        where: { libraryId },
+        select: { id: true },
+      });
+      const paymentIds = payments.map((p) => p.id);
+      if (paymentIds.length > 0) {
+        await tx.couponUsage.deleteMany({
+          where: { paymentId: { in: paymentIds } },
+        });
+      }
+
+      // 2. Delete Payments
+      await tx.payment.deleteMany({
+        where: { libraryId },
+      });
+
+      // 3. Delete StudentFeeTransactions
+      await tx.studentFeeTransaction.deleteMany({
+        where: { libraryId },
+      });
+
+      // 4. Delete SeatAssignments
+      await tx.seatAssignment.deleteMany({
+        where: { libraryId },
+      });
+
+      // 5. Delete Memberships
+      await tx.membership.deleteMany({
+        where: { libraryId },
+      });
+
+      // 6. Delete Students
+      await tx.student.deleteMany({
+        where: { libraryId },
+      });
+
+      // 7. Delete Seats
+      await tx.seat.deleteMany({
+        where: { libraryId },
+      });
+
+      // 8. Delete Rows
+      await tx.row.deleteMany({
+        where: { libraryId },
+      });
+
+      // 9. Delete Rooms
+      await tx.room.deleteMany({
+        where: { libraryId },
+      });
+
+      // 10. Delete Subscriptions
+      await tx.subscription.deleteMany({
+        where: { libraryId },
+      });
+
+      // 11. Delete Push Subscriptions & App Notifications
+      await tx.pushSubscriptionRecord.deleteMany({
+        where: { libraryId },
+      });
+      await tx.appNotification.deleteMany({
+        where: { libraryId },
+      });
+
+      // 12. Delete Library
+      await tx.library.delete({
+        where: { id: libraryId },
+      });
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: `Library "${existingLib.name}" and all related data deleted successfully.`,
+      deletedLibraryId: libraryId,
+    });
   } catch (error: any) {
     console.error('API DELETE /api/libraries/[id] error:', error);
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });

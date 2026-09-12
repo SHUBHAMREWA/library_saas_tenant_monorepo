@@ -13,13 +13,6 @@ enum UserGlobalRole {
   SUPER_ADMIN
 }
 
-enum LibraryMemberRole {
-  OWNER
-  ADMIN
-  MANAGER
-  STAFF
-}
-
 enum SeatStatus {
   AVAILABLE
   OCCUPIED
@@ -95,11 +88,9 @@ model User {
   createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  ownedLibraries  Library[]       @relation("LibraryOwner")
-  memberships     LibraryMember[]
-  subscriptions   Subscription[]
-  couponUsages    CouponUsage[]
-  auditLogs       AuditLog[]      @relation("ActorAuditLogs")
+  ownedLibraries    Library[]                @relation("LibraryOwner")
+  subscriptions     Subscription[]
+  couponUsages      CouponUsage[]
   pushSubscriptions PushSubscriptionRecord[]
   notifications     AppNotification[]
 
@@ -120,19 +111,16 @@ model Library {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  owner           User              @relation("LibraryOwner", fields: [ownerId], references: [id], onDelete: Restrict)
-  members         LibraryMember[]
-  rooms           Room[]
-  rows            Row[]
-  seats           Seat[]
-  students        Student[]
-  memberships     Membership[]
-  membershipPauses MembershipPause[]
-  seatAssignments SeatAssignment[]
-  subscriptions   Subscription[]
-  payments        Payment[]
-  feeTransactions StudentFeeTransaction[]
-  auditLogs       AuditLog[]
+  owner             User                     @relation("LibraryOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  rooms             Room[]
+  rows              Row[]
+  seats             Seat[]
+  students          Student[]
+  memberships       Membership[]
+  seatAssignments   SeatAssignment[]
+  subscriptions     Subscription[]
+  payments          Payment[]
+  feeTransactions   StudentFeeTransaction[]
   pushSubscriptions PushSubscriptionRecord[]
   notifications     AppNotification[]
 
@@ -140,22 +128,6 @@ model Library {
   @@index([slug])
   @@index([isActive])
   @@map("libraries")
-}
-
-model LibraryMember {
-  id        String            @id @default(uuid()) @db.Uuid
-  libraryId String            @map("library_id") @db.Uuid
-  userId    String            @map("user_id") @db.Uuid
-  role      LibraryMemberRole @default(STAFF)
-  isActive  Boolean           @default(true) @map("is_active")
-  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz
-
-  library Library @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([libraryId, userId])
-  @@index([userId])
-  @@map("library_members")
 }
 
 model Room {
@@ -235,7 +207,7 @@ model Student {
   createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  library         Library          @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  library         Library                 @relation(fields: [libraryId], references: [id], onDelete: Cascade)
   memberships     Membership[]
   seatAssignments SeatAssignment[]
   feeTransactions StudentFeeTransaction[]
@@ -260,33 +232,14 @@ model Membership {
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  library          Library           @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  student          Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  pauses           MembershipPause[]
-  seatAssignments  SeatAssignment[]
-  feeTransactions  StudentFeeTransaction[]
+  library         Library                 @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  student         Student                 @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  seatAssignments SeatAssignment[]
+  feeTransactions StudentFeeTransaction[]
 
   @@index([libraryId, status, expectedEndDate])
   @@index([studentId])
   @@map("memberships")
-}
-
-model MembershipPause {
-  id                         String    @id @default(uuid()) @db.Uuid
-  libraryId                  String    @map("library_id") @db.Uuid
-  membershipId               String    @map("membership_id") @db.Uuid
-  pauseStartDate             DateTime  @map("pause_start_date") @db.Date
-  expectedResumeDate         DateTime? @map("expected_resume_date") @db.Date
-  actualResumeDate           DateTime? @map("actual_resume_date") @db.Date
-  reason                     String    @db.VarChar(255)
-  extendedMembershipDuration Boolean   @default(true) @map("extended_membership_duration")
-  createdAt                  DateTime  @default(now()) @map("created_at") @db.Timestamptz
-
-  library    Library    @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
-
-  @@index([libraryId, membershipId])
-  @@map("membership_pauses")
 }
 
 model SeatAssignment {
@@ -312,16 +265,16 @@ model SeatAssignment {
 }
 
 model SubscriptionPlan {
-  id            String   @id @default(uuid()) @db.Uuid
-  code          String   @unique @db.VarChar(64)
-  name          String   @db.VarChar(128)
-  priceMonthly  Decimal  @map("price_monthly") @db.Decimal(10, 2)
-  priceYearly   Decimal  @map("price_yearly") @db.Decimal(10, 2)
-  maxSeats      Int      @default(50) @map("max_seats")
-  maxLibraries  Int      @default(1) @map("max_libraries")
-  features      Json?    @default("{}")
-  isActive      Boolean  @default(true) @map("is_active")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id           String   @id @default(uuid()) @db.Uuid
+  code         String   @unique @db.VarChar(64)
+  name         String   @db.VarChar(128)
+  priceMonthly Decimal  @map("price_monthly") @db.Decimal(10, 2)
+  priceYearly  Decimal  @map("price_yearly") @db.Decimal(10, 2)
+  maxSeats     Int      @default(50) @map("max_seats")
+  maxLibraries Int      @default(1) @map("max_libraries")
+  features     Json?    @default("{}")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   subscriptions Subscription[]
 
@@ -377,16 +330,6 @@ model Payment {
   @@map("payments")
 }
 
-model WebhookEvent {
-  id             String                 @id @default(uuid()) @db.Uuid
-  provider       PaymentGatewayProvider
-  idempotencyKey String                 @unique @map("idempotency_key") @db.VarChar(128)
-  payload        Json
-  createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz
-
-  @@map("webhook_events")
-}
-
 model Coupon {
   id                String       @id @default(uuid()) @db.Uuid
   code              String       @unique @db.VarChar(32)
@@ -422,27 +365,6 @@ model CouponUsage {
   @@map("coupon_usages")
 }
 
-model AuditLog {
-  id          String   @id @default(uuid()) @db.Uuid
-  libraryId   String?  @map("library_id") @db.Uuid
-  actorId     String   @map("actor_id") @db.Uuid
-  actorType   String   @default("USER") @map("actor_type") @db.VarChar(32)
-  action      String   @db.VarChar(128)
-  entityType  String   @map("entity_type") @db.VarChar(64)
-  entityId    String   @map("entity_id") @db.Uuid
-  diffPayload Json?    @default("{}") @map("diff_payload")
-  ipAddress   String?  @map("ip_address") @db.VarChar(45)
-  userAgent   String?  @map("user_agent") @db.Text
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  library Library? @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  actor   User     @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: Restrict)
-
-  @@index([libraryId, createdAt(sort: Desc)])
-  @@index([entityType, entityId])
-  @@map("audit_logs")
-}
-
 model StudentFeeTransaction {
   id            String      @id @default(uuid()) @db.Uuid
   libraryId     String      @map("library_id") @db.Uuid
@@ -462,9 +384,9 @@ model StudentFeeTransaction {
   createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  library       Library     @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  student       Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  membership    Membership? @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+  library    Library     @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  student    Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  membership Membership? @relation(fields: [membershipId], references: [id], onDelete: SetNull)
 
   @@index([libraryId, paymentDate(sort: Desc)])
   @@index([studentId, paidForMonth])
@@ -510,5 +432,3 @@ model AppNotification {
   @@index([libraryId, createdAt(sort: Desc)])
   @@map("app_notifications")
 }
-
-

@@ -16,6 +16,7 @@ router.get('/audit-logs', (req, res, next) => adminController.listAuditLogs(req,
 // Libraries
 router.get('/libraries', (req, res, next) => adminController.listLibraries(req, res, next));
 router.put('/libraries/:libraryId/status', (req, res, next) => adminController.toggleLibraryStatus(req, res, next));
+router.delete('/libraries/:libraryId', (req, res, next) => adminController.deleteLibrary(req, res, next));
 
 // Plans
 router.get('/plans', (req, res, next) => adminController.listPlans(req, res, next));

@@ -14,18 +14,18 @@ export interface ProcessedImage {
 }
 
 /**
- * Compresses an image file, resizes it within maxWidth/maxHeight,
+ * Compresses an image file or blob, resizes it within maxWidth/maxHeight,
  * and converts it to WebP format.
  */
 export function compressAndConvertToWebP(
-  file: File,
+  file: File | Blob,
   maxWidth: number = 800,
   maxHeight: number = 800,
   quality: number = 0.8
 ): Promise<ProcessedImage> {
   return new Promise((resolve, reject) => {
     // Check if it's an image
-    if (!file.type.startsWith('image/')) {
+    if (file.type && !file.type.startsWith('image/')) {
       return reject(new Error('Selected file is not an image'));
     }
 
@@ -105,6 +105,83 @@ export function compressAndConvertToWebP(
     };
 
     reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Compresses an existing base64/dataURL image (e.g. from camera/webcam canvas),
+ * resizes it within bounds, and converts to WebP format.
+ */
+export function compressDataUrlToWebP(
+  dataUrl: string,
+  maxWidth: number = 800,
+  maxHeight: number = 800,
+  quality: number = 0.82
+): Promise<ProcessedImage> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onerror = () => reject(new Error('Failed to load image data URL'));
+
+    img.onload = () => {
+      let { width, height } = img;
+
+      if (width > maxWidth || height > maxHeight) {
+        if (width / height > maxWidth / maxHeight) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        } else {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        return reject(new Error('Failed to create canvas context'));
+      }
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, width, height);
+
+      let format: 'image/webp' | 'image/jpeg' = 'image/webp';
+      let webpDataUrl = canvas.toDataURL('image/webp', quality);
+
+      if (!webpDataUrl.startsWith('data:image/webp')) {
+        format = 'image/jpeg';
+        webpDataUrl = canvas.toDataURL('image/jpeg', quality);
+      }
+
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            resolve({
+              dataUrl: webpDataUrl,
+              blob,
+              sizeBytes: blob.size,
+              format,
+            });
+          } else {
+            const sizeBytes = Math.round((webpDataUrl.length * 3) / 4);
+            const fallbackBlob = new Blob([webpDataUrl], { type: format });
+            resolve({
+              dataUrl: webpDataUrl,
+              blob: fallbackBlob,
+              sizeBytes,
+              format,
+            });
+          }
+        },
+        format,
+        quality
+      );
+    };
+
+    img.src = dataUrl;
   });
 }
 

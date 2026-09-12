@@ -1,5 +1,6 @@
 // Service Worker for Library Management SaaS (PWA)
 const CACHE_NAME = 'library-hub-v1';
+const API_CACHE_NAME = 'library-hub-api-v1';
 
 const STATIC_PRECACHE = [
   '/',
@@ -26,7 +27,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) =>
       Promise.all(
         keys.map((key) => {
-          if (key !== CACHE_NAME) {
+          if (key !== CACHE_NAME && key !== API_CACHE_NAME) {
             return caches.delete(key);
           }
         })
@@ -47,6 +48,33 @@ self.addEventListener('fetch', (event) => {
     url.hostname.includes('res.cloudinary.com')
   ) {
     return; // Pass directly to network with zero caching
+  }
+
+  // Admin and API GET requests: Network-First with fallback to API Cache
+  if (
+    event.request.method === 'GET' &&
+    (url.pathname.startsWith('/api/admin') || url.pathname.startsWith('/api/v1/admin'))
+  ) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(API_CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => {
+          return caches.match(event.request).then((cached) => {
+            if (cached) return cached;
+            return new Response(JSON.stringify({ error: 'Offline / Network unavailable' }), {
+              status: 503,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          });
+        })
+    );
+    return;
   }
 
   // Cache-First for Next.js static bundles and icons
@@ -74,7 +102,7 @@ self.addEventListener('fetch', (event) => {
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request).catch(() => {
-        return caches.match('/') as Promise<Response>;
+        return caches.match('/');
       })
     );
   }

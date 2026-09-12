@@ -170,7 +170,7 @@ export class AdminController {
       });
 
       try {
-        await prisma.auditLog.create({
+        await (prisma as any).auditLog?.create({
           data: {
             id: (await import('crypto')).randomUUID(),
             libraryId,
@@ -190,6 +190,168 @@ export class AdminController {
         data: { libraryId: updated.id, isActive: updated.isActive },
       });
     } catch (err) {
+      next(err);
+    }
+  }
+
+  async deleteLibrary(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { libraryId } = req.params;
+      if (!libraryId) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'libraryId parameter is required' },
+        });
+        return;
+      }
+
+      const { prisma } = await import('@library/database');
+
+      const existingLib = await prisma.library.findUnique({
+        where: { id: libraryId },
+        include: {
+          owner: true,
+          _count: {
+            select: {
+              students: true,
+              seats: true,
+              rooms: true,
+              payments: true,
+              memberships: true,
+            },
+          },
+        },
+      });
+
+      if (!existingLib) {
+        try {
+          const dsDeleted = dataStore.deleteLibrary(libraryId);
+          if (dsDeleted) {
+            res.status(200).json({
+              success: true,
+              message: 'Library and all related documents deleted successfully.',
+            });
+            return;
+          }
+        } catch {}
+
+        res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Library not found' },
+        });
+        return;
+      }
+
+      // Execute comprehensive transactional deletion across all child models
+      await prisma.$transaction(async (tx) => {
+        // 1. Delete coupon usages linked to payments of this library
+        const payments = await tx.payment.findMany({
+          where: { libraryId },
+          select: { id: true },
+        });
+        const paymentIds = payments.map((p) => p.id);
+        if (paymentIds.length > 0) {
+          await tx.couponUsage.deleteMany({
+            where: { paymentId: { in: paymentIds } },
+          });
+        }
+
+        // 2. Delete Payments
+        await tx.payment.deleteMany({
+          where: { libraryId },
+        });
+
+        // 3. Delete StudentFeeTransactions
+        await tx.studentFeeTransaction.deleteMany({
+          where: { libraryId },
+        });
+
+        // 4. Delete SeatAssignments
+        await tx.seatAssignment.deleteMany({
+          where: { libraryId },
+        });
+
+        // 5. Delete Memberships
+        await tx.membership.deleteMany({
+          where: { libraryId },
+        });
+
+        // 6. Delete Students (includes all KYC and document records)
+        await tx.student.deleteMany({
+          where: { libraryId },
+        });
+
+        // 7. Delete Seats
+        await tx.seat.deleteMany({
+          where: { libraryId },
+        });
+
+        // 8. Delete Rows
+        await tx.row.deleteMany({
+          where: { libraryId },
+        });
+
+        // 9. Delete Rooms
+        await tx.room.deleteMany({
+          where: { libraryId },
+        });
+
+        // 10. Delete Subscriptions
+        await tx.subscription.deleteMany({
+          where: { libraryId },
+        });
+
+        // 11. Delete Push Subscriptions & App Notifications
+        await tx.pushSubscriptionRecord.deleteMany({
+          where: { libraryId },
+        });
+        await tx.appNotification.deleteMany({
+          where: { libraryId },
+        });
+
+        // 12. Delete Library
+        await tx.library.delete({
+          where: { id: libraryId },
+        });
+      });
+
+      // Also clean in-memory fallback
+      try {
+        dataStore.deleteLibrary(libraryId);
+      } catch {}
+
+      // Log Audit Trail
+      try {
+        await (prisma as any).auditLog?.create({
+          data: {
+            id: (await import('crypto')).randomUUID(),
+            libraryId: null,
+            actorId: req.userId || 'system-admin',
+            actorType: 'SUPER_ADMIN',
+            action: 'TENANT_DELETED',
+            entityType: 'LIBRARY',
+            entityId: libraryId,
+            diffPayload: {
+              deletedLibrary: {
+                name: existingLib.name,
+                slug: existingLib.slug,
+                ownerEmail: existingLib.owner?.email,
+                studentCount: existingLib._count?.students,
+                seatCount: existingLib._count?.seats,
+                roomCount: existingLib._count?.rooms,
+              },
+            },
+          },
+        });
+      } catch {}
+
+      res.status(200).json({
+        success: true,
+        message: `Library "${existingLib.name}" and all associated documents, students, seats, and transactions have been permanently deleted.`,
+        data: { libraryId, name: existingLib.name },
+      });
+    } catch (err) {
+      console.error('Failed to delete library:', err);
       next(err);
     }
   }
@@ -669,7 +831,7 @@ export class AdminController {
     try {
       const limit = parseInt(req.query.limit as string) || 30;
       const { prisma } = await import('@library/database');
-      const logs = await prisma.auditLog.findMany({
+      const logs = (await (prisma as any).auditLog?.findMany({
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
@@ -680,9 +842,9 @@ export class AdminController {
             },
           },
         },
-      });
+      })) || [];
 
-      const formatted = logs.map((l) => ({
+      const formatted = logs.map((l: any) => ({
         id: l.id,
         action: l.action,
         actorType: l.actorType,
@@ -942,7 +1104,6 @@ export class AdminController {
           },
           memberships: {
             orderBy: { expectedEndDate: 'desc' },
-            take: 1,
           },
           seatAssignments: {
             where: { status: 'ACTIVE' },
@@ -968,7 +1129,6 @@ export class AdminController {
           },
           feeTransactions: {
             orderBy: { paymentDate: 'desc' },
-            take: 1,
           },
         },
       });
@@ -987,6 +1147,30 @@ export class AdminController {
         const seatNumber = activeAssignment?.seat?.seatNumber || null;
         const roomName = activeAssignment?.seat?.row?.room?.name || null;
         const rowName = activeAssignment?.seat?.row?.name || null;
+
+        const allMemberships = (std.memberships || []).map((m: any) => ({
+          id: m.id,
+          status: m.status === 'ACTIVE' && new Date(m.expectedEndDate) < now ? 'EXPIRED' : m.status,
+          shift: m.shift,
+          startDate: m.startDate ? new Date(m.startDate).toISOString().split('T')[0] : null,
+          endDate: m.expectedEndDate ? new Date(m.expectedEndDate).toISOString().split('T')[0] : null,
+          feeAmount: Number(m.feeAmount || 0),
+        }));
+
+        const allTransactions = (std.feeTransactions || []).map((t: any) => ({
+          id: t.id,
+          amount: Number(t.amount || 0),
+          paymentDate: t.paymentDate ? new Date(t.paymentDate).toISOString() : new Date().toISOString(),
+          paymentMode: t.paymentMode || 'CASH',
+          paidForMonth: t.paidForMonth || '',
+          status: t.status || 'PAID',
+          remainingFee: Number(t.remainingFee || 0),
+          receiptNumber: t.receiptNumber || '',
+          validFrom: t.validFrom ? new Date(t.validFrom).toISOString().split('T')[0] : null,
+          validTo: t.validTo ? new Date(t.validTo).toISOString().split('T')[0] : null,
+          notes: t.notes || null,
+          totalFee: Number(t.totalFee || t.amount || 0),
+        }));
 
         return {
           id: std.id,
@@ -1018,6 +1202,9 @@ export class AdminController {
                 feeAmount: Number(activeMembership.feeAmount || 0),
               }
             : null,
+          memberships: allMemberships,
+          feeTransactions: allTransactions,
+          transactions: allTransactions,
           seat: seatNumber
             ? {
                 seatNumber,

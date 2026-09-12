@@ -25,10 +25,7 @@ export async function POST(req: NextRequest) {
     // Check existing libraries in DB
     const existingDbLibs = await prisma.library.findMany({
       where: {
-        OR: [
-          { ownerId: user.id },
-          { members: { some: { userId: user.id } } },
-        ],
+        ownerId: user.id,
         isActive: true,
       },
       include: {
@@ -198,81 +195,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If DB is empty, but local storage has libraries, migrate them into DB!
-    if (existingDbLibs.length === 0 && Array.isArray(localLibraries) && localLibraries.length > 0) {
-      console.log(`Migrating ${localLibraries.length} local libraries to database for ${cleanEmail}...`);
-
-      for (const localLib of localLibraries) {
-        const libId = crypto.randomUUID();
-        const slug = `${(localLib.name || 'library').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 5)}`;
-
-        const createdLib = await prisma.library.create({
-          data: {
-            id: libId,
-            ownerId: user.id,
-            name: localLib.name || 'My Library',
-            slug,
-            contactPhone: localLib.contactPhone || '9999999999',
-            address: localLib.address || null,
-          },
-        });
-
-        // Migrate rooms, rows, seats
-        const roomsToMigrate = localLib.rooms && localLib.rooms.length > 0
-          ? localLib.rooms
-          : [{ id: 'rm-1', name: 'Main Hall', rows: ['Row A', 'Row B'] }];
-
-        for (const rm of roomsToMigrate) {
-          const roomId = crypto.randomUUID();
-          const createdRoom = await prisma.room.create({
-            data: {
-              id: roomId,
-              libraryId: createdLib.id,
-              name: rm.name || 'Main Hall',
-            },
-          });
-
-          const rowsList = rm.rows && rm.rows.length > 0 ? rm.rows : ['Row A'];
-          for (const rName of rowsList) {
-            const rowId = crypto.randomUUID();
-            const createdRow = await prisma.row.create({
-              data: {
-                id: rowId,
-                libraryId: createdLib.id,
-                roomId: createdRoom.id,
-                name: rName,
-              },
-            });
-
-            // Find seats for this row
-            const matchingSeats = (localLib.seats || []).filter(
-              (s: any) =>
-                (s.rowName || '').toLowerCase().trim() === rName.toLowerCase().trim() ||
-                (s.roomId === rm.id)
-            );
-
-            if (matchingSeats.length > 0) {
-              const seatData = matchingSeats.map((st: any, idx: number) => ({
-                id: crypto.randomUUID(),
-                libraryId: createdLib.id,
-                rowId: createdRow.id,
-                seatNumber: st.seatNumber || `S-${idx + 1}`,
-                status: (st.status || 'AVAILABLE') as any,
-              }));
-              await prisma.seat.createMany({ data: seatData });
-            }
-          }
-        }
-      }
-    }
+    // NOTE: We do not blindly auto-create libraries from client local storage.
+    // Libraries must be created explicitly via POST /api/libraries.
 
     // Now re-fetch canonical data from DB
     const finalDbLibs = await prisma.library.findMany({
       where: {
-        OR: [
-          { ownerId: user.id },
-          { members: { some: { userId: user.id } } },
-        ],
+        ownerId: user.id,
         isActive: true,
       },
       include: {
@@ -349,12 +278,33 @@ export async function POST(req: NextRequest) {
       orderBy: { createdAt: 'desc' },
     });
 
+    // Also check for user-level subscriptions
+    const userSubscriptions = await prisma.subscription.findMany({
+      where: {
+        userId: user.id,
+        status: { in: ['ACTIVE', 'MANUAL'] },
+      },
+      include: { plan: true },
+      orderBy: { endDate: 'desc' },
+      take: 1,
+    });
+    const latestUserSub = userSubscriptions[0] || null;
+
     const formattedLibraries = finalDbLibs.map((lib) => {
       const allSeats: any[] = [];
+      const seenSeatKeys = new Set<string>();
+      const phantomOccupiedSeatsToFix: string[] = [];
+
       const formattedRooms = lib.rooms.map((rm) => {
-        const rowNames = rm.rows.map((rw) => rw.name);
+        const uniqueRowNames = Array.from(new Set(rm.rows.map((rw) => rw.name.trim())));
         rm.rows.forEach((rw) => {
           rw.seats.forEach((st) => {
+            const seatKey = `${rm.id}_${rw.name.trim().toLowerCase()}_${st.seatNumber.trim().toLowerCase()}`;
+            if (seenSeatKeys.has(seatKey)) {
+              return; // Deduplicate repeated seats in the same row/room
+            }
+            seenSeatKeys.add(seatKey);
+
             const activeOccupants = (st.seatAssignments || [])
               .filter((sa: any) => sa.status === 'ACTIVE' && sa.student && sa.student.fullName)
               .map((sa: any) => ({
@@ -375,11 +325,20 @@ export async function POST(req: NextRequest) {
               mainShift = 'SHARED';
             }
 
+            // Fix phantom occupied seats (seats marked OCCUPIED in DB but with 0 active students)
+            let seatStatus = st.status;
+            if (activeOccupants.length > 0) {
+              seatStatus = st.status === 'RESERVED' ? 'RESERVED' : 'OCCUPIED';
+            } else if (st.status === 'OCCUPIED') {
+              seatStatus = 'AVAILABLE';
+              phantomOccupiedSeatsToFix.push(st.id);
+            }
+
             allSeats.push({
               id: st.id,
               seatNumber: st.seatNumber,
               rowName: rw.name,
-              status: activeOccupants.length > 0 ? (st.status === 'RESERVED' ? 'RESERVED' : 'OCCUPIED') : st.status,
+              status: seatStatus,
               studentName: mainName,
               shift: mainShift,
               occupants: activeOccupants,
@@ -391,7 +350,7 @@ export async function POST(req: NextRequest) {
         return {
           id: rm.id,
           name: rm.name,
-          rows: rowNames,
+          rows: uniqueRowNames,
         };
       });
 
@@ -649,10 +608,11 @@ export async function POST(req: NextRequest) {
         };
       });
 
-      // Asynchronously release cut seats in database
-      if (seatsToRelease.length > 0) {
+      // Asynchronously release cut seats and fix phantom occupied seats in database
+      const allSeatsToSetAvailable = [...seatsToRelease, ...phantomOccupiedSeatsToFix];
+      if (allSeatsToSetAvailable.length > 0) {
         prisma.seat.updateMany({
-          where: { id: { in: seatsToRelease } },
+          where: { id: { in: allSeatsToSetAvailable } },
           data: { status: 'AVAILABLE' },
         }).catch(() => {});
       }
@@ -663,16 +623,20 @@ export async function POST(req: NextRequest) {
         }).catch(() => {});
       }
 
-      const latestSub = (lib as any).subscriptions?.[0];
+      const latestSub = (lib as any).subscriptions?.[0] || latestUserSub;
       const now = new Date();
-      const hasActiveSub = Boolean(
-        latestSub &&
-        (latestSub.status === 'ACTIVE' || latestSub.status === 'MANUAL') &&
-        new Date(latestSub.endDate).getTime() > now.getTime()
-      );
-      const subDaysRemaining = latestSub
-        ? Math.max(0, Math.ceil((new Date(latestSub.endDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
-        : 0;
+      let hasActiveSub = false;
+      let subDaysRemaining = 0;
+
+      if (latestSub) {
+        const subEndDate = new Date(latestSub.endDate);
+        subEndDate.setHours(23, 59, 59, 999);
+        hasActiveSub = Boolean(
+          (latestSub.status === 'ACTIVE' || latestSub.status === 'MANUAL') &&
+          subEndDate.getTime() >= now.getTime()
+        );
+        subDaysRemaining = Math.max(0, Math.ceil((subEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+      }
 
       const formattedSubscription = latestSub
         ? {
