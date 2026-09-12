@@ -17,6 +17,7 @@ import {
   uploadImageToCloudinaryViaApi,
   deleteImageFromCloudinaryViaApi,
 } from '@/lib/image-utils';
+import { CameraCaptureModal } from './CameraCaptureModal';
 
 interface StudentModalProps {
   isOpen: boolean;
@@ -41,6 +42,8 @@ interface StudentModalProps {
 export const StudentModal: React.FC<StudentModalProps> = ({
   isOpen,
   onClose,
+  availableSeats = [],
+  preselectedSeatNumber = null,
   onStudentCreated,
 }) => {
   const [step, setStep] = useState<1 | 2>(1);
@@ -52,6 +55,10 @@ export const StudentModal: React.FC<StudentModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [studyPurposeChoice, setStudyPurposeChoice] = useState<string>('Civil Services / UPSC');
   const [customPurpose, setCustomPurpose] = useState<string>('');
+
+  // Camera Capture Modal State
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
+  const [cameraModalMode, setCameraModalMode] = useState<'profile' | 'document'>('profile');
 
   const [formData, setFormData] = useState<{
     fullName: string;
@@ -350,38 +357,44 @@ export const StudentModal: React.FC<StudentModalProps> = ({
                 </label>
                 <input
                   type="text"
-                  required
                   value={customPurpose}
                   onChange={(e) => setCustomPurpose(e.target.value)}
-                  placeholder="e.g. SSC CGL, Banking Exams, UGC NET, Defence..."
-                  className="w-full px-3 py-2 border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50/30 dark:bg-indigo-950/30 rounded-xl text-sm font-semibold text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  placeholder="e.g. UGC NET / CA Final"
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#1c1c1e] rounded-xl text-sm font-semibold text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
             )}
 
-            <button
-              type="button"
-              disabled={
-                !formData.fullName.trim() ||
-                !formData.phone.trim() ||
-                (studyPurposeChoice === 'Other' && !customPurpose.trim())
-              }
-              onClick={() => setStep(2)}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-1.5 shadow-xs mt-3 cursor-pointer"
-            >
-              Continue to KYC <ArrowRight className="w-4 h-4" />
-            </button>
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!formData.fullName.trim() || !formData.phone.trim()) {
+                    alert('Please enter student full name and mobile phone number.');
+                    return;
+                  }
+                  setStep(2);
+                }}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
+              >
+                <span>Continue to KYC Verification</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Step 2: KYC & Identification */}
+        {/* Step 2: KYC Verification */}
         {step === 2 && (
-          <form onSubmit={handleSubmit} className="space-y-3.5">
-            <div className="bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-850/50 p-3 rounded-xl flex items-center gap-2.5">
-              <ShieldCheck className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-              <p className="text-xs text-indigo-900 dark:text-indigo-200">
-                Government documents and ID photos are saved securely with the student profile.
-              </p>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="p-3 bg-indigo-50 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-800/40 flex items-start gap-2.5">
+              <ShieldCheck className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+              <div className="text-xs">
+                <span className="font-bold text-indigo-900 dark:text-indigo-300 block">Student KYC Details</span>
+                <p className="text-indigo-700/80 dark:text-indigo-400 mt-0.5">
+                  Verify identity to maintain high security in the library. Documents are auto-converted to WebP and securely stored.
+                </p>
+              </div>
             </div>
 
             <div>
@@ -442,13 +455,25 @@ export const StudentModal: React.FC<StudentModalProps> = ({
                     <span className="block text-xs font-bold text-slate-800 dark:text-neutral-200 truncate">
                       Cloudinary Document Photo Ready
                     </span>
-                    <div className="flex items-center gap-2 mt-1">
+                    <div className="flex flex-wrap items-center gap-2 mt-1">
                       <label
                         htmlFor="kyc-photo-upload"
                         className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
                       >
-                        Change Photo
+                        Change File
                       </label>
+                      <span className="text-slate-300 dark:text-neutral-600 text-[10px]">•</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCameraModalMode('document');
+                          setCameraModalOpen(true);
+                        }}
+                        className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
+                      >
+                        <Camera className="w-3 h-3" />
+                        <span>Camera</span>
+                      </button>
                       <span className="text-slate-300 dark:text-neutral-600 text-[10px]">•</span>
                       <button
                         type="button"
@@ -461,20 +486,41 @@ export const StudentModal: React.FC<StudentModalProps> = ({
                   </div>
                 </div>
               ) : (
-                <label
-                  htmlFor="kyc-photo-upload"
-                  className="p-4 border-2 border-dashed border-slate-200 dark:border-[#262626] hover:border-indigo-400 dark:hover:border-indigo-500 rounded-xl flex flex-col items-center justify-center text-center bg-slate-50/50 dark:bg-[#1c1c1e]/50 hover:bg-indigo-50/20 dark:hover:bg-[#262626] cursor-pointer transition-colors group"
-                >
-                  <div className="w-9 h-9 rounded-full bg-white dark:bg-[#262626] border border-slate-200 dark:border-[#363636] text-slate-400 dark:text-neutral-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 flex items-center justify-center mb-1.5 shadow-2xs transition-colors">
-                    <Upload className="w-4 h-4" />
-                  </div>
-                  <span className="text-xs font-bold text-slate-700 dark:text-neutral-300 group-hover:text-indigo-700 dark:group-hover:text-indigo-400">
-                    Upload {formData.kycType === 'AADHAAR' ? 'Aadhaar Card' : 'ID Card'} Photo
-                  </span>
-                  <span className="text-[10px] text-slate-400 dark:text-neutral-500 mt-0.5">
-                    Auto-compressed to WebP and securely stored on Cloudinary
-                  </span>
-                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label
+                    htmlFor="kyc-photo-upload"
+                    className="p-3.5 border-2 border-dashed border-slate-200 dark:border-[#262626] hover:border-indigo-400 dark:hover:border-indigo-500 rounded-xl flex flex-col items-center justify-center text-center bg-slate-50/50 dark:bg-[#1c1c1e]/50 hover:bg-indigo-50/20 dark:hover:bg-[#262626] cursor-pointer transition-colors group"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-white dark:bg-[#262626] border border-slate-200 dark:border-[#363636] text-slate-400 dark:text-neutral-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 flex items-center justify-center mb-1 shadow-2xs transition-colors">
+                      <Upload className="w-4 h-4" />
+                    </div>
+                    <span className="text-xs font-bold text-slate-700 dark:text-neutral-300 group-hover:text-indigo-700 dark:group-hover:text-indigo-400">
+                      Upload File
+                    </span>
+                    <span className="text-[9px] text-slate-400 dark:text-neutral-500 mt-0.5">
+                      JPG, PNG → WebP
+                    </span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCameraModalMode('document');
+                      setCameraModalOpen(true);
+                    }}
+                    className="p-3.5 border-2 border-dashed border-indigo-200 dark:border-indigo-800/60 hover:border-indigo-500 dark:hover:border-indigo-400 rounded-xl flex flex-col items-center justify-center text-center bg-indigo-50/40 dark:bg-indigo-950/20 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer transition-colors group"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300 flex items-center justify-center mb-1 shadow-2xs transition-colors group-hover:scale-105">
+                      <Camera className="w-4 h-4" />
+                    </div>
+                    <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">
+                      Snap with Camera
+                    </span>
+                    <span className="text-[9px] text-indigo-500 dark:text-indigo-400 mt-0.5">
+                      Live capture → WebP
+                    </span>
+                  </button>
+                </div>
               )}
               <input
                 id="kyc-photo-upload"
@@ -515,6 +561,22 @@ export const StudentModal: React.FC<StudentModalProps> = ({
           </form>
         )}
       </div>
+
+      {/* Live Camera WebP Capture Modal */}
+      <CameraCaptureModal
+        isOpen={cameraModalOpen}
+        onClose={() => setCameraModalOpen(false)}
+        mode={cameraModalMode}
+        title={cameraModalMode === 'profile' ? 'Capture Student Profile Photo' : 'Capture KYC Document'}
+        onPhotoUploaded={(cloudinaryUrl) => {
+          if (cameraModalMode === 'profile') {
+            setPhotoUrl(cloudinaryUrl);
+          } else {
+            setKycPhotoUrl(cloudinaryUrl);
+          }
+          setCameraModalOpen(false);
+        }}
+      />
     </div>
   );
 };

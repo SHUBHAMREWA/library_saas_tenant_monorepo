@@ -46,6 +46,7 @@ import {
   generateWhatsAppFeeReminderText,
   openWhatsApp,
 } from '@/lib/receipt-utils';
+import { CameraCaptureModal } from './CameraCaptureModal';
 
 function formatFriendlyDate(dateStr?: string): string {
   if (!dateStr) return '';
@@ -187,6 +188,10 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   const [editMonthlyFee, setEditMonthlyFee] = useState<number | ''>('');
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [isUploadingKyc, setIsUploadingKyc] = useState(false);
+
+  // Camera Capture Modal State
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
+  const [cameraModalMode, setCameraModalMode] = useState<'profile' | 'document'>('profile');
 
   const computedMonthlyRate = useMemo(() => {
     if (!student) return 0;
@@ -626,371 +631,121 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 dark:bg-black/80 backdrop-blur-xs overflow-y-auto p-3 sm:p-6 flex min-h-full items-center justify-center">
-      <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] w-full max-w-md rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4 my-auto relative animate-in fade-in zoom-in-95 duration-200 border border-slate-100 dark:border-[#262626]">
+    <div className="fixed inset-0 z-50 bg-black/60 dark:bg-black/80 backdrop-blur-xs overflow-y-auto p-2.5 sm:p-4 flex min-h-full items-center justify-center">
+      <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-2xl my-auto relative border border-slate-200 dark:border-[#262626] max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#262626] pb-3">
-          <div className="flex items-center gap-3 min-w-0">
-            {student.photoUrl ? (
-              <img
-                src={student.photoUrl}
-                alt={student.fullName}
-                onClick={() => setPreviewingImage(student.photoUrl || null)}
-                className="w-12 h-12 rounded-2xl object-cover shadow-xs border border-slate-200 dark:border-[#363636] cursor-pointer hover:opacity-90 transition-opacity shrink-0"
-                title="Click to view photo"
-              />
-            ) : (
-              <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white font-bold flex items-center justify-center text-lg shadow-xs shrink-0">
-                {student.fullName.slice(0, 2).toUpperCase()}
-              </div>
-            )}
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-slate-900 dark:text-white text-base">{student.fullName}</h3>
-                <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    !student.seatNumber || student.status === 'INACTIVE'
-                      ? 'bg-slate-100 dark:bg-[#262626] text-slate-700 dark:text-neutral-300 border border-slate-300 dark:border-neutral-700'
-                      : student.membershipEndsInDays <= 0 || student.status === 'EXPIRED'
-                      ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/50'
-                      : student.membershipEndsInDays <= 5
-                      ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50'
-                      : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50'
-                  }`}
-                >
-                  {!student.seatNumber || student.status === 'INACTIVE'
-                    ? 'INACTIVE (NO SEAT)'
-                    : student.membershipEndsInDays <= 0 || student.status === 'EXPIRED'
-                    ? 'FEE DUE / EXPIRED'
-                    : student.membershipEndsInDays <= 5
-                    ? `DUE IN ${student.membershipEndsInDays}D`
-                    : 'ACTIVE'}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-neutral-400 flex items-center gap-1 mt-0.5">
-                <Phone className="w-3 h-3 text-slate-400 dark:text-neutral-500" />
-                <span>{student.phone}</span>
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setIsEditing(!isEditing)}
-              className={`p-2 rounded-xl transition-colors cursor-pointer ${
-                isEditing
-                  ? 'bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300'
-                  : 'hover:bg-slate-100 dark:hover:bg-[#1c1c1e] text-slate-500 dark:text-neutral-400 hover:text-slate-800 dark:hover:text-neutral-200'
-              }`}
-              title={isEditing ? 'Cancel Edit' : 'Edit Student Details'}
-            >
-              <Pencil className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-[#1c1c1e] text-slate-400 dark:text-neutral-400 hover:text-slate-600 dark:hover:text-neutral-200 cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Status message */}
-        {statusMsg && (
-          <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/50 rounded-xl text-xs text-indigo-700 dark:text-indigo-300 font-medium flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
-            <span>{statusMsg}</span>
-          </div>
-        )}
-
-        {/* ================= EDIT MODE FORM ================= */}
-        {isEditing ? (
-          <form onSubmit={handleSaveEdit} className="space-y-4 pt-1">
-            <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-[#262626]">
-              <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Pencil className="w-3.5 h-3.5" />
-                <span>Edit Student Information</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => setIsEditing(false)}
-                className="text-xs text-slate-400 dark:text-neutral-400 hover:text-slate-600 dark:hover:text-neutral-200 font-medium cursor-pointer"
-              >
-                Cancel
-              </button>
-            </div>
-
-            {/* Profile Photo Edit */}
-            <div className="flex items-center gap-3.5 p-3 rounded-xl bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626]">
-              <div className="relative group shrink-0">
-                {isUploadingPhoto ? (
-                  <div className="w-14 h-14 rounded-full bg-indigo-50 dark:bg-indigo-950/40 border-2 border-indigo-200 dark:border-indigo-800 flex flex-col items-center justify-center text-indigo-600 dark:text-indigo-400">
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  </div>
-                ) : editPhotoUrl ? (
-                  <img
-                    src={editPhotoUrl}
-                    alt="Student Profile"
-                    className="w-14 h-14 rounded-full object-cover border-2 border-indigo-600 shadow-xs"
-                  />
-                ) : (
-                  <div className="w-14 h-14 rounded-full bg-white dark:bg-[#262626] border-2 border-dashed border-slate-300 dark:border-[#363636] flex flex-col items-center justify-center text-slate-400 dark:text-neutral-500">
-                    <User className="w-6 h-6 text-slate-300 dark:text-neutral-500" />
-                  </div>
-                )}
-                <label
-                  htmlFor="edit-student-photo"
-                  className={`absolute -bottom-1 -right-1 w-6 h-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full flex items-center justify-center shadow-xs cursor-pointer active:scale-95 transition-all ${
-                    isUploadingPhoto ? 'opacity-50 pointer-events-none' : ''
-                  }`}
-                  title="Upload / Change Photo"
-                >
-                  <Camera className="w-3.5 h-3.5" />
-                </label>
-                <input
-                  id="edit-student-photo"
-                  type="file"
-                  accept="image/*"
-                  disabled={isUploadingPhoto}
-                  onChange={handlePhotoUpload}
-                  className="hidden"
+        {/* Compact Header (Fixed Top) */}
+        <div className="p-3.5 sm:p-4 border-b border-slate-100 dark:border-[#262626] shrink-0 bg-slate-50/50 dark:bg-[#161616]">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+              {student.photoUrl ? (
+                <img
+                  src={student.photoUrl}
+                  alt={student.fullName}
+                  onClick={() => setPreviewingImage(student.photoUrl || null)}
+                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-full object-cover border-2 border-indigo-600/30 dark:border-indigo-400/40 shadow-xs cursor-pointer hover:opacity-90 hover:scale-105 transition-all shrink-0"
+                  title="Click to zoom profile photo"
                 />
-              </div>
+              ) : (
+                <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-indigo-600 to-indigo-800 text-white font-black flex items-center justify-center text-sm shadow-xs shrink-0">
+                  {student.fullName.slice(0, 2).toUpperCase()}
+                </div>
+              )}
 
-              <div className="flex-1 min-w-0">
-                <span className="block text-xs font-bold text-slate-800 dark:text-neutral-200">
-                  Profile Photo <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-normal">(Auto-WebP & Cloudinary)</span>
-                </span>
-                <div className="flex items-center gap-2 mt-1">
-                  <label
-                    htmlFor="edit-student-photo"
-                    className={`text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer ${
-                      isUploadingPhoto ? 'opacity-50 pointer-events-none' : ''
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base leading-tight truncate">
+                    {student.fullName}
+                  </h3>
+                  <span
+                    className={`text-[9px] sm:text-[10px] font-extrabold px-2 py-0.5 rounded-full shrink-0 ${
+                      !student.seatNumber || student.status === 'INACTIVE'
+                        ? 'bg-slate-200 dark:bg-[#2a2a2a] text-slate-700 dark:text-neutral-300'
+                        : student.membershipEndsInDays <= 0 || student.status === 'EXPIRED'
+                        ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
+                        : student.membershipEndsInDays <= 5
+                        ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                        : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
                     }`}
                   >
-                    {isUploadingPhoto ? 'Uploading...' : editPhotoUrl ? 'Change Photo' : 'Upload Photo'}
-                  </label>
-                  {editPhotoUrl && !isUploadingPhoto && (
-                    <>
-                      <span className="text-slate-300 dark:text-neutral-600 text-[10px]">•</span>
-                      <button
-                        type="button"
-                        onClick={handleRemovePhoto}
-                        className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 cursor-pointer"
-                      >
-                        Remove
-                      </button>
-                    </>
-                  )}
+                    {!student.seatNumber || student.status === 'INACTIVE'
+                      ? 'UNASSIGNED'
+                      : student.membershipEndsInDays <= 0 || student.status === 'EXPIRED'
+                      ? 'EXPIRED / DUE'
+                      : student.membershipEndsInDays <= 5
+                      ? `DUE IN ${student.membershipEndsInDays}D`
+                      : 'ACTIVE'}
+                  </span>
+                </div>
+
+                {/* Quick Phone + Call / WA Trigger Row */}
+                <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 dark:text-neutral-400">
+                  <span className="font-bold text-slate-800 dark:text-neutral-200 text-xs sm:text-sm tracking-wide">
+                    {student.phone}
+                  </span>
+                  <div className="flex items-center gap-1.5 ml-0.5">
+                    <a
+                      href={`tel:${student.phone}`}
+                      className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/60 transition-all shadow-2xs active:scale-95"
+                      title="Call Student"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                    </a>
+                    <a
+                      href={`https://wa.me/91${student.phone.replace(/\D/g, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60 transition-all shadow-2xs active:scale-95"
+                      title="Message on WhatsApp"
+                    >
+                      <WhatsAppIcon className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Name & Phone Inputs */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                Full Name *
-              </label>
-              <input
-                type="text"
-                required
-                value={editFullName}
-                onChange={(e) => setEditFullName(e.target.value)}
-                placeholder="Student Full Name"
-                className="w-full px-3 py-2 border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#1c1c1e] rounded-xl text-sm font-semibold text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                Mobile Phone *
-              </label>
-              <input
-                type="tel"
-                required
-                value={editPhone}
-                onChange={(e) => setEditPhone(e.target.value)}
-                placeholder="10-digit mobile number"
-                className="w-full px-3 py-2 border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#1c1c1e] rounded-xl text-sm font-semibold text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-
-            {/* Study Purpose */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                Purpose of Study
-              </label>
-              <select
-                value={editStudyPurposeChoice}
-                onChange={(e) => setEditStudyPurposeChoice(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 dark:border-[#262626] rounded-xl text-sm font-semibold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-[#1c1c1e]"
-              >
-                <option value="Civil Services / UPSC" className="dark:bg-[#1c1c1e] dark:text-neutral-100">Civil Services / UPSC</option>
-                <option value="Medical / NEET" className="dark:bg-[#1c1c1e] dark:text-neutral-100">Medical / NEET</option>
-                <option value="Engineering / JEE" className="dark:bg-[#1c1c1e] dark:text-neutral-100">Engineering / JEE</option>
-                <option value="CA / CS / Finance" className="dark:bg-[#1c1c1e] dark:text-neutral-100">CA / CS / Finance</option>
-                <option value="General Study" className="dark:bg-[#1c1c1e] dark:text-neutral-100">General Study</option>
-                <option value="Other" className="dark:bg-[#1c1c1e] dark:text-neutral-100">Other / Custom Purpose</option>
-              </select>
-            </div>
-
-            {editStudyPurposeChoice === 'Other' && (
-              <div className="animate-in fade-in zoom-in-95 duration-150">
-                <label className="block text-xs font-semibold text-indigo-700 dark:text-indigo-400 mb-1">
-                  Specify Custom Study Purpose *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editCustomPurpose}
-                  onChange={(e) => setEditCustomPurpose(e.target.value)}
-                  placeholder="e.g. SSC CGL, Banking Exams, UGC NET..."
-                  className="w-full px-3 py-2 border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50/30 dark:bg-indigo-950/30 rounded-xl text-sm font-semibold text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-            )}
-
-            {/* KYC & Aadhaar Edit */}
-            <div className="p-3 bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl space-y-3">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-neutral-200">
-                <ShieldCheck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                <span>KYC & Document Verification</span>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                  Document Type
-                </label>
-                <select
-                  value={editKycType}
-                  onChange={(e) => setEditKycType(e.target.value)}
-                  className="w-full px-3 py-1.5 border border-slate-200 dark:border-[#262626] rounded-lg text-xs font-semibold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-[#1c1c1e]"
-                >
-                  <option value="AADHAAR" className="dark:bg-[#1c1c1e] dark:text-neutral-100">Aadhaar Card</option>
-                  <option value="PASSPORT" className="dark:bg-[#1c1c1e] dark:text-neutral-100">Passport</option>
-                  <option value="VOTER_ID" className="dark:bg-[#1c1c1e] dark:text-neutral-100">Voter ID</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                  {editKycType === 'AADHAAR' ? 'Aadhaar Card Number' : 'ID Reference'}
-                </label>
-                <input
-                  type="text"
-                  value={editKycDocId}
-                  onChange={(e) => setEditKycDocId(e.target.value)}
-                  placeholder={
-                    editKycType === 'AADHAAR'
-                      ? 'e.g. 12-digit Aadhaar Number'
-                      : 'e.g. Reference ID'
-                  }
-                  className="w-full px-3 py-1.5 border border-slate-200 dark:border-[#262626] rounded-lg text-xs font-semibold text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-[#1c1c1e]"
-                />
-              </div>
-
-              {/* Aadhaar Photo Edit Upload */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 dark:text-neutral-300 mb-1 flex items-center justify-between">
-                  <span>{editKycType === 'AADHAAR' ? 'Aadhaar Card Photo' : 'Document Photo'}</span>
-                  <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-normal">Optional</span>
-                </label>
-
-                {isUploadingKyc ? (
-                  <div className="p-4 border-2 border-dashed border-indigo-200 dark:border-indigo-800 rounded-lg flex flex-col items-center justify-center text-center bg-indigo-50/40 dark:bg-indigo-950/30 space-y-1.5">
-                    <Loader2 className="w-5 h-5 animate-spin text-indigo-600 dark:text-indigo-400" />
-                    <span className="text-xs font-bold text-indigo-800 dark:text-indigo-300">
-                      Uploading to Cloudinary (WebP)...
-                    </span>
-                  </div>
-                ) : editKycPhotoUrl ? (
-                  <div className="p-2.5 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-lg flex items-center gap-3">
-                    <img
-                      src={editKycPhotoUrl}
-                      alt="Aadhaar Card"
-                      className="w-14 h-11 object-cover rounded-md border border-slate-200 dark:border-[#363636] shadow-2xs shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <span className="block text-xs font-bold text-slate-800 dark:text-neutral-200 truncate">
-                        Cloudinary Document Photo Ready
-                      </span>
-                      <div className="flex items-center gap-2 mt-1">
-                        <label
-                          htmlFor="edit-kyc-photo"
-                          className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
-                        >
-                          Change Photo
-                        </label>
-                        <span className="text-slate-300 dark:text-neutral-600 text-[10px]">•</span>
-                        <button
-                          type="button"
-                          onClick={handleRemoveKycPhoto}
-                          className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 cursor-pointer"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <label
-                    htmlFor="edit-kyc-photo"
-                    className="p-3 border-2 border-dashed border-slate-300 dark:border-[#363636] hover:border-indigo-400 dark:hover:border-indigo-500 rounded-lg flex flex-col items-center justify-center text-center bg-white dark:bg-[#121212] cursor-pointer transition-colors group"
-                  >
-                    <Upload className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 mb-1" />
-                    <span className="text-xs font-semibold text-slate-700 dark:text-neutral-300 group-hover:text-indigo-700 dark:group-hover:text-indigo-400">
-                      Upload {editKycType === 'AADHAAR' ? 'Aadhaar Card' : 'ID Card'} Photo
-                    </span>
-                    <span className="text-[10px] text-slate-400 dark:text-neutral-500 mt-0.5">
-                      Auto-compressed to WebP & saved on Cloudinary
-                    </span>
-                  </label>
-                )}
-                <input
-                  id="edit-kyc-photo"
-                  type="file"
-                  accept="image/*"
-                  disabled={isUploadingKyc}
-                  onChange={handleKycPhotoUpload}
-                  className="hidden"
-                />
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-[#262626]">
+            {/* Top Right Action Icons */}
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
-                onClick={() => setIsEditing(false)}
-                disabled={isLoading}
-                className="flex-1 py-2.5 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] text-slate-700 dark:text-neutral-300 text-xs font-semibold rounded-xl hover:bg-slate-100 dark:hover:bg-[#262626] cursor-pointer"
+                onClick={() => setIsEditing(!isEditing)}
+                className={`p-2 rounded-xl transition-colors cursor-pointer ${
+                  isEditing
+                    ? 'bg-indigo-600 text-white'
+                    : 'hover:bg-slate-200 dark:hover:bg-[#262626] text-slate-500 dark:text-neutral-400'
+                }`}
+                title={isEditing ? 'Cancel Editing' : 'Edit Student'}
               >
-                Cancel
+                <Pencil className="w-4 h-4" />
               </button>
               <button
-                type="submit"
-                disabled={isLoading}
-                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                type="button"
+                onClick={onClose}
+                className="p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-[#262626] text-slate-400 dark:text-neutral-400 hover:text-slate-700 dark:hover:text-white cursor-pointer transition-colors"
               >
-                {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                <span>{isLoading ? 'Saving Changes...' : 'Save Changes'}</span>
+                <X className="w-4 h-4" />
               </button>
             </div>
-          </form>
-        ) : (
-          /* ================= VIEW MODE ================= */
-          <>
-            {/* View Mode Segmented Tab Selector */}
-            <div className="grid grid-cols-4 gap-1 bg-slate-100 dark:bg-[#1c1c1e] p-1 rounded-xl text-[11px] font-bold">
+          </div>
+
+          {/* Quick Notification Toast */}
+          {statusMsg && (
+            <div className="mt-2.5 p-2 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 rounded-xl text-xs text-indigo-700 dark:text-indigo-300 font-semibold flex items-center gap-1.5 animate-in fade-in">
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
+              <span>{statusMsg}</span>
+            </div>
+          )}
+
+          {/* Segmented Tab Bar (Compact) */}
+          {!isEditing && (
+            <div className="grid grid-cols-4 gap-1 bg-slate-200/80 dark:bg-[#202020] p-1 rounded-xl text-[11px] font-bold mt-3">
               <button
                 type="button"
                 onClick={() => setProfileTab('profile')}
-                className={`py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                className={`py-1.5 px-1 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
                   profileTab === 'profile'
-                    ? 'bg-white dark:bg-[#262626] text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                    ? 'bg-white dark:bg-[#121212] text-indigo-700 dark:text-indigo-300 shadow-2xs font-extrabold'
                     : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
                 }`}
               >
@@ -1001,22 +756,22 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
               <button
                 type="button"
                 onClick={() => setProfileTab('enrollmentTimeline')}
-                className={`py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                className={`py-1.5 px-1 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
                   profileTab === 'enrollmentTimeline'
-                    ? 'bg-white dark:bg-[#262626] text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                    ? 'bg-white dark:bg-[#121212] text-indigo-700 dark:text-indigo-300 shadow-2xs font-extrabold'
                     : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
                 }`}
               >
                 <CalendarDays className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                <span className="truncate">Enrollment</span>
+                <span className="truncate">Timeline</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setProfileTab('feeHistory')}
-                className={`py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                className={`py-1.5 px-1 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
                   profileTab === 'feeHistory'
-                    ? 'bg-white dark:bg-[#262626] text-emerald-700 dark:text-emerald-300 shadow-2xs'
+                    ? 'bg-white dark:bg-[#121212] text-emerald-700 dark:text-emerald-300 shadow-2xs font-extrabold'
                     : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
                 }`}
               >
@@ -1027,7 +782,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                     className={`text-[9px] px-1 py-0.2 rounded-full font-bold shrink-0 ${
                       profileTab === 'feeHistory'
                         ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200'
-                        : 'bg-slate-200 dark:bg-[#363636] text-slate-700 dark:text-neutral-300'
+                        : 'bg-slate-300 dark:bg-[#363636] text-slate-700 dark:text-neutral-300'
                     }`}
                   >
                     {student.transactions?.length}
@@ -1038,9 +793,9 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
               <button
                 type="button"
                 onClick={() => setProfileTab('kyc')}
-                className={`py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                className={`py-1.5 px-1 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
                   profileTab === 'kyc'
-                    ? 'bg-white dark:bg-[#262626] text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                    ? 'bg-white dark:bg-[#121212] text-indigo-700 dark:text-indigo-300 shadow-2xs font-extrabold'
                     : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
                 }`}
               >
@@ -1051,113 +806,338 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                 )}
               </button>
             </div>
+          )}
+        </div>
 
-            {/* TAB 1: PROFILE & SEAT ALLOCATION */}
-            {profileTab === 'profile' && (
-              <div className="space-y-3.5 animate-in fade-in duration-150">
-                {/* Quick Contact CTAs */}
-                <div className="grid grid-cols-2 gap-2">
-                  <a
-                    href={`tel:${student.phone}`}
-                    className="py-2.5 px-3 rounded-xl border border-slate-200 dark:border-[#262626] hover:bg-slate-50 dark:hover:bg-[#1c1c1e] text-slate-700 dark:text-neutral-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+        {/* Scrollable Modal Body */}
+        <div className="flex-1 overflow-y-auto p-3.5 sm:p-4 space-y-3.5">
+          {/* ================= EDIT MODE FORM ================= */}
+          {isEditing ? (
+            <form onSubmit={handleSaveEdit} className="space-y-3.5">
+              {/* Profile Photo Edit */}
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-[#262626]">
+                <div className="relative group shrink-0">
+                  {isUploadingPhoto ? (
+                    <div className="w-12 h-12 rounded-full bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 flex items-center justify-center text-indigo-600">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    </div>
+                  ) : editPhotoUrl ? (
+                    <img
+                      src={editPhotoUrl}
+                      alt="Student Profile"
+                      className="w-12 h-12 rounded-full object-cover border-2 border-indigo-600 shadow-xs"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-white dark:bg-[#262626] border border-dashed border-slate-300 dark:border-[#363636] flex items-center justify-center text-slate-400">
+                      <User className="w-5 h-5" />
+                    </div>
+                  )}
+                  <label
+                    htmlFor="edit-student-photo"
+                    className="absolute -bottom-1 -right-1 w-5 h-5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full flex items-center justify-center shadow-xs cursor-pointer active:scale-95"
+                    title="Upload / Change Photo"
                   >
-                    <Phone className="w-3.5 h-3.5 text-slate-500 dark:text-neutral-400" />
-                    <span>Call Student</span>
-                  </a>
-                  <a
-                    href={`https://wa.me/91${student.phone.replace(/\D/g, '')}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="py-2.5 px-3 rounded-xl border border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-                  >
-                    <WhatsAppIcon className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    <span>WhatsApp</span>
-                  </a>
+                    <Camera className="w-3 h-3" />
+                  </label>
+                  <input
+                    id="edit-student-photo"
+                    type="file"
+                    accept="image/*"
+                    disabled={isUploadingPhoto}
+                    onChange={handlePhotoUpload}
+                    className="hidden"
+                  />
                 </div>
 
-                {/* Send Fee Reminder on WhatsApp CTA if fee is due/pending */}
-                {isFeePending && (
-                  <button
-                    type="button"
-                    onClick={handleSendFeeReminder}
-                    className="w-full py-2.5 px-3 rounded-xl border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-200 text-xs font-bold flex items-center justify-center gap-2 shadow-2xs transition-all active:scale-95 cursor-pointer"
-                  >
-                    <WhatsAppIcon className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    <span>Send Fee Reminder on WhatsApp ({student.remainingFee && student.remainingFee > 0 ? `Due: ₹${student.remainingFee}` : 'Fee Due'})</span>
-                  </button>
-                )}
-
-                {/* Seat Management Card */}
-                <div className="bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-2xl p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-700 dark:text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
-                      <Armchair className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                      <span>Assigned Seat</span>
-                    </span>
-                    {student.seatNumber ? (
-                      <span className="text-xs font-bold bg-indigo-600 text-white px-2.5 py-1 rounded-lg shadow-xs flex items-center gap-1">
-                        <Armchair className="w-3.5 h-3.5" /> Seat {student.seatNumber}
-                      </span>
-                    ) : (
-                      <span className="text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 px-2.5 py-0.5 rounded-lg">
-                        No Seat Assigned
-                      </span>
+                <div className="flex-1 min-w-0">
+                  <span className="block text-xs font-bold text-slate-800 dark:text-neutral-200">
+                    Profile Photo
+                  </span>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <label
+                      htmlFor="edit-student-photo"
+                      className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                    >
+                      {isUploadingPhoto ? 'Uploading...' : editPhotoUrl ? 'Change Photo' : 'Upload Photo'}
+                    </label>
+                    {editPhotoUrl && !isUploadingPhoto && (
+                      <button
+                        type="button"
+                        onClick={handleRemovePhoto}
+                        className="text-[11px] font-semibold text-rose-600 hover:underline cursor-pointer"
+                      >
+                        Remove
+                      </button>
                     )}
                   </div>
+                </div>
+              </div>
 
-                  {hasCurrentMonthEnrollment ? (
-                    !isChangingSeat ? (
-                      <div className="flex gap-2 pt-1">
+              {/* Name & Phone Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-neutral-300 mb-1">
+                    Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editFullName}
+                    onChange={(e) => setEditFullName(e.target.value)}
+                    placeholder="Full Name"
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-[#333] bg-white dark:bg-[#1a1a1a] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-neutral-300 mb-1">
+                    Mobile Phone *
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    placeholder="10-digit mobile"
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-[#333] bg-white dark:bg-[#1a1a1a] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Purpose & Shift */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-neutral-300 mb-1">
+                    Purpose of Study
+                  </label>
+                  <select
+                    value={editStudyPurposeChoice}
+                    onChange={(e) => setEditStudyPurposeChoice(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-[#333] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 bg-white dark:bg-[#1a1a1a] focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="Civil Services / UPSC">Civil Services / UPSC</option>
+                    <option value="Medical / NEET">Medical / NEET</option>
+                    <option value="Engineering / JEE">Engineering / JEE</option>
+                    <option value="CA / CS / Finance">CA / CS / Finance</option>
+                    <option value="General Study">General Study</option>
+                    <option value="Other">Other / Custom Purpose</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-neutral-300 mb-1">
+                    Shift Plan
+                  </label>
+                  <select
+                    value={editShift}
+                    onChange={(e) => setEditShift(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-[#333] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 bg-white dark:bg-[#1a1a1a] focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="FULL_DAY">Full Day (24/7)</option>
+                    <option value="MORNING">Morning Shift</option>
+                    <option value="EVENING">Evening Shift</option>
+                  </select>
+                </div>
+              </div>
+
+              {editStudyPurposeChoice === 'Other' && (
+                <div>
+                  <label className="block text-[11px] font-bold text-indigo-700 dark:text-indigo-400 mb-1">
+                    Specify Custom Study Purpose *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editCustomPurpose}
+                    onChange={(e) => setEditCustomPurpose(e.target.value)}
+                    placeholder="e.g. SSC CGL, Banking Exams, UGC NET..."
+                    className="w-full px-3 py-2 border border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/30 rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100"
+                  />
+                </div>
+              )}
+
+              {/* KYC Document Box */}
+              <div className="p-3 bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-[#262626] rounded-xl space-y-2.5">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-neutral-200">
+                  <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span>KYC Verification & Document</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 dark:text-neutral-400 mb-0.5">
+                      Doc Type
+                    </label>
+                    <select
+                      value={editKycType}
+                      onChange={(e) => setEditKycType(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-200 dark:border-[#333] rounded-lg text-xs font-semibold text-slate-900 dark:text-neutral-100 bg-white dark:bg-[#121212]"
+                    >
+                      <option value="AADHAAR">Aadhaar Card</option>
+                      <option value="PASSPORT">Passport</option>
+                      <option value="VOTER_ID">Voter ID</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 dark:text-neutral-400 mb-0.5">
+                      Document Number
+                    </label>
+                    <input
+                      type="text"
+                      value={editKycDocId}
+                      onChange={(e) => setEditKycDocId(e.target.value)}
+                      placeholder="e.g. Aadhaar / ID No"
+                      className="w-full px-2.5 py-1.5 border border-slate-200 dark:border-[#333] rounded-lg text-xs font-semibold text-slate-900 dark:text-neutral-100 bg-white dark:bg-[#121212]"
+                    />
+                  </div>
+                </div>
+
+                {/* KYC Photo */}
+                <div>
+                  {isUploadingKyc ? (
+                    <div className="p-3 border border-dashed border-indigo-300 dark:border-indigo-800 rounded-lg flex items-center justify-center gap-2 bg-indigo-50/40 dark:bg-indigo-950/30">
+                      <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                      <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">Uploading Document...</span>
+                    </div>
+                  ) : editKycPhotoUrl ? (
+                    <div className="p-2 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] rounded-lg flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <img
+                          src={editKycPhotoUrl}
+                          alt="KYC Document"
+                          className="w-10 h-8 object-cover rounded border shrink-0"
+                        />
+                        <span className="text-xs font-bold text-slate-800 dark:text-neutral-200 truncate">
+                          Document Uploaded
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label
+                          htmlFor="edit-kyc-photo"
+                          className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                        >
+                          Change
+                        </label>
                         <button
                           type="button"
-                          onClick={() => setIsChangingSeat(true)}
-                          className="flex-1 py-2 px-3 bg-white dark:bg-[#121212] border border-indigo-200 dark:border-indigo-800/50 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                          onClick={handleRemoveKycPhoto}
+                          className="text-[11px] font-semibold text-rose-600 hover:underline cursor-pointer"
                         >
-                          <UserCheck className="w-3.5 h-3.5" />
-                          <span>{student.seatNumber ? 'Change / Reassign Seat' : 'Assign a Seat Now'}</span>
+                          Remove
                         </button>
-
-                        {student.seatNumber && (
-                          <button
-                            type="button"
-                            onClick={handleUnassign}
-                            disabled={isLoading}
-                            className="py-2 px-3 bg-white dark:bg-[#121212] border border-rose-200 dark:border-rose-800/50 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-700 dark:text-rose-400 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1 cursor-pointer"
-                            title="Free up this seat"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>Unassign</span>
-                          </button>
-                        )}
                       </div>
-                    ) : (
-                      <form onSubmit={handleSeatSubmit} className="space-y-3 pt-1 border-t border-slate-200 dark:border-[#262626]">
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                            Choose Available Seat
-                          </label>
-                          <select
-                            value={selectedSeat}
-                            onChange={(e) => setSelectedSeat(e.target.value)}
-                            required
-                            className="w-full px-3 py-2 bg-white dark:bg-[#121212] border border-slate-300 dark:border-[#363636] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                          >
-                            <option value="" className="dark:bg-[#121212] dark:text-neutral-100">-- Select an Available Seat --</option>
-                            {availableSeats.map((s) => (
-                              <option key={s.id} value={s.seatNumber} className="dark:bg-[#121212] dark:text-neutral-100">
-                                Seat {s.seatNumber} ({s.rowName || 'Main Hall'})
-                              </option>
-                            ))}
-                            {student.seatNumber && (
-                              <option value="UNASSIGN" className="dark:bg-[#121212] dark:text-neutral-100">Remove Seat (Make Unassigned)</option>
-                            )}
-                          </select>
-                          {availableSeats.length === 0 && (
-                            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
-                              No free seats available in this library right now.
-                            </p>
-                          )}
+                    </div>
+                  ) : (
+                    <label
+                      htmlFor="edit-kyc-photo"
+                      className="p-2.5 border border-dashed border-slate-300 dark:border-[#363636] hover:border-indigo-400 rounded-lg flex items-center justify-center gap-1.5 text-center bg-white dark:bg-[#121212] cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-slate-400" />
+                      <span className="text-xs font-semibold text-slate-700 dark:text-neutral-300">
+                        Upload Document Photo
+                      </span>
+                    </label>
+                  )}
+                  <input
+                    id="edit-kyc-photo"
+                    type="file"
+                    accept="image/*"
+                    disabled={isUploadingKyc}
+                    onChange={handleKycPhotoUpload}
+                    className="hidden"
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-[#262626]">
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(false)}
+                  disabled={isLoading}
+                  className="flex-1 py-2 bg-white dark:bg-[#1a1a1a] border border-slate-200 dark:border-[#262626] text-slate-700 dark:text-neutral-300 text-xs font-bold rounded-xl cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                >
+                  {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  <span>{isLoading ? 'Saving...' : 'Save Changes'}</span>
+                </button>
+              </div>
+            </form>
+          ) : (
+            /* ================= VIEW MODE ================= */
+            <>
+              {/* TAB 1: PROFILE & SEAT ALLOCATION */}
+              {profileTab === 'profile' && (
+                <div className="space-y-3 animate-in fade-in duration-100">
+                  {/* Assigned Seat & Actions Strip */}
+                  <div className="bg-slate-50 dark:bg-[#181818] border border-slate-200/90 dark:border-[#262626] rounded-xl p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold">
+                          <Armchair className="w-4 h-4" />
                         </div>
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                            Assigned Desk
+                          </span>
+                          <span className="text-xs font-extrabold text-slate-900 dark:text-white">
+                            {student.seatNumber ? `Seat ${student.seatNumber}` : 'No Seat Assigned'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        {!isChangingSeat ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setIsChangingSeat(true)}
+                              className="px-2.5 py-1.5 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 text-xs font-bold rounded-lg border border-indigo-200 dark:border-indigo-800/60 transition-colors cursor-pointer"
+                            >
+                              {student.seatNumber ? 'Change Seat' : 'Assign Seat'}
+                            </button>
+                            {student.seatNumber && (
+                              <button
+                                type="button"
+                                onClick={handleUnassign}
+                                disabled={isLoading}
+                                className="p-1.5 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 hover:bg-rose-100 rounded-lg border border-rose-200 dark:border-rose-800/60 transition-colors cursor-pointer"
+                                title="Unassign Seat"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Seat Switcher Form */}
+                    {isChangingSeat && (
+                      <form onSubmit={handleSeatSubmit} className="mt-2.5 pt-2.5 border-t border-slate-200 dark:border-[#2a2a2a] space-y-2">
+                        <select
+                          value={selectedSeat}
+                          onChange={(e) => setSelectedSeat(e.target.value)}
+                          required
+                          className="w-full px-3 py-1.5 bg-white dark:bg-[#121212] border border-slate-300 dark:border-[#363636] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100"
+                        >
+                          <option value="">-- Choose an Available Seat --</option>
+                          {availableSeats.map((s) => (
+                            <option key={s.id} value={s.seatNumber}>
+                              Seat {s.seatNumber} ({s.rowName || 'Main Hall'})
+                            </option>
+                          ))}
+                          {student.seatNumber && (
+                            <option value="UNASSIGN">Remove / Unassign Seat</option>
+                          )}
+                        </select>
 
                         <div className="flex gap-2">
                           <button
@@ -1166,344 +1146,345 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                               setIsChangingSeat(false);
                               setSelectedSeat('');
                             }}
-                            className="flex-1 py-2 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] text-slate-600 dark:text-neutral-400 text-xs font-semibold rounded-xl hover:bg-slate-100 dark:hover:bg-[#262626] cursor-pointer"
+                            className="flex-1 py-1.5 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#262626] text-xs font-bold rounded-lg cursor-pointer"
                           >
                             Cancel
                           </button>
                           <button
                             type="submit"
                             disabled={isLoading || !selectedSeat}
-                            className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1 cursor-pointer"
+                            className="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg cursor-pointer disabled:opacity-50"
                           >
-                            {isLoading ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                <span>Saving...</span>
-                              </>
-                            ) : (
-                              <span>Confirm Assignment</span>
-                            )}
+                            {isLoading ? 'Saving...' : 'Confirm'}
                           </button>
                         </div>
                       </form>
-                    )
-                  ) : (
-                    <div className="pt-1">
-                      <button
-                        type="button"
-                        onClick={() => onCollectFee?.(student)}
-                        className="w-full py-2.5 px-3 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-xs font-bold rounded-xl shadow-2xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Re-Enroll Student to Assign / Change Seat</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Academic & Shift Details */}
-                <div className="space-y-2 text-xs">
-                  <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-[#262626] text-slate-600 dark:text-neutral-400">
-                    <span className="flex items-center gap-1.5 font-medium">
-                      <BookOpen className="w-3.5 h-3.5 text-slate-400 dark:text-neutral-500" /> Study Goal
-                    </span>
-                    <span className="font-semibold text-slate-900 dark:text-white">{student.studyPurpose || 'General Study'}</span>
+                    )}
                   </div>
 
-                  {hasCurrentMonthEnrollment ? (
-                    <>
-                      {/* Current Period Date Range */}
-                      {currentPeriodSpan && (
-                        <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-[#262626] text-slate-600 dark:text-neutral-400">
-                          <span className="flex items-center gap-1.5 font-medium">
-                            <CalendarDays className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Current Period Range
-                          </span>
-                          <span className="font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/80 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
-                            {currentPeriodSpan}
-                          </span>
-                        </div>
-                      )}
+                  {/* 2-Column Minimal Key Metrics Grid */}
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {/* Goal */}
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#181818] border border-slate-200/80 dark:border-[#262626] flex flex-col justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-neutral-500 flex items-center gap-1">
+                        <BookOpen className="w-3 h-3 text-indigo-500" /> Study Goal
+                      </span>
+                      <span className="font-bold text-slate-900 dark:text-white mt-1 text-xs truncate">
+                        {student.studyPurpose || 'General Study'}
+                      </span>
+                    </div>
 
-                      {/* Stay Duration / Plan */}
-                      <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-[#262626] text-slate-600 dark:text-neutral-400">
-                        <span className="flex items-center gap-1.5 font-medium">
-                          <Clock className="w-3.5 h-3.5 text-slate-400 dark:text-neutral-500" /> Stay Duration / Plan
-                        </span>
-                        <span className="font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/80 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
-                          {formatShiftDetailed((currentMonthTx as any)?.shift || student.shift, (currentMonthTx as any)?.stayDuration || student.stayDuration)}
-                        </span>
-                      </div>
+                    {/* Shift */}
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#181818] border border-slate-200/80 dark:border-[#262626] flex flex-col justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-neutral-500 flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-indigo-500" /> Shift & Plan
+                      </span>
+                      <span className="font-bold text-slate-900 dark:text-white mt-1 text-xs truncate">
+                        {formatShiftDetailed((currentMonthTx as any)?.shift || student.shift, (currentMonthTx as any)?.stayDuration || student.stayDuration)}
+                      </span>
+                    </div>
 
-                      {/* Monthly Fee Rate */}
-                      <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-[#262626] text-slate-600 dark:text-neutral-400">
-                        <span className="flex items-center gap-1.5 font-medium">
-                          <IndianRupee className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Monthly Fee Rate
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-emerald-700 dark:text-emerald-400">
-                            ₹{currentMonthTx?.totalFee || computedMonthlyRate || 1000} / month
-                          </span>
-                          {Boolean(student.remainingFee && student.remainingFee > 0) && (
-                            <span className="font-bold text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 px-2 py-0.5 rounded-md text-[11px]">
-                              Due: ₹{student.remainingFee}
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                    {/* Period Date Span */}
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#181818] border border-slate-200/80 dark:border-[#262626] flex flex-col justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-neutral-500 flex items-center gap-1">
+                        <CalendarDays className="w-3 h-3 text-indigo-500" /> Active Period
+                      </span>
+                      <span className="font-bold text-indigo-700 dark:text-indigo-300 mt-1 text-xs truncate">
+                        {currentPeriodSpan || (hasCurrentMonthEnrollment ? `${currentMonthName} ${currentYearStr}` : 'No Active Period')}
+                      </span>
+                    </div>
 
-                      {/* Membership Remaining */}
-                      <div className="flex items-center justify-between py-2 text-slate-600 dark:text-neutral-400">
-                        <span className="flex items-center gap-1.5 font-medium">
-                          <Calendar className="w-3.5 h-3.5 text-slate-400 dark:text-neutral-500" /> Membership Remaining
+                    {/* Monthly Rate & Due */}
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#181818] border border-slate-200/80 dark:border-[#262626] flex flex-col justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-neutral-500 flex items-center gap-1">
+                        <IndianRupee className="w-3 h-3 text-emerald-500" /> Rate & Status
+                      </span>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className="font-extrabold text-emerald-700 dark:text-emerald-400 text-xs">
+                          ₹{currentMonthTx?.totalFee || computedMonthlyRate || 1000}/mo
                         </span>
-                        {!student.seatNumber || student.status === 'INACTIVE' ? (
-                          <span className="font-bold text-slate-700 dark:text-neutral-300 bg-slate-100 dark:bg-[#262626] border border-slate-200 dark:border-neutral-700 px-2 py-0.5 rounded-md">
-                            Inactive (No Seat Assigned)
-                          </span>
-                        ) : student.membershipEndsInDays <= 0 ? (
-                          <span className="font-bold text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 px-2 py-0.5 rounded-md">
-                            Expired / Fee Due
-                          </span>
-                        ) : student.membershipEndsInDays <= 5 ? (
-                          <span className="font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 px-2 py-0.5 rounded-md">
-                            {student.membershipEndsInDays} days left (Expiring Soon)
-                          </span>
-                        ) : (
-                          <span className="font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
-                            {student.membershipEndsInDays} days left
+                        {Boolean(student.remainingFee && student.remainingFee > 0) && (
+                          <span className="text-[9px] font-bold text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-950/60 px-1 py-0.2 rounded">
+                            Due: ₹{student.remainingFee}
                           </span>
                         )}
                       </div>
-                    </>
-                  ) : (
-                    /* No Active Enrollment Notice for Current Month */
-                    <div className="p-3.5 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl space-y-2.5 my-2">
-                      <div className="flex items-start gap-2.5">
-                        <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                        <div>
-                          <h5 className="text-xs font-bold text-amber-900 dark:text-amber-200">
-                            No Active Enrollment for {currentMonthName} {currentYearStr}
-                          </h5>
-                          <p className="text-[11px] text-amber-700 dark:text-amber-300/90 leading-snug">
-                            This student has no active enrollment or fee transaction logged for the current month.
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Previous Seat Helper Badge if inactive <= 30 days */}
-                      {(() => {
-                        const prevSeat = getStudentPreviousSeat(student);
-                        return prevSeat.seatNumber ? (
-                          <div className="flex items-center gap-1.5 py-1.5 px-2.5 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/60 rounded-xl text-xs text-indigo-950 dark:text-indigo-200">
-                            <Armchair className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                            <span>
-                              Previous Seat Allotment: <strong className="font-bold text-indigo-700 dark:text-indigo-300">Seat {prevSeat.seatNumber}</strong>
-                              {prevSeat.inactiveDays > 0 ? (
-                                <span className="text-[11px] text-slate-500 dark:text-neutral-400 ml-1">
-                                  (Released {prevSeat.inactiveDays} days ago)
-                                </span>
-                              ) : ''}
-                            </span>
-                          </div>
-                        ) : null;
-                      })()}
-
-                      <button
-                        type="button"
-                        onClick={() => onCollectFee?.(student)}
-                        className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer transition-all"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Re-Enroll for {currentMonthName}</span>
-                      </button>
                     </div>
-                  )}
-                </div>
-
-                {/* Quick Fee Snapshot Banner linking to Fee History tab */}
-                <div className="bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800/40 rounded-2xl p-3.5 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold">
-                        <IndianRupee className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-emerald-900 dark:text-emerald-300">Fee Status & History</h4>
-                        <p className="text-[10px] text-emerald-700 dark:text-emerald-400/90">
-                          {student.transactions && student.transactions.length > 0
-                            ? `${student.transactions.length} payment${student.transactions.length > 1 ? 's' : ''} recorded`
-                            : 'No payment recorded yet'}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => onCollectFee?.(student)}
-                      className="py-1 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Collect Fee</span>
-                    </button>
                   </div>
 
-                  <div className="flex items-center justify-between pt-1 border-t border-emerald-200/60 dark:border-emerald-800/40 text-xs">
-                    <span className="text-slate-600 dark:text-neutral-400 font-medium">Total Paid:</span>
-                    <span className="font-extrabold text-emerald-900 dark:text-emerald-300">
-                      ₹{((student.transactions || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0)).toLocaleString('en-IN')}
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setProfileTab('feeHistory')}
-                    className="w-full py-2 px-3 bg-white dark:bg-[#121212] hover:bg-emerald-100/50 dark:hover:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-800/60 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-                  >
-                    <History className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>View Complete Fee History Tab →</span>
-                  </button>
-                </div>
-
-                {/* Quick Actions Footer: Edit & Delete Buttons */}
-                <div className="pt-2 border-t border-slate-100 dark:border-[#262626] flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsEditing(true)}
-                    className="flex-1 py-2.5 px-3 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] hover:bg-slate-50 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Pencil className="w-3.5 h-3.5 text-slate-500 dark:text-neutral-400" />
-                    <span>Edit Student</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleDelete}
-                    disabled={isLoading}
-                    className="py-2.5 px-3.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 hover:bg-rose-100 dark:hover:bg-rose-900/40 text-rose-700 dark:text-rose-400 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-                    title="Delete this student"
-                  >
-                    {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                    <span>{isLoading ? 'Deleting...' : 'Delete'}</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 2: DEDICATED FEE HISTORY TAB */}
-            {profileTab === 'feeHistory' && (
-              <div className="space-y-3.5 animate-in fade-in duration-150">
-                {/* Tab Header & Primary Action */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                      <IndianRupee className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                      <span>Fee & Payment History</span>
-                    </h4>
-                    <p className="text-[11px] text-slate-500 dark:text-neutral-400">
-                      Month-wise fee records for {student.fullName}
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => onCollectFee?.(student)}
-                    className="py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-xs active:scale-95"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Collect Fee</span>
-                  </button>
-                </div>
-
-                {/* Due Alert Banner */}
-                {Boolean(student.remainingFee && student.remainingFee > 0) && (
-                  <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                        <IndianRupee className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-amber-900 dark:text-amber-200 block">
-                          Remaining Fee Due: ₹{student.remainingFee}
-                        </span>
-                        <span className="text-[11px] text-amber-700 dark:text-amber-300 block">
-                          Student has an unpaid balance. Collect fee or send WhatsApp reminder.
+                  {/* Fee Reminder / Action Alert */}
+                  {isFeePending && (
+                    <div className="p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl flex items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span className="text-amber-900 dark:text-amber-200 font-semibold truncate text-[11px]">
+                          {student.remainingFee && student.remainingFee > 0
+                            ? `Fee balance due: ₹${student.remainingFee}`
+                            : 'Membership fee pending for current cycle'}
                         </span>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
                       <button
                         type="button"
                         onClick={handleSendFeeReminder}
-                        className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shrink-0 cursor-pointer shadow-xs transition-colors flex items-center gap-1.5 active:scale-95"
+                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 shrink-0 cursor-pointer shadow-xs active:scale-95"
                       >
-                        <WhatsAppIcon className="w-3.5 h-3.5 text-white" />
+                        <WhatsAppIcon className="w-3 h-3" />
                         <span>Remind</span>
                       </button>
+                    </div>
+                  )}
+
+                  {/* Fee Snapshot Card */}
+                  <div className="bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800/40 rounded-xl p-3 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-400 block">
+                        Total Paid Ledger
+                      </span>
+                      <span className="text-sm font-black text-emerald-900 dark:text-emerald-300">
+                        ₹{((student.transactions || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0)).toLocaleString('en-IN')}
+                        <span className="text-[10px] text-slate-500 dark:text-neutral-400 font-medium ml-1.5">
+                          ({student.transactions?.length || 0} records)
+                        </span>
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => onCollectFee?.(student)}
-                        className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shrink-0 cursor-pointer shadow-xs transition-colors active:scale-95"
+                        className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer shadow-xs"
                       >
-                        Collect Due
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Collect Fee</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setProfileTab('feeHistory')}
+                        className="p-1.5 bg-white dark:bg-[#121212] border border-emerald-300/80 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 rounded-lg hover:bg-emerald-50 text-xs font-bold cursor-pointer"
+                        title="View Complete Fee History"
+                      >
+                        <ArrowRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
-                )}
 
-                {/* 3 Metric Summary Banner */}
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200/80 dark:border-[#262626] rounded-xl p-2.5 text-center">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-neutral-500 block">
-                      {feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL' ? 'Filtered Paid' : 'Total Paid'}
-                    </span>
-                    <span className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white mt-0.5 block truncate">
-                      ₹{(feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL'
-                        ? filteredPaidSum
-                        : (student.transactions || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0)
-                      ).toLocaleString('en-IN')}
-                    </span>
-                  </div>
-
-                  <div className="bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200/80 dark:border-[#262626] rounded-xl p-2.5 text-center">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-neutral-500 block">
-                      Monthly Rate
-                    </span>
-                    <span className="text-sm sm:text-base font-extrabold text-emerald-700 dark:text-emerald-400 mt-0.5 block truncate">
-                      {computedMonthlyRate > 0 ? `₹${computedMonthlyRate}` : 'Fee Due'}
-                    </span>
-                  </div>
-
-                  <div className="bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200/80 dark:border-[#262626] rounded-xl p-2.5 text-center">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-neutral-500 block">
-                      Validity
-                    </span>
-                    <span className={`text-sm sm:text-base font-extrabold mt-0.5 block truncate ${
-                      !student.seatNumber || student.status === 'INACTIVE'
-                        ? 'text-slate-500 dark:text-neutral-400'
-                        : student.membershipEndsInDays <= 0
-                        ? 'text-rose-600 dark:text-rose-400'
-                        : student.membershipEndsInDays <= 5
-                        ? 'text-amber-600 dark:text-amber-400'
-                        : 'text-indigo-600 dark:text-indigo-400'
-                    }`}>
-                      {!student.seatNumber || student.status === 'INACTIVE'
-                        ? 'No Seat'
-                        : student.membershipEndsInDays <= 0
-                        ? 'Expired'
-                        : `${student.membershipEndsInDays}d`}
-                    </span>
+                  {/* Quick Edit & Delete Footer */}
+                  <div className="pt-2 border-t border-slate-100 dark:border-[#262626] flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditing(true)}
+                      className="flex-1 py-2 bg-white dark:bg-[#181818] border border-slate-200 dark:border-[#262626] hover:bg-slate-50 dark:hover:bg-[#202020] text-slate-700 dark:text-neutral-200 text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Edit Student</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDelete}
+                      disabled={isLoading}
+                      className="px-3.5 py-2 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 hover:bg-rose-100 text-rose-700 dark:text-rose-400 text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                      title="Delete Student"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete</span>
+                    </button>
                   </div>
                 </div>
+              )}
 
-                {/* Month & Year Filter Controls */}
-                <div className="bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200/80 dark:border-[#262626] rounded-xl p-2.5 flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-                    {/* Year select */}
-                    <div className="flex items-center gap-1 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#333] rounded-lg px-2.5 py-1.5 shadow-2xs flex-1">
-                      <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+              {/* TAB 2: ENROLLMENT TIMELINE */}
+              {profileTab === 'enrollmentTimeline' && (
+                <div className="space-y-3 animate-in fade-in duration-100">
+                  {/* Header & Year Switcher */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <h4 className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1">
+                        <CalendarDays className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                        <span>Monthly Attendance & Attendance Timeline</span>
+                      </h4>
+                      <p className="text-[10px] text-slate-500 dark:text-neutral-400">
+                        12-Month breakdown for billing year {timelineYear}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#333] px-2 py-1 rounded-lg">
+                      <select
+                        value={timelineYear}
+                        onChange={(e) => setTimelineYear(e.target.value)}
+                        className="bg-transparent text-xs font-bold text-slate-900 dark:text-white focus:outline-hidden cursor-pointer"
+                      >
+                        {availableFeeHistoryYears.map((yr) => (
+                          <option key={yr} value={yr}>
+                            {yr}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Status Legend (Compact) */}
+                  <div className="bg-slate-50 dark:bg-[#181818] border border-slate-200/80 dark:border-[#262626] p-2 rounded-xl flex items-center justify-between gap-2 text-[10px]">
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <span className="text-emerald-800 dark:text-emerald-300 font-bold">Enrolled</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-amber-500" />
+                      <span className="text-amber-800 dark:text-amber-300 font-bold">Inactive/Due</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-sky-400" />
+                      <span className="text-sky-800 dark:text-sky-300 font-bold">Upcoming</span>
+                    </div>
+                  </div>
+
+                  {/* 12-Month Matrix */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[320px] overflow-y-auto pr-0.5">
+                    {monthlyEnrollmentList.map((m) => {
+                      const isGreen = m.statusType === 'ACTIVE';
+                      const isOrange = m.statusType === 'INACTIVE' || m.statusType === 'PARTIAL';
+                      return (
+                        <div
+                          key={m.monthIdx}
+                          className={`p-2.5 rounded-xl border transition-all relative flex flex-col justify-between ${
+                            isGreen
+                              ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800/60'
+                              : isOrange
+                              ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800/60'
+                              : 'bg-sky-50/60 dark:bg-sky-950/20 border-sky-200 dark:border-sky-800/50'
+                          }`}
+                        >
+                          {m.isCurrentMonth && (
+                            <span className="absolute top-2 right-2 text-[8px] font-black px-1.5 py-0.2 rounded bg-indigo-600 text-white">
+                              NOW
+                            </span>
+                          )}
+                          <div>
+                            <span className="text-xs font-black text-slate-900 dark:text-white block">
+                              {m.monthName}
+                            </span>
+                            <span
+                              className={`text-[9px] font-extrabold px-1.5 py-0.2 rounded mt-1 inline-block ${
+                                isGreen
+                                  ? 'bg-emerald-600 text-white'
+                                  : isOrange
+                                  ? 'bg-amber-500 text-white'
+                                  : 'bg-sky-500 text-white'
+                              }`}
+                            >
+                              {m.statusType === 'ACTIVE'
+                                ? 'Enrolled'
+                                : m.statusType === 'PARTIAL'
+                                ? 'Due'
+                                : m.statusType === 'INACTIVE'
+                                ? 'Inactive'
+                                : 'Upcoming'}
+                            </span>
+
+                            {m.periodSpan && (
+                              <span className="text-[9px] text-slate-600 dark:text-neutral-400 block mt-1 truncate">
+                                {m.periodSpan}
+                              </span>
+                            )}
+                            {m.totalPaid > 0 && (
+                              <span className="text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400 block mt-0.5">
+                                Paid: ₹{m.totalPaid}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="mt-2 pt-1.5 border-t border-slate-200/60 dark:border-[#262626] flex items-center justify-between text-[10px]">
+                            {isGreen ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFeeHistoryYear(m.year.toString());
+                                  setFeeHistoryMonth(m.monthName);
+                                  setProfileTab('feeHistory');
+                                }}
+                                className="font-bold text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+                              >
+                                <span>Receipt ({m.matchingTxs.length})</span>
+                                <ArrowUpRight className="w-2.5 h-2.5" />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => onCollectFee?.(student)}
+                                className={`font-bold flex items-center gap-0.5 hover:underline cursor-pointer ${
+                                  isOrange ? 'text-amber-800 dark:text-amber-300' : 'text-sky-700 dark:text-sky-300'
+                                }`}
+                              >
+                                <span>Enroll</span>
+                                <ArrowRight className="w-2.5 h-2.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Summary Footer */}
+                  <div className="p-2.5 bg-slate-50 dark:bg-[#181818] border border-slate-200/80 dark:border-[#262626] rounded-xl flex items-center justify-between text-xs">
+                    <span className="text-slate-600 dark:text-neutral-300 text-[11px]">
+                      Active in <strong className="text-emerald-600 dark:text-emerald-400 font-black">{monthlyEnrollmentList.filter((m) => m.statusType === 'ACTIVE').length} / 12</strong> months in {timelineYear}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onCollectFee?.(student)}
+                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Enroll Month</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: FEES & TRANSACTIONS */}
+              {profileTab === 'feeHistory' && (
+                <div className="space-y-3 animate-in fade-in duration-100">
+                  {/* Top Stats Banner */}
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="p-2 bg-slate-50 dark:bg-[#181818] border border-slate-200 dark:border-[#262626] rounded-xl">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Total Paid
+                      </span>
+                      <span className="font-extrabold text-slate-900 dark:text-white mt-0.5 block text-xs sm:text-sm">
+                        ₹{(feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL'
+                          ? filteredPaidSum
+                          : (student.transactions || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0)
+                        ).toLocaleString('en-IN')}
+                      </span>
+                    </div>
+
+                    <div className="p-2 bg-slate-50 dark:bg-[#181818] border border-slate-200 dark:border-[#262626] rounded-xl">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Monthly Rate
+                      </span>
+                      <span className="font-extrabold text-emerald-700 dark:text-emerald-400 mt-0.5 block text-xs sm:text-sm">
+                        {computedMonthlyRate > 0 ? `₹${computedMonthlyRate}` : '₹1000'}
+                      </span>
+                    </div>
+
+                    <div className="p-2 bg-slate-50 dark:bg-[#181818] border border-slate-200 dark:border-[#262626] rounded-xl">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Validity
+                      </span>
+                      <span className="font-extrabold text-indigo-600 dark:text-indigo-400 mt-0.5 block text-xs sm:text-sm">
+                        {student.membershipEndsInDays > 0 ? `${student.membershipEndsInDays}d left` : 'Expired'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Filter Row */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 flex-1">
                       <select
                         value={feeHistoryYear}
                         onChange={(e) => setFeeHistoryYear(e.target.value)}
-                        className="bg-transparent text-slate-800 dark:text-neutral-200 font-semibold text-xs focus:outline-hidden cursor-pointer w-full"
+                        className="px-2 py-1 bg-white dark:bg-[#181818] border border-slate-200 dark:border-[#333] rounded-lg text-xs font-semibold text-slate-800 dark:text-neutral-200 cursor-pointer"
                       >
                         <option value="ALL">All Years</option>
                         {availableFeeHistoryYears.map((yr) => (
@@ -1512,14 +1493,11 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                           </option>
                         ))}
                       </select>
-                    </div>
 
-                    {/* Month select */}
-                    <div className="flex items-center gap-1 bg-white dark:bg-[#121212] border border-slate-200 dark:border-[#333] rounded-lg px-2.5 py-1.5 shadow-2xs flex-1">
                       <select
                         value={feeHistoryMonth}
                         onChange={(e) => setFeeHistoryMonth(e.target.value)}
-                        className="bg-transparent text-slate-800 dark:text-neutral-200 font-semibold text-xs focus:outline-hidden cursor-pointer w-full"
+                        className="px-2 py-1 bg-white dark:bg-[#181818] border border-slate-200 dark:border-[#333] rounded-lg text-xs font-semibold text-slate-800 dark:text-neutral-200 cursor-pointer"
                       >
                         <option value="ALL">All Months</option>
                         {MONTH_NAMES.map((m) => (
@@ -1528,36 +1506,34 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                           </option>
                         ))}
                       </select>
-                    </div>
-                  </div>
 
-                  {(feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL') && (
+                      {(feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFeeHistoryYear('ALL');
+                            setFeeHistoryMonth('ALL');
+                          }}
+                          className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
                     <button
                       type="button"
-                      onClick={() => {
-                        setFeeHistoryYear('ALL');
-                        setFeeHistoryMonth('ALL');
-                      }}
-                      className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline cursor-pointer shrink-0 px-1"
+                      onClick={() => onCollectFee?.(student)}
+                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer shadow-xs shrink-0"
                     >
-                      Clear Filter
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Collect Fee</span>
                     </button>
-                  )}
-                </div>
-
-                {/* Transaction Ledger / Cards */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-500 dark:text-neutral-400 font-semibold px-0.5">
-                    <span>
-                      {feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL'
-                        ? `Filtered Transactions (${filteredFeeHistoryTransactions.length})`
-                        : `Monthly Transactions (${student.transactions?.length || 0})`}
-                    </span>
-                    <span>Newest First</span>
                   </div>
 
+                  {/* Transaction Cards List */}
                   {filteredFeeHistoryTransactions.length > 0 ? (
-                    <div className="space-y-2 max-h-[340px] overflow-y-auto pr-0.5">
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-0.5">
                       {filteredFeeHistoryTransactions.map((tx) => {
                         const d = new Date(tx.paymentDate);
                         const formattedD = d.toLocaleDateString('en-IN', {
@@ -1568,461 +1544,181 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                         return (
                           <div
                             key={tx.id}
-                            className="bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl p-3 shadow-2xs hover:border-slate-300 dark:hover:border-[#363636] transition-colors space-y-2"
+                            className="bg-white dark:bg-[#181818] border border-slate-200 dark:border-[#262626] rounded-xl p-2.5 space-y-2 shadow-2xs"
                           >
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-800/40 font-bold shrink-0">
-                                  <Receipt className="w-4 h-4" />
+                                <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center font-bold shrink-0">
+                                  <Receipt className="w-3.5 h-3.5" />
                                 </div>
                                 <div>
-                                  <span className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm block">
+                                  <span className="font-extrabold text-slate-900 dark:text-white text-xs block">
                                     {tx.paidForMonth}
                                   </span>
                                   <span className="text-[10px] text-slate-400 dark:text-neutral-500 block">
-                                    {formattedD}
+                                    {formattedD} {tx.validFrom && tx.validTo ? `• ${formatFriendlyDate(tx.validFrom)} – ${formatFriendlyDate(tx.validTo)}` : ''}
                                   </span>
-                                  {tx.validFrom && tx.validTo && (
-                                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium block mt-0.5 flex items-center gap-1">
-                                      <Calendar className="w-3 h-3 inline" />
-                                      {formatFriendlyDate(tx.validFrom)} – {formatFriendlyDate(tx.validTo)}
-                                    </span>
-                                  )}
                                 </div>
                               </div>
 
                               <div className="text-right">
-                                <span className="font-extrabold text-emerald-700 dark:text-emerald-400 text-sm block">
+                                <span className="font-black text-emerald-700 dark:text-emerald-400 text-xs sm:text-sm block">
                                   ₹{Number(tx.amount).toLocaleString('en-IN')}
                                 </span>
-                                <div className="flex items-center justify-end gap-1 mt-0.5">
-                                  <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-md uppercase ${
-                                    tx.status === 'PARTIAL' || (tx.remainingFee && tx.remainingFee > 0)
-                                      ? 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50'
-                                      : 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50'
-                                  }`}>
-                                    {tx.status || 'PAID'}
-                                  </span>
-                                  {tx.remainingFee !== undefined && tx.remainingFee > 0 && (
-                                    <span className="text-[9px] font-bold text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/50 px-1 py-0.2 rounded">
-                                      Due: ₹{tx.remainingFee}
-                                    </span>
-                                  )}
-                                </div>
+                                <span className={`text-[8px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                                  tx.status === 'PARTIAL' || (tx.remainingFee && tx.remainingFee > 0)
+                                    ? 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300'
+                                    : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'
+                                }`}>
+                                  {tx.status || 'PAID'} {tx.remainingFee ? `(Due: ₹${tx.remainingFee})` : ''}
+                                </span>
                               </div>
                             </div>
 
-                            {/* Metadata row */}
-                            <div className="pt-2 border-t border-slate-100 dark:border-[#262626] flex items-center justify-between text-[11px] text-slate-500 dark:text-neutral-400">
-                              <div className="flex items-center gap-2">
-                                <span className="flex items-center gap-1 font-medium">
-                                  Mode: <span className="font-bold text-slate-700 dark:text-neutral-200">{tx.paymentMode}</span>
-                                </span>
-                                {tx.totalFee && tx.totalFee > tx.amount && (
-                                  <span className="text-[10px] text-slate-500">
-                                    (Total: ₹{tx.totalFee})
-                                  </span>
-                                )}
+                            {/* Actions Row */}
+                            <div className="pt-1.5 border-t border-slate-100 dark:border-[#262626] flex items-center justify-between text-[10px]">
+                              <span className="text-slate-500 font-medium">
+                                Mode: <strong className="text-slate-700 dark:text-neutral-300">{tx.paymentMode}</strong> {tx.receiptNumber ? `• #${tx.receiptNumber}` : ''}
+                              </span>
+
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const text = generateWhatsAppReceiptText({
+                                      libraryName,
+                                      libraryPhone,
+                                      studentName: student.fullName,
+                                      studentPhone: student.phone,
+                                      seatNumber: student.seatNumber,
+                                      receiptNumber: tx.receiptNumber,
+                                      paidForMonth: tx.paidForMonth,
+                                      validFrom: tx.validFrom,
+                                      validTo: tx.validTo,
+                                      totalFee: tx.totalFee,
+                                      amount: tx.amount,
+                                      remainingFee: tx.remainingFee,
+                                      paymentMode: tx.paymentMode,
+                                      paymentDate: tx.paymentDate,
+                                      notes: tx.notes,
+                                    });
+                                    openWhatsApp(student.phone, text);
+                                  }}
+                                  className="px-2 py-1 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded font-bold hover:bg-emerald-100 cursor-pointer flex items-center gap-1"
+                                >
+                                  <WhatsAppIcon className="w-3 h-3" />
+                                  <span>WhatsApp</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onViewReceipt?.(tx)}
+                                  className="px-2 py-1 bg-slate-100 dark:bg-[#262626] text-slate-700 dark:text-neutral-200 rounded font-bold hover:bg-slate-200 cursor-pointer flex items-center gap-1"
+                                >
+                                  <FileText className="w-3 h-3" />
+                                  <span>Receipt</span>
+                                </button>
                               </div>
-
-                              {tx.receiptNumber && (
-                                <span className="font-mono text-[10px] text-slate-500 dark:text-neutral-400 bg-slate-100 dark:bg-[#262626] px-2 py-0.5 rounded-md">
-                                  #{tx.receiptNumber}
-                                </span>
-                              )}
-                            </div>
-
-                            {tx.notes && (
-                              <div className="text-[10px] bg-slate-50 dark:bg-[#121212] p-2 rounded-lg text-slate-600 dark:text-neutral-400 italic border border-slate-100 dark:border-[#262626]">
-                                &quot;{tx.notes}&quot;
-                              </div>
-                            )}
-
-                            {/* Receipt Action Buttons */}
-                            <div className="pt-2 border-t border-slate-100 dark:border-[#262626] flex items-center justify-between gap-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const text = generateWhatsAppReceiptText({
-                                    libraryName,
-                                    libraryPhone,
-                                    studentName: student.fullName,
-                                    studentPhone: student.phone,
-                                    seatNumber: student.seatNumber,
-                                    receiptNumber: tx.receiptNumber,
-                                    paidForMonth: tx.paidForMonth,
-                                    validFrom: tx.validFrom,
-                                    validTo: tx.validTo,
-                                    totalFee: tx.totalFee,
-                                    amount: tx.amount,
-                                    remainingFee: tx.remainingFee,
-                                    paymentMode: tx.paymentMode,
-                                    paymentDate: tx.paymentDate,
-                                    notes: tx.notes,
-                                  });
-                                  openWhatsApp(student.phone, text);
-                                }}
-                                className="py-1 px-2.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 rounded-lg text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors active:scale-95"
-                                title="Send fee receipt on WhatsApp"
-                              >
-                                <WhatsAppIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                                <span>Send WhatsApp</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => onViewReceipt?.(tx)}
-                                className="py-1 px-2.5 bg-slate-100 dark:bg-[#262626] hover:bg-slate-200 dark:hover:bg-[#303030] text-slate-700 dark:text-neutral-200 rounded-lg text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors active:scale-95"
-                                title="View and print official fee receipt"
-                              >
-                                <FileText className="w-3 h-3 text-slate-500 dark:text-neutral-400" />
-                                <span>View / Print Receipt</span>
-                              </button>
                             </div>
                           </div>
                         );
                       })}
                     </div>
                   ) : (
-                    /* Clean Empty State */
-                    <div className="bg-slate-50 dark:bg-[#1c1c1e] border border-dashed border-slate-200 dark:border-[#262626] rounded-2xl p-6 text-center space-y-3">
-                      <div className="w-12 h-12 rounded-2xl bg-emerald-100/60 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto shadow-2xs">
-                        <Receipt className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <h5 className="text-xs font-bold text-slate-800 dark:text-neutral-200">
-                          {feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL'
-                            ? `No Transactions in ${feeHistoryMonth !== 'ALL' ? feeHistoryMonth : ''} ${feeHistoryYear !== 'ALL' ? feeHistoryYear : ''}`
-                            : 'No Fee Payments Recorded Yet'}
-                        </h5>
-                        <p className="text-[11px] text-slate-500 dark:text-neutral-400 max-w-xs mx-auto mt-1">
-                          {feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL'
-                            ? 'No payment records found for the selected month and year filter.'
-                            : 'No monthly transactions found for this student. Click the button below to collect their fee.'}
-                        </p>
-                      </div>
-                      {feeHistoryYear !== 'ALL' || feeHistoryMonth !== 'ALL' ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFeeHistoryYear('ALL');
-                            setFeeHistoryMonth('ALL');
-                          }}
-                          className="py-1.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
-                        >
-                          <span>Show All Months</span>
-                        </button>
+                    <div className="p-6 text-center border border-dashed border-slate-200 dark:border-[#262626] rounded-xl space-y-2">
+                      <Receipt className="w-6 h-6 text-slate-300 mx-auto" />
+                      <p className="text-xs font-semibold text-slate-500">
+                        No transactions recorded for selected period
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 4: KYC & IDENTITY */}
+              {profileTab === 'kyc' && (
+                <div className="space-y-3 animate-in fade-in duration-100">
+                  <div className="bg-slate-50 dark:bg-[#181818] rounded-xl p-3.5 border border-slate-200 dark:border-[#262626] text-xs space-y-2.5">
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-200/60 dark:border-[#262626]">
+                      <span className="text-slate-500 font-medium">Document Type:</span>
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        {student.kycType === 'AADHAAR' ? 'Aadhaar Card' : student.kycType || 'Aadhaar Card'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-200/60 dark:border-[#262626]">
+                      <span className="text-slate-500 font-medium">Reference Number:</span>
+                      <span className="font-mono font-bold text-slate-800 dark:text-neutral-200">
+                        {student.kycDocId || 'Not provided'}
+                      </span>
+                    </div>
+
+                    <div>
+                      <span className="block text-slate-500 font-medium mb-1.5">
+                        Uploaded Document Photo:
+                      </span>
+                      {student.kycPhotoUrl ? (
+                        <div className="p-2 bg-white dark:bg-[#121212] rounded-xl border border-slate-200 dark:border-[#262626] flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <img
+                              src={student.kycPhotoUrl}
+                              alt="KYC Document"
+                              onClick={() => setPreviewingImage(student.kycPhotoUrl || null)}
+                              className="w-12 h-9 object-cover rounded-md border border-slate-200 cursor-pointer hover:opacity-90"
+                              title="Click to view full image"
+                            />
+                            <div>
+                              <span className="block font-bold text-slate-800 dark:text-neutral-200 text-xs">
+                                Cloudinary Verified Photo
+                              </span>
+                              <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-0.5">
+                                <CheckCircle2 className="w-2.5 h-2.5" /> WebP Stored
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setPreviewingImage(student.kycPhotoUrl || null)}
+                            className="px-2.5 py-1 text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg cursor-pointer flex items-center gap-1"
+                          >
+                            <Eye className="w-3 h-3" />
+                            <span>View</span>
+                          </button>
+                        </div>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => onCollectFee?.(student)}
-                          className="py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Collect First Fee</span>
-                        </button>
+                        <div className="p-3 bg-white dark:bg-[#121212] border border-dashed border-slate-300 dark:border-[#363636] rounded-xl text-center">
+                          <p className="text-[11px] text-slate-400 italic">No document image uploaded</p>
+                          <button
+                            type="button"
+                            onClick={() => setIsEditing(true)}
+                            className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer mt-1 block mx-auto"
+                          >
+                            + Upload Now
+                          </button>
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* TAB: MONTH ENROLLMENT TIMELINE (Green = Enrolled/Attended, Orange = Inactive/Absent, Light Blue = Upcoming) */}
-            {profileTab === 'enrollmentTimeline' && (
-              <div className="space-y-4 animate-in fade-in duration-150">
-                {/* Header & Year Switcher */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-1 border-b border-slate-100 dark:border-[#262626]">
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                      <CalendarDays className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                      <span>Monthly Enrollment Status</span>
-                    </h4>
-                    <p className="text-[11px] text-slate-500 dark:text-neutral-400">
-                      Enrollment and membership track across billing months
-                    </p>
                   </div>
 
-                  {/* Year Dropdown */}
-                  <div className="flex items-center gap-2 self-start sm:self-auto">
-                    <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#333] px-2.5 py-1 rounded-xl shadow-2xs">
-                      <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                      <select
-                        value={timelineYear}
-                        onChange={(e) => setTimelineYear(e.target.value)}
-                        className="bg-transparent text-xs font-bold text-slate-900 dark:text-white focus:outline-hidden cursor-pointer"
-                      >
-                        {availableFeeHistoryYears.map((yr) => (
-                          <option key={yr} value={yr}>
-                            Year {yr}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Status Legend (Green, Orange, Light Blue) */}
-                <div className="bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200/80 dark:border-[#262626] p-2.5 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-[10px] font-semibold">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-xs shadow-emerald-500/50 shrink-0" />
-                    <span className="text-emerald-800 dark:text-emerald-300 font-bold">Green: Enrolled / Present</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-xs shadow-amber-500/50 shrink-0" />
-                    <span className="text-amber-800 dark:text-amber-300 font-bold">Orange: Inactive / Absent</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-sky-400 shadow-xs shadow-sky-400/50 shrink-0" />
-                    <span className="text-sky-800 dark:text-sky-300 font-bold">Light Blue: Upcoming Month</span>
-                  </div>
-                </div>
-
-                {/* 12-Month Interactive Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[360px] overflow-y-auto pr-0.5">
-                  {monthlyEnrollmentList.map((m) => {
-                    const isGreen = m.statusType === 'ACTIVE';
-                    const isOrange = m.statusType === 'INACTIVE' || m.statusType === 'PARTIAL';
-                    const isLightBlue = m.statusType === 'UPCOMING';
-
-                    return (
-                      <div
-                        key={m.monthIdx}
-                        className={`p-3 rounded-2xl border transition-all relative overflow-hidden flex flex-col justify-between group shadow-2xs ${
-                          isGreen
-                            ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800/60 hover:border-emerald-400 hover:shadow-md'
-                            : isOrange
-                            ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800/60 hover:border-amber-400 hover:shadow-md'
-                            : 'bg-sky-50/60 dark:bg-sky-950/20 border-sky-200 dark:border-sky-800/50 hover:border-sky-300 hover:shadow-md'
-                        }`}
-                      >
-                        {/* Current Month Highlight Dot */}
-                        {m.isCurrentMonth && (
-                          <div className="absolute top-2.5 right-2.5 flex items-center gap-1 bg-white/90 dark:bg-[#121212] px-1.5 py-0.5 rounded-full border border-slate-200 dark:border-[#333] shadow-2xs">
-                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
-                            <span className="text-[9px] font-extrabold text-indigo-600 dark:text-indigo-400 leading-none">NOW</span>
-                          </div>
-                        )}
-
-                        <div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-black text-slate-900 dark:text-white">
-                              {m.monthName}
-                            </span>
-                          </div>
-
-                          <div className="mt-1.5 flex items-center gap-1.5">
-                            {isGreen && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold shadow-2xs">
-                                <Check className="w-3 h-3" />
-                                <span>Enrolled</span>
-                              </span>
-                            )}
-                            {isOrange && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-bold shadow-2xs">
-                                <UserX className="w-3 h-3" />
-                                <span>{m.statusType === 'PARTIAL' ? 'Due' : 'Inactive'}</span>
-                              </span>
-                            )}
-                            {isLightBlue && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500 text-white text-[10px] font-bold shadow-2xs">
-                                <Clock className="w-3 h-3" />
-                                <span>Upcoming</span>
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Period Date Span (e.g. 8 Sep – 8 Oct 2026) */}
-                          {m.periodSpan && (
-                            <div className="mt-1.5 flex items-center gap-1 text-[10px] font-semibold text-slate-700 dark:text-neutral-300 bg-white/80 dark:bg-black/40 px-1.5 py-0.5 rounded-md border border-slate-200/70 dark:border-white/10 shadow-2xs">
-                              <CalendarDays className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                              <span className="truncate">{m.periodSpan}</span>
-                            </div>
-                          )}
-
-                          <p className="text-[10px] text-slate-600 dark:text-neutral-400 mt-1.5 leading-snug">
-                            {m.statusLabel}
-                          </p>
-
-                          {/* Paid / Due metrics */}
-                          {m.totalPaid > 0 && (
-                            <p className="text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400 mt-1">
-                              Paid: ₹{m.totalPaid}
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Action Link / Enroll Trigger */}
-                        <div className="mt-2.5 pt-2 border-t border-slate-200/60 dark:border-[#2a2a2d] flex items-center justify-between">
-                          {isGreen ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setFeeHistoryYear(m.year.toString());
-                                setFeeHistoryMonth(m.monthName);
-                                setProfileTab('feeHistory');
-                              }}
-                              className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-0.5 cursor-pointer"
-                            >
-                              <span>View Receipts ({m.matchingTxs.length})</span>
-                              <ArrowUpRight className="w-2.5 h-2.5" />
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => onCollectFee?.(student)}
-                              className={`text-[10px] font-bold flex items-center gap-0.5 hover:underline cursor-pointer ${
-                                isOrange
-                                  ? 'text-amber-800 dark:text-amber-300'
-                                  : 'text-sky-700 dark:text-sky-300'
-                              }`}
-                            >
-                              <span>Enroll / Pay Fee</span>
-                              <ArrowRight className="w-2.5 h-2.5" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Annual Enrollment Summary Card */}
-                <div className="p-3 bg-slate-50 dark:bg-[#1c1c1e] border border-slate-200/80 dark:border-[#262626] rounded-2xl flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                    <span className="text-slate-700 dark:text-neutral-300">
-                      <strong>{student.fullName}</strong> was active in{' '}
-                      <strong className="text-emerald-600 dark:text-emerald-400">
-                        {monthlyEnrollmentList.filter((m) => m.statusType === 'ACTIVE').length} / 12
-                      </strong>{' '}
-                      months in {timelineYear}.
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => onCollectFee?.(student)}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shrink-0 shadow-xs cursor-pointer active:scale-95 transition-all flex items-center gap-1"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Enroll Month</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 3: KYC & IDENTIFICATION */}
-            {profileTab === 'kyc' && (
-              <div className="space-y-3.5 animate-in fade-in duration-150">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                      <ShieldCheck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                      <span>KYC & Document Verification</span>
-                    </h4>
-                    <p className="text-[11px] text-slate-500 dark:text-neutral-400">
-                      Identity verification records for {student.fullName}
-                    </p>
-                  </div>
-
-                  {student.kycPhotoUrl ? (
-                    <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 px-2 py-0.5 rounded-full flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> Verified
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 px-2 py-0.5 rounded-full">
-                      Pending Photo
-                    </span>
-                  )}
-                </div>
-
-                <div className="bg-slate-50 dark:bg-[#1c1c1e] rounded-2xl p-4 border border-slate-200 dark:border-[#262626] text-xs space-y-3">
-                  <div className="flex items-center justify-between text-slate-600 dark:text-neutral-400 pb-2 border-b border-slate-200/60 dark:border-[#262626]">
-                    <span>Document Type:</span>
-                    <span className="font-semibold text-slate-900 dark:text-white">
-                      {student.kycType === 'AADHAAR' ? 'Aadhaar Card' : student.kycType || 'Aadhaar Card'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-slate-600 dark:text-neutral-400 pb-2 border-b border-slate-200/60 dark:border-[#262626]">
-                    <span>Card Reference Number:</span>
-                    <span className="font-mono font-bold text-slate-800 dark:text-neutral-200">
-                      {student.kycDocId || 'Not provided'}
-                    </span>
-                  </div>
-
-                  {/* Document Photo */}
-                  <div>
-                    <span className="block text-slate-600 dark:text-neutral-400 font-medium mb-1.5">
-                      Uploaded Document Image:
-                    </span>
-                    {student.kycPhotoUrl ? (
-                      <div className="p-2.5 bg-white dark:bg-[#121212] rounded-xl border border-slate-200 dark:border-[#262626] flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={student.kycPhotoUrl}
-                            alt="Aadhaar Card Document"
-                            onClick={() => setPreviewingImage(student.kycPhotoUrl || null)}
-                            className="w-16 h-12 object-cover rounded-lg border border-slate-200 dark:border-[#363636] shadow-2xs cursor-pointer hover:opacity-90 transition-opacity"
-                            title="Click to view full image"
-                          />
-                          <div>
-                            <span className="block font-bold text-slate-800 dark:text-neutral-200 text-xs">
-                              {student.kycType === 'AADHAAR' ? 'Aadhaar Card Photo' : 'ID Document Photo'}
-                            </span>
-                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1 mt-0.5">
-                              <CheckCircle2 className="w-3 h-3" /> Stored in Cloudinary (WebP)
-                            </span>
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => setPreviewingImage(student.kycPhotoUrl || null)}
-                          className="px-2.5 py-1.5 text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-800/50 rounded-lg cursor-pointer flex items-center gap-1 transition-colors"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>View Full</span>
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="p-4 bg-white dark:bg-[#121212] border border-dashed border-slate-300 dark:border-[#363636] rounded-xl text-center space-y-2">
-                        <p className="text-[11px] text-slate-400 dark:text-neutral-500 italic">
-                          No document photo uploaded yet for this student.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => setIsEditing(true)}
-                          className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 underline cursor-pointer"
-                        >
-                          Upload Document Photo
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-100 dark:border-[#262626] flex gap-2">
                   <button
                     type="button"
                     onClick={() => setIsEditing(true)}
-                    className="flex-1 py-2.5 px-3 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] hover:bg-slate-50 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-2 bg-white dark:bg-[#181818] border border-slate-200 dark:border-[#262626] text-slate-700 dark:text-neutral-200 text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <Pencil className="w-3.5 h-3.5 text-slate-500 dark:text-neutral-400" />
-                    <span>Edit Document & Info</span>
+                    <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Edit Document Information</span>
                   </button>
                 </div>
-              </div>
-            )}
-          </>
-        )}
+              )}
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Image Lightbox Modal */}
+      {/* Lightbox Image Preview Modal */}
       {previewingImage && (
         <div
-          className="fixed inset-0 z-60 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-60 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
           onClick={() => setPreviewingImage(null)}
         >
           <div
@@ -2032,18 +1728,34 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
             <button
               type="button"
               onClick={() => setPreviewingImage(null)}
-              className="absolute top-4 right-4 p-1.5 rounded-full bg-black/60 hover:bg-black text-white cursor-pointer z-10 transition-colors"
+              className="absolute top-4 right-4 p-1.5 rounded-full bg-black/60 hover:bg-black text-white cursor-pointer z-10"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
             <img
               src={previewingImage}
-              alt="Document Preview"
+              alt="Preview"
               className="w-full max-h-[75vh] object-contain rounded-xl"
             />
           </div>
         </div>
       )}
+
+      {/* Live Camera WebP Capture Modal */}
+      <CameraCaptureModal
+        isOpen={cameraModalOpen}
+        onClose={() => setCameraModalOpen(false)}
+        mode={cameraModalMode}
+        title={cameraModalMode === 'profile' ? 'Capture Student Profile Photo' : 'Capture KYC Document'}
+        onPhotoUploaded={(cloudinaryUrl) => {
+          if (cameraModalMode === 'profile') {
+            setEditPhotoUrl(cloudinaryUrl);
+          } else {
+            setEditKycPhotoUrl(cloudinaryUrl);
+          }
+          setCameraModalOpen(false);
+        }}
+      />
     </div>
   );
 };

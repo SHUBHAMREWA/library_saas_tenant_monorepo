@@ -9,7 +9,7 @@ export async function POST(
   try {
     const { id: libraryId } = await context.params;
     const body = await req.json();
-    const { fullName, phone, studyPurpose, shift, durationMonths, feeAmount, seatNumber, photoUrl, kycPhotoUrl, kycDocId, kycDocType } = body;
+    const { fullName, phone, studyPurpose, photoUrl, kycPhotoUrl, kycDocId, kycDocType } = body;
 
     if (!fullName || !phone) {
       return NextResponse.json({ error: 'fullName and phone are required' }, { status: 400 });
@@ -26,15 +26,30 @@ export async function POST(
     }
 
     if (!isSuperAdmin) {
-      const activeSub = await prisma.subscription.findFirst({
-        where: {
-          libraryId,
-          status: { in: ['ACTIVE', 'MANUAL'] },
-          endDate: { gt: new Date() },
-        },
+      const library = await prisma.library.findUnique({
+        where: { id: libraryId },
+        select: { ownerId: true },
       });
 
-      if (!activeSub) {
+      const activeSub = await prisma.subscription.findFirst({
+        where: {
+          OR: [
+            { libraryId },
+            ...(library?.ownerId ? [{ userId: library.ownerId }] : []),
+          ],
+          status: { in: ['ACTIVE', 'MANUAL'] },
+        },
+        orderBy: { endDate: 'desc' },
+      });
+
+      let hasValidSub = false;
+      if (activeSub) {
+        const subEnd = new Date(activeSub.endDate);
+        subEnd.setHours(23, 59, 59, 999);
+        hasValidSub = subEnd.getTime() >= Date.now();
+      }
+
+      if (!hasValidSub) {
         return NextResponse.json(
           {
             error: 'Active SaaS subscription required to enroll students. Please upgrade your plan in Branch Settings.',
@@ -60,91 +75,22 @@ export async function POST(
       },
     });
 
-    const initialAmount = feeAmount ? Number(feeAmount) : 0;
-    const months = Math.max(1, durationMonths || 1);
     const startDate = new Date();
-    const expectedEndDate = new Date(startDate.getTime() + months * 30 * 86400000);
+    const expectedEndDate = new Date(startDate.getTime() + 30 * 86400000);
 
-    // Create membership record — status PAUSED until student is enrolled (fee paid)
-    // feeAmount stays 0 until first enrollment fee is recorded via CollectFeeModal
-    const membership = await prisma.membership.create({
+    // Create initial membership record — status PAUSED until student is enrolled / fee paid / seat allocated
+    await prisma.membership.create({
       data: {
         id: crypto.randomUUID(),
         libraryId,
         studentId: student.id,
         startDate,
         expectedEndDate,
-        status: initialAmount > 0 ? 'ACTIVE' : 'PAUSED',
-        feeAmount: initialAmount > 0 ? initialAmount : 0,
-        shift: (shift || 'FULL_DAY') as any,
+        status: 'PAUSED',
+        feeAmount: 0,
+        shift: 'FULL_DAY',
       },
     });
-
-    // Assign and occupy seat if seatNumber provided
-    let finalAssignedSeatNumber: string | null = null;
-    if (seatNumber) {
-      const seat = await prisma.seat.findFirst({
-        where: { libraryId, seatNumber },
-      });
-      if (seat) {
-        await prisma.seat.update({
-          where: { id: seat.id },
-          data: { status: 'OCCUPIED' },
-        });
-
-        await prisma.seatAssignment.create({
-          data: {
-            id: crypto.randomUUID(),
-            libraryId,
-            seatId: seat.id,
-            studentId: student.id,
-            membershipId: membership.id,
-            shift: (shift || 'FULL_DAY') as any,
-            startDate,
-            status: 'ACTIVE',
-          },
-        });
-        finalAssignedSeatNumber = seatNumber;
-      }
-    }
-
-    // Only auto-record initial fee transaction if feeAmount was explicitly passed and > 0
-    let formattedTx: any = null;
-    if (initialAmount > 0) {
-      const initialMonth = startDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-      const receiptNumber = `REC-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-      const initialTransaction = await prisma.studentFeeTransaction.create({
-        data: {
-          id: crypto.randomUUID(),
-          libraryId,
-          studentId: student.id,
-          membershipId: membership.id,
-          amount: initialAmount,
-          paidForMonth: initialMonth,
-          paymentDate: startDate,
-          paymentMode: 'UPI',
-          status: 'PAID',
-          receiptNumber,
-          notes: `Initial registration fee (${months} month${months > 1 ? 's' : ''})`,
-        },
-      });
-
-      formattedTx = {
-        id: initialTransaction.id,
-        studentId: student.id,
-        studentName: student.fullName,
-        studentPhone: student.phone,
-        seatNumber: finalAssignedSeatNumber,
-        amount: initialAmount,
-        paidForMonth: initialMonth,
-        paymentDate: initialTransaction.paymentDate.toISOString(),
-        paymentMode: initialTransaction.paymentMode,
-        status: initialTransaction.status,
-        receiptNumber: initialTransaction.receiptNumber || undefined,
-        notes: initialTransaction.notes || undefined,
-      };
-    }
 
     return NextResponse.json({
       success: true,
@@ -157,14 +103,15 @@ export async function POST(
         kycPhotoUrl: student.kycPhotoUrl || undefined,
         kycDocId: student.kycDocId || undefined,
         kycType: student.kycDocType,
-        shift: (initialAmount > 0 || finalAssignedSeatNumber || shift) ? membership.shift : undefined,
-        seatNumber: finalAssignedSeatNumber,
-        status: !finalAssignedSeatNumber ? 'INACTIVE' : 'ACTIVE',
-        membershipEndsInDays: initialAmount > 0 ? months * 30 : 0,
-        monthlyFee: initialAmount,
-        transactions: formattedTx ? [formattedTx] : [],
+        shift: undefined,
+        seatNumber: null,
+        status: 'INACTIVE',
+        membershipEndsInDays: 0,
+        monthlyFee: 0,
+        remainingFee: 0,
+        totalFee: 0,
+        transactions: [],
       },
-      transaction: formattedTx,
     });
   } catch (error: any) {
     console.error('API POST /api/libraries/[id]/students error:', error);

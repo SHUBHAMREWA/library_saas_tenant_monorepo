@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
 import {
@@ -202,6 +202,7 @@ export default function MobileDashboard() {
   const [mounted, setMounted] = useState(false);
   const [isSyncingData, setIsSyncingData] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'seats' | 'students' | 'transactions' | 'more'>('home');
+
   const [studentSubTab, setStudentSubTab] = useState<'directory' | 'pipeline'>('directory');
   const [studentFilterTab, setStudentFilterTab] = useState<StudentFilterTab>('ALL');
   const [isCollectFeeModalOpen, setIsCollectFeeModalOpen] = useState(false);
@@ -224,6 +225,51 @@ export default function MobileDashboard() {
   // Multi-Library State - ZERO dummy data initially
   const [libraries, setLibraries] = useState<LibraryBranch[]>([]);
   const [activeLibraryId, setActiveLibraryId] = useState<string | null>(null);
+
+  // Multi-tab scroll position memory
+  const tabScrollPositions = useRef<Record<string, number>>({
+    home: 0,
+    seats: 0,
+    students: 0,
+    transactions: 0,
+    more: 0,
+  });
+
+  // Track window scroll in real-time for active tab
+  useEffect(() => {
+    const handleScroll = () => {
+      tabScrollPositions.current[activeTab] = window.scrollY || document.documentElement.scrollTop || 0;
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [activeTab]);
+
+  // Restore scroll position when activeTab changes
+  useEffect(() => {
+    const targetY = tabScrollPositions.current[activeTab] || 0;
+    const rAF = requestAnimationFrame(() => {
+      window.scrollTo({ top: targetY, behavior: 'instant' as ScrollBehavior });
+    });
+    return () => cancelAnimationFrame(rAF);
+  }, [activeTab]);
+
+  // Reset scroll memory when active library/branch changes
+  useEffect(() => {
+    tabScrollPositions.current = { home: 0, seats: 0, students: 0, transactions: 0, more: 0 };
+    window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+  }, [activeLibraryId]);
+
+  const handleTabChange = (newTab: 'home' | 'seats' | 'students' | 'transactions' | 'more') => {
+    if (activeTab === newTab) {
+      // Tap active tab again -> smooth scroll to top
+      tabScrollPositions.current[newTab] = 0;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    // Save current scroll position before switching tab
+    tabScrollPositions.current[activeTab] = window.scrollY || document.documentElement.scrollTop || 0;
+    setActiveTab(newTab);
+  };
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
   const isTestMode = Boolean(
@@ -283,7 +329,6 @@ export default function MobileDashboard() {
   // Sync and fetch libraries from PostgreSQL
   const loadUserLibrariesFromDb = async (
     userEmail: string,
-    localFallbackLibs?: LibraryBranch[],
     options?: { skipAuthSync?: boolean }
   ) => {
     if (!userEmail) return;
@@ -328,12 +373,12 @@ export default function MobileDashboard() {
     try {
       let fetchedLibraries: LibraryBranch[] | null = null;
 
-      // Primary: sync-all route (handles existing libraries + local migrations)
+      // Primary: sync-all route
       try {
         const syncRes = await fetch('/api/libraries/sync-all', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userEmail, localLibraries: localFallbackLibs || [] }),
+          body: JSON.stringify({ userEmail }),
           signal: AbortSignal.timeout(12000),
         });
 
@@ -383,7 +428,7 @@ export default function MobileDashboard() {
         }
       }
     } catch (err) {
-      console.warn('Database sync encountered an issue, using local cache:', err);
+      console.warn('Database sync encountered an issue:', err);
     } finally {
       setIsSyncingData(false);
     }
@@ -393,11 +438,8 @@ export default function MobileDashboard() {
     setMounted(true);
     try {
       const savedUser = localStorage.getItem('seelibrary_user') || localStorage.getItem('quickcheck_user');
-      const savedLibs = localStorage.getItem('seelibrary_libraries') || localStorage.getItem('quickcheck_libraries');
-      const savedActiveId = localStorage.getItem('seelibrary_active_lib_id') || localStorage.getItem('quickcheck_active_lib_id');
 
       let parsedUser = null;
-      let parsedLibs: LibraryBranch[] = [];
 
       if (savedUser) {
         parsedUser = JSON.parse(savedUser);
@@ -410,21 +452,11 @@ export default function MobileDashboard() {
           }
         }
         setCurrentUser(parsedUser);
-      }
 
-      if (savedLibs) {
-        parsedLibs = JSON.parse(savedLibs);
-        setLibraries(parsedLibs);
-        if (savedActiveId) {
-          setActiveLibraryId(savedActiveId);
-        } else if (parsedLibs.length > 0) {
-          setActiveLibraryId(parsedLibs[0].id);
+        // Automatically sync with PostgreSQL database if user is logged in
+        if (parsedUser?.email) {
+          loadUserLibrariesFromDb(parsedUser.email);
         }
-      }
-
-      // Automatically sync with PostgreSQL database if user is logged in
-      if (parsedUser?.email) {
-        loadUserLibrariesFromDb(parsedUser.email, parsedLibs);
       }
     } catch {
       // Ignore localStorage errors in private browsing
@@ -434,13 +466,17 @@ export default function MobileDashboard() {
   // Sync state changes to localStorage and database
   const handleUserLogin = (user: { fullName: string; email: string; phone: string; role: string; avatar?: string }) => {
     setCurrentUser(user);
+    setLibraries([]);
+    setActiveLibraryId(null);
     try {
       localStorage.setItem('seelibrary_user', JSON.stringify(user));
+      localStorage.removeItem('seelibrary_libraries');
+      localStorage.removeItem('seelibrary_active_lib_id');
     } catch {}
 
     // Load libraries for this user from database
     if (user.email) {
-      loadUserLibrariesFromDb(user.email, libraries);
+      loadUserLibrariesFromDb(user.email);
     }
 
     if (user.role === 'SUPER_ADMIN') {
@@ -474,7 +510,9 @@ export default function MobileDashboard() {
       localStorage.removeItem('seelibrary_user');
       localStorage.removeItem('quickcheck_user');
       localStorage.removeItem('seelibrary_libraries');
+      localStorage.removeItem('quickcheck_libraries');
       localStorage.removeItem('seelibrary_active_lib_id');
+      localStorage.removeItem('quickcheck_active_lib_id');
       sessionStorage.clear();
     } catch {}
     // Clear role cookie so middleware doesn't redirect to /admin on next visit
@@ -545,10 +583,71 @@ export default function MobileDashboard() {
 
   // Active library child entities
   const rawSeats = activeLibrary ? activeLibrary.seats : [];
-  const seats = [...rawSeats].sort((a, b) =>
-    a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' })
-  );
   const rawStudents = activeLibrary ? activeLibrary.students : [];
+  const seats: VisualSeatItem[] = useMemo(() => {
+    if (!activeLibrary) return [];
+    const stdMap = new Map((activeLibrary.students || []).map((s) => [s.id, s]));
+    const stdNameMap = new Map((activeLibrary.students || []).map((s) => [s.fullName.toLowerCase().trim(), s]));
+    const stdSeatMap = new Map(
+      (activeLibrary.students || []).filter((s) => Boolean(s.seatNumber)).map((s) => [s.seatNumber!, s])
+    );
+
+    // Deduplicate seats by unique key: (roomId, rowName, seatNumber)
+    const seenSeatKeys = new Set<string>();
+    const uniqueRawSeats: VisualSeatItem[] = [];
+    for (const seat of activeLibrary.seats || []) {
+      const key = `${seat.roomId || ''}_${(seat.rowName || '').toLowerCase().trim()}_${(seat.seatNumber || '').toLowerCase().trim()}`;
+      if (!seenSeatKeys.has(key)) {
+        seenSeatKeys.add(key);
+        uniqueRawSeats.push(seat);
+      }
+    }
+
+    return uniqueRawSeats.map((seat) => {
+      let primaryStd = (seat as any).studentId ? stdMap.get((seat as any).studentId) : null;
+      if (!primaryStd && seat.studentName) {
+        primaryStd = stdNameMap.get(seat.studentName.toLowerCase().trim()) || null;
+      }
+      if (!primaryStd && seat.seatNumber) {
+        primaryStd = stdSeatMap.get(seat.seatNumber) || null;
+      }
+
+      const rawOccs = seat.occupants || [];
+      const enrichedOccupants = rawOccs.map((occ) => {
+        let occStd = occ.studentId ? stdMap.get(occ.studentId) : null;
+        if (!occStd && occ.studentName) {
+          occStd = stdNameMap.get(occ.studentName.toLowerCase().trim()) || null;
+        }
+        return {
+          ...occ,
+          studentId: occStd?.id || occ.studentId || '',
+          phone: occStd?.phone || occ.phone || '',
+          photoUrl: occStd?.photoUrl || occ.photoUrl || undefined,
+        };
+      });
+
+      if (enrichedOccupants.length === 0 && primaryStd) {
+        enrichedOccupants.push({
+          studentId: primaryStd.id,
+          studentName: primaryStd.fullName,
+          shift: primaryStd.shift || seat.shift || 'FULL_DAY',
+          phone: primaryStd.phone,
+          photoUrl: primaryStd.photoUrl || undefined,
+        });
+      }
+
+      return {
+        ...seat,
+        studentId: primaryStd?.id || (seat as any).studentId || null,
+        studentPhotoUrl: primaryStd?.photoUrl || (seat as any).studentPhotoUrl || null,
+        studentPhone: primaryStd?.phone || (seat as any).studentPhone || null,
+        occupants: enrichedOccupants,
+      };
+    }).sort((a, b) =>
+      a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' })
+    );
+  }, [activeLibrary?.seats, activeLibrary?.students]);
+
   const students = rawStudents.map((std) => {
     const seatObj = std.seatNumber ? rawSeats.find((s) => s.seatNumber === std.seatNumber) : null;
     return {
@@ -636,7 +735,13 @@ export default function MobileDashboard() {
         if (lib.id === activeLibrary.id) {
           const res = updater(lib);
           if (res.seats && Array.isArray(res.seats)) {
-            res.seats = [...res.seats].sort((a, b) =>
+            const seen = new Set<string>();
+            res.seats = res.seats.filter((s) => {
+              const k = `${s.roomId || ''}_${(s.rowName || '').toLowerCase().trim()}_${(s.seatNumber || '').toLowerCase().trim()}`;
+              if (seen.has(k)) return false;
+              seen.add(k);
+              return true;
+            }).sort((a, b) =>
               a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' })
             );
           }
@@ -766,6 +871,35 @@ export default function MobileDashboard() {
       }
     } catch (e) {
       console.error('Database update library error:', e);
+    }
+  };
+
+  const handleDeleteLibrary = async (libraryId: string) => {
+    try {
+      const res = await fetch(`/api/libraries/${libraryId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setLibraries((prev) => {
+          const remaining = prev.filter((l) => l.id !== libraryId);
+          try {
+            localStorage.setItem('seelibrary_libraries', JSON.stringify(remaining));
+            if (remaining.length === 0) {
+              localStorage.removeItem('seelibrary_active_lib_id');
+            } else {
+              localStorage.setItem('seelibrary_active_lib_id', remaining[0].id);
+            }
+          } catch {}
+          return remaining;
+        });
+        setActiveLibraryId((prev) => {
+          const remaining = libraries.filter((l) => l.id !== libraryId);
+          return remaining[0]?.id || null;
+        });
+        setIsEditLibraryModalOpen(false);
+      }
+    } catch (e) {
+      console.error('Failed to delete library:', e);
     }
   };
 
@@ -1103,12 +1237,16 @@ export default function MobileDashboard() {
     setActiveRoomMenuId(null);
   };
 
-  const handleDeleteRow = async (rowName: string) => {
-    if (!currentSelectedRoom || !activeLibrary) return;
+  const handleDeleteRow = async (rowName: string, roomId?: string) => {
+    const targetRoom =
+      (roomId ? displayRooms.find((r) => r.id === roomId) : null) ||
+      currentSelectedRoom ||
+      displayRooms[0];
+    if (!targetRoom || !activeLibrary) return;
 
     try {
       const res = await fetch(
-        `/api/libraries/${activeLibrary.id}/rows?rowName=${encodeURIComponent(rowName)}&roomId=${currentSelectedRoom.id}`,
+        `/api/libraries/${activeLibrary.id}/rows?rowName=${encodeURIComponent(rowName)}&roomId=${targetRoom.id}`,
         { method: 'DELETE' }
       );
       if (!res.ok) {
@@ -1122,8 +1260,8 @@ export default function MobileDashboard() {
       const deletedSeatNumbers = (lib.seats || [])
         .filter((s) => {
           const isThisRoom =
-            s.roomId === currentSelectedRoom.id ||
-            (!s.roomId && displayRooms[0]?.id === currentSelectedRoom.id);
+            s.roomId === targetRoom.id ||
+            (!s.roomId && (displayRooms[0]?.id === targetRoom.id || !displayRooms.length));
           return isThisRoom && (s.rowName || 'Row A').toLowerCase() === rowName.toLowerCase();
         })
         .map((s) => s.seatNumber);
@@ -1131,11 +1269,17 @@ export default function MobileDashboard() {
       return {
         ...lib,
         rooms: (lib.rooms || []).map((r) =>
-          r.id === currentSelectedRoom.id
-            ? { ...r, rows: r.rows.filter((rw) => rw.toLowerCase() !== rowName.toLowerCase()) }
+          r.id === targetRoom.id
+            ? { ...r, rows: (r.rows || []).filter((rw) => rw.toLowerCase() !== rowName.toLowerCase()) }
             : r
         ),
-        seats: (lib.seats || []).filter((s) => !deletedSeatNumbers.includes(s.seatNumber)),
+        seats: (lib.seats || []).filter((s) => {
+          const isThisRoom =
+            s.roomId === targetRoom.id ||
+            (!s.roomId && (displayRooms[0]?.id === targetRoom.id || !displayRooms.length));
+          const isThisRow = (s.rowName || 'Row A').toLowerCase() === rowName.toLowerCase();
+          return !(isThisRoom && isThisRow);
+        }),
         students: (lib.students || []).map((std) =>
           std.seatNumber && deletedSeatNumbers.includes(std.seatNumber)
             ? { ...std, seatNumber: null }
@@ -1177,34 +1321,20 @@ export default function MobileDashboard() {
   }) => {
     if (!activeLibrary) return;
 
-    const chosenSeatNumber = data.seatNumber || null;
-
     try {
       const res = await fetch(`/api/libraries/${activeLibrary.id}/students`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...data,
-          seatNumber: chosenSeatNumber,
-        }),
+        body: JSON.stringify(data),
       });
 
       if (res.ok) {
         const result = await res.json();
         const newStudent = result.student;
-        const initialTx = result.transaction;
 
         updateActiveLibrary((lib) => ({
           ...lib,
           students: [newStudent, ...lib.students],
-          feeTransactions: initialTx ? [initialTx, ...(lib.feeTransactions || [])] : (lib.feeTransactions || []),
-          seats: chosenSeatNumber
-            ? lib.seats.map((s) =>
-                s.seatNumber === chosenSeatNumber
-                  ? { ...s, status: 'OCCUPIED' as const, studentName: data.fullName, shift: data.shift || 'FULL_DAY' }
-                  : s
-              )
-            : lib.seats,
         }));
         setIsStudentModalOpen(false);
         setPreselectedSeatNumberForNewStudent(null);
@@ -1216,54 +1346,26 @@ export default function MobileDashboard() {
 
     // Fallback if offline
     const fallbackStdId = `std-${Date.now()}`;
-    const fallbackAmount = data.feeAmount ? Number(data.feeAmount) : 0;
-    let fallbackTx: StudentFeeRecord | null = null;
-    if (fallbackAmount > 0) {
-      const fallbackMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
-      fallbackTx = {
-        id: `tx-${Date.now()}`,
-        studentId: fallbackStdId,
-        studentName: data.fullName,
-        studentPhone: data.phone,
-        seatNumber: chosenSeatNumber,
-        amount: fallbackAmount,
-        paidForMonth: fallbackMonth,
-        paymentDate: new Date().toISOString(),
-        paymentMode: 'UPI',
-        status: 'PAID',
-        receiptNumber: `REC-${Date.now().toString().slice(-6)}`,
-        notes: 'Initial registration fee',
-      };
-    }
-
     const newStudent: StudentItem = {
       id: fallbackStdId,
       fullName: data.fullName,
       phone: data.phone,
       studyPurpose: data.studyPurpose,
-      shift: data.shift || '',
-      seatNumber: chosenSeatNumber || null,
-      status: chosenSeatNumber ? 'ACTIVE' : 'INACTIVE',
-      membershipEndsInDays: chosenSeatNumber && fallbackAmount > 0 ? (data.durationMonths || 1) * 30 : 0,
+      shift: '',
+      seatNumber: null,
+      status: 'INACTIVE',
+      membershipEndsInDays: 0,
       photoUrl: data.photoUrl || undefined,
       kycPhotoUrl: data.kycPhotoUrl || undefined,
       kycDocId: data.kycDocId || undefined,
       kycType: data.kycType || 'AADHAAR',
-      monthlyFee: fallbackAmount,
-      transactions: fallbackTx ? [fallbackTx] : [],
+      monthlyFee: 0,
+      transactions: [],
     };
 
     updateActiveLibrary((lib) => ({
       ...lib,
       students: [newStudent, ...lib.students],
-      feeTransactions: fallbackTx ? [fallbackTx, ...(lib.feeTransactions || [])] : (lib.feeTransactions || []),
-      seats: chosenSeatNumber && fallbackAmount > 0
-        ? lib.seats.map((s) =>
-            s.seatNumber === chosenSeatNumber
-              ? { ...s, status: 'OCCUPIED' as const, studentName: data.fullName, shift: data.shift }
-              : s
-          )
-        : lib.seats,
     }));
     setIsStudentModalOpen(false);
     setPreselectedSeatNumberForNewStudent(null);
@@ -2090,7 +2192,7 @@ export default function MobileDashboard() {
       {/* Desktop Sidebar (visible on md: screens and above) */}
       <DesktopSidebar
         activeTab={activeTab}
-        onSelectTab={setActiveTab}
+        onSelectTab={handleTabChange}
         activeLibrary={activeLibrary}
         libraries={libraries}
         onSelectLibrary={(lib) => {
@@ -2122,7 +2224,7 @@ export default function MobileDashboard() {
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <button
             type="button"
-            onClick={() => setActiveTab('home')}
+            onClick={() => handleTabChange('home')}
             className="flex items-center shrink-0 cursor-pointer group"
             title="Go to Home Dashboard"
           >
@@ -2136,7 +2238,7 @@ export default function MobileDashboard() {
           <div className="min-w-0 flex-1">
             <button
               type="button"
-              onClick={() => setActiveTab('home')}
+              onClick={() => handleTabChange('home')}
               className="text-left block cursor-pointer group"
             >
               <h1 className="text-sm sm:text-base font-black text-slate-900 dark:text-[#f5f5f5] tracking-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors leading-tight">
@@ -2384,7 +2486,7 @@ export default function MobileDashboard() {
                 onClick={() => {
                   setStudentFilterTab('ALL');
                   setStudentSubTab('directory');
-                  setActiveTab('students');
+                  handleTabChange('students');
                 }}
                 className="bg-white dark:bg-[#121212] p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-[#262626] shadow-xs hover:border-indigo-400 dark:hover:border-indigo-600 transition-all cursor-pointer group flex flex-col justify-between"
               >
@@ -2416,7 +2518,7 @@ export default function MobileDashboard() {
               <div
                 role="button"
                 tabIndex={0}
-                onClick={() => setActiveTab('seats')}
+                onClick={() => handleTabChange('seats')}
                 className="bg-white dark:bg-[#121212] p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-[#262626] shadow-xs hover:border-indigo-400 dark:hover:border-indigo-600 transition-all cursor-pointer group flex flex-col justify-between"
               >
                 <div className="flex items-center justify-between">
@@ -2447,7 +2549,7 @@ export default function MobileDashboard() {
               <div
                 role="button"
                 tabIndex={0}
-                onClick={() => setActiveTab('transactions')}
+                onClick={() => handleTabChange('transactions')}
                 className="bg-white dark:bg-[#121212] p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-[#262626] shadow-xs hover:border-emerald-400 dark:hover:border-emerald-600 transition-all cursor-pointer group flex flex-col justify-between"
               >
                 <div className="flex items-center justify-between">
@@ -2481,7 +2583,7 @@ export default function MobileDashboard() {
                 onClick={() => {
                   setStudentFilterTab('FEE_DUE');
                   setStudentSubTab('directory');
-                  setActiveTab('students');
+                  handleTabChange('students');
                 }}
                 className={`bg-white dark:bg-[#121212] p-3.5 sm:p-4 rounded-2xl border shadow-xs transition-all cursor-pointer group flex flex-col justify-between ${
                   totalPendingDuesAmount > 0
@@ -3021,12 +3123,25 @@ export default function MobileDashboard() {
 
                 <SeatGrid
                   seats={currentRoomSeats}
+                  rooms={displayRooms}
+                  selectedRoomId={selectedRoomId}
                   onStatusChange={handleStatusChange}
                   onAssignStudent={(seatId, preselectedShift) => {
                     const seat = activeLibrary?.seats.find((s) => s.id === seatId || s.seatNumber === seatId);
                     if (seat) {
                       setSelectedSeatForAssignment(seat);
                       setPreselectedShiftForAssignment(preselectedShift);
+                    }
+                  }}
+                  onViewStudentProfile={(studentId, studentName) => {
+                    const std = activeLibrary?.students.find(
+                      (s) =>
+                        (studentId && s.id === studentId) ||
+                        (studentName && s.fullName.toLowerCase().trim() === studentName.toLowerCase().trim())
+                    );
+                    if (std) {
+                      setProfileInitialTab('profile');
+                      setSelectedStudentForProfile(std);
                     }
                   }}
                   onAddRow={() => setIsAddRowModalOpen(true)}
@@ -3150,12 +3265,25 @@ export default function MobileDashboard() {
 
             <SeatGrid
               seats={currentSelectedRoom ? currentRoomSeats : seats}
+              rooms={displayRooms}
+              selectedRoomId={selectedRoomId}
               onStatusChange={handleStatusChange}
               onAssignStudent={(seatId, preselectedShift) => {
                 const seat = activeLibrary?.seats.find((s) => s.id === seatId || s.seatNumber === seatId);
                 if (seat) {
                   setSelectedSeatForAssignment(seat);
                   setPreselectedShiftForAssignment(preselectedShift);
+                }
+              }}
+              onViewStudentProfile={(studentId, studentName) => {
+                const std = activeLibrary?.students.find(
+                  (s) =>
+                    (studentId && s.id === studentId) ||
+                    (studentName && s.fullName.toLowerCase().trim() === studentName.toLowerCase().trim())
+                );
+                if (std) {
+                  setProfileInitialTab('profile');
+                  setSelectedStudentForProfile(std);
                 }
               }}
               onAddRow={() => {
@@ -3220,7 +3348,7 @@ export default function MobileDashboard() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveTab('transactions')}
+                  onClick={() => handleTabChange('transactions')}
                   className="px-3 py-1.5 text-xs font-bold rounded-lg transition-all text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 flex items-center gap-1 cursor-pointer"
                   title="View all fee transactions"
                 >
@@ -3239,7 +3367,7 @@ export default function MobileDashboard() {
                 isRefreshing={isSyncingData}
                 onRefresh={async () => {
                   if (currentUser?.email) {
-                    await loadUserLibrariesFromDb(currentUser.email, libraries, { skipAuthSync: true });
+                    await loadUserLibrariesFromDb(currentUser.email, { skipAuthSync: true });
                   }
                 }}
                 onAddStudent={() => {
@@ -3388,7 +3516,7 @@ export default function MobileDashboard() {
               userEmail={currentUser?.email}
               onSubscriptionUpdated={() => {
                 if (currentUser?.email) {
-                  loadUserLibrariesFromDb(currentUser.email, libraries);
+                  loadUserLibrariesFromDb(currentUser.email);
                 }
               }}
             />
@@ -3480,6 +3608,7 @@ export default function MobileDashboard() {
           onClose={() => setIsEditLibraryModalOpen(false)}
           library={activeLibrary}
           onSave={handleEditLibrary}
+          onDelete={handleDeleteLibrary}
         />
       )}
 
@@ -3661,7 +3790,7 @@ export default function MobileDashboard() {
           isOpen={isSubscriptionRequiredModalOpen}
           onClose={() => setIsSubscriptionRequiredModalOpen(false)}
           onUpgradeClick={() => {
-            setActiveTab('more');
+            handleTabChange('more');
           }}
           actionTitle={subscriptionGateAction}
         />
@@ -3703,7 +3832,7 @@ export default function MobileDashboard() {
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => handleTabChange(tab.id as any)}
               className={`flex flex-col items-center justify-center flex-1 py-1 rounded-lg transition-colors ${
                 isActive
                   ? 'text-indigo-600 dark:text-indigo-400 font-semibold'

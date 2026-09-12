@@ -49,15 +49,36 @@ export async function GET(
         });
 
         const now = new Date();
+        const library = await prisma.library.findUnique({
+          where: { id: libraryId },
+          select: { ownerId: true },
+        });
+
         const latestSub = await prisma.subscription.findFirst({
-          where: { libraryId },
+          where: {
+            OR: [
+              { libraryId },
+              ...(library?.ownerId ? [{ userId: library.ownerId }] : []),
+            ],
+            status: { in: ['ACTIVE', 'MANUAL'] },
+          },
+          include: { plan: true },
+          orderBy: { endDate: 'desc' },
+        }) || await prisma.subscription.findFirst({
+          where: {
+            OR: [
+              { libraryId },
+              ...(library?.ownerId ? [{ userId: library.ownerId }] : []),
+            ],
+          },
           include: { plan: true },
           orderBy: { endDate: 'desc' },
         });
 
         if (latestSub) {
           const end = new Date(latestSub.endDate);
-          const isNotExpired = end.getTime() > now.getTime();
+          end.setHours(23, 59, 59, 999);
+          const isNotExpired = end.getTime() >= now.getTime();
           hasActiveSubscription = isNotExpired && (latestSub.status === 'ACTIVE' || latestSub.status === 'MANUAL');
           daysRemaining = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
 

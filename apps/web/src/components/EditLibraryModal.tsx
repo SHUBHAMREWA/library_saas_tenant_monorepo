@@ -13,13 +13,15 @@ interface EditLibraryModalProps {
     address?: string;
   } | null;
   onSave: (data: { name: string; contactPhone: string; address?: string }) => Promise<void> | void;
+  onDelete?: (libraryId: string) => Promise<void> | void;
 }
 
-export function EditLibraryModal({ isOpen, onClose, library, onSave }: EditLibraryModalProps) {
+export function EditLibraryModal({ isOpen, onClose, library, onSave, onDelete }: EditLibraryModalProps) {
   const [name, setName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [address, setAddress] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,6 +60,31 @@ export function EditLibraryModal({ isOpen, onClose, library, onSave }: EditLibra
       setErrorMsg(err?.message || 'Failed to update library details');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!onDelete || !library) return;
+    const confirmName = window.prompt(
+      `To permanently delete "${library.name}" and all its seats, rooms, students, and fee data, type the library name below to confirm:`,
+      ''
+    );
+    if (confirmName?.trim() !== library.name.trim()) {
+      if (confirmName !== null) {
+        alert('Library name did not match. Deletion cancelled.');
+      }
+      return;
+    }
+
+    setIsDeleting(true);
+    setErrorMsg(null);
+    try {
+      await onDelete(library.id);
+      onClose();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to delete library');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -153,14 +180,14 @@ export function EditLibraryModal({ isOpen, onClose, library, onSave }: EditLibra
             <button
               type="button"
               onClick={onClose}
-              disabled={isLoading}
+              disabled={isLoading || isDeleting}
               className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={isLoading || !name.trim() || !contactPhone.trim()}
+              disabled={isLoading || isDeleting || !name.trim() || !contactPhone.trim()}
               className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isLoading ? (
@@ -176,6 +203,26 @@ export function EditLibraryModal({ isOpen, onClose, library, onSave }: EditLibra
               )}
             </button>
           </div>
+
+          {/* Danger Zone: Delete Branch */}
+          {onDelete && (
+            <div className="mt-6 pt-4 border-t border-rose-100 dark:border-rose-950/50">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-rose-700 dark:text-rose-400">Delete Library Branch</h4>
+                  <p className="text-[10px] text-slate-500 dark:text-neutral-400">Permanently delete this branch and all its data</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={isDeleting || isLoading}
+                  className="px-3 py-1.5 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-bold rounded-xl transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {isDeleting ? 'Deleting...' : 'Delete Branch'}
+                </button>
+              </div>
+            </div>
+          )}
         </form>
       </div>
     </div>

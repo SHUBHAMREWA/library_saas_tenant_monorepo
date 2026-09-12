@@ -399,6 +399,42 @@ class MemoryDataStore {
     return lib;
   }
 
+  deleteLibrary(libraryId: string): boolean {
+    if (!this.libraries.has(libraryId)) return false;
+    this.libraries.delete(libraryId);
+
+    // Clean up all related rooms, rows, seats, students, memberships, seat assignments, etc.
+    Array.from(this.libraryMembers.entries()).forEach(([id, m]) => {
+      if (m.libraryId === libraryId) this.libraryMembers.delete(id);
+    });
+    Array.from(this.rooms.entries()).forEach(([id, r]) => {
+      if (r.libraryId === libraryId) this.rooms.delete(id);
+    });
+    Array.from(this.rows.entries()).forEach(([id, r]) => {
+      if (r.libraryId === libraryId) this.rows.delete(id);
+    });
+    Array.from(this.seats.entries()).forEach(([id, s]) => {
+      if (s.libraryId === libraryId) this.seats.delete(id);
+    });
+    Array.from(this.students.entries()).forEach(([id, s]) => {
+      if (s.libraryId === libraryId) this.students.delete(id);
+    });
+    Array.from(this.memberships.entries()).forEach(([id, m]) => {
+      if (m.libraryId === libraryId) this.memberships.delete(id);
+    });
+    Array.from(this.seatAssignments.entries()).forEach(([id, sa]) => {
+      if (sa.libraryId === libraryId) this.seatAssignments.delete(id);
+    });
+    Array.from(this.subscriptions.entries()).forEach(([id, sub]) => {
+      if (sub.libraryId === libraryId) this.subscriptions.delete(id);
+    });
+    Array.from(this.payments.entries()).forEach(([id, p]) => {
+      if (p.libraryId === libraryId) this.payments.delete(id);
+    });
+
+    return true;
+  }
+
   // ===================== Space Ops =====================
   createRoom(libraryId: string, data: { name: string; floor?: string; sortOrder?: number }): StoredRoom {
     const id = randomUUID();
@@ -1341,6 +1377,20 @@ class MemoryDataStore {
               feeAmount: mem.feeAmount,
             }
           : null,
+        memberships: mem
+          ? [
+              {
+                id: mem.id,
+                status: membershipStatus,
+                shift: mem.shift,
+                startDate: mem.startDate,
+                endDate: mem.expectedEndDate,
+                feeAmount: mem.feeAmount,
+              },
+            ]
+          : [],
+        feeTransactions: [],
+        transactions: [],
         seat: seat
           ? {
               seatNumber: seat.seatNumber,

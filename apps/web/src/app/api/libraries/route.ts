@@ -23,10 +23,7 @@ export async function GET(req: NextRequest) {
 
     const libraries = await prisma.library.findMany({
       where: {
-        OR: [
-          { ownerId: user.id },
-          { members: { some: { userId: user.id } } },
-        ],
+        ownerId: user.id,
         isActive: true,
       },
       include: {
@@ -103,13 +100,34 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: 'desc' },
     });
 
+    // Also check for user-level subscriptions
+    const userSubscriptions = await prisma.subscription.findMany({
+      where: {
+        userId: user.id,
+        status: { in: ['ACTIVE', 'MANUAL'] },
+      },
+      include: { plan: true },
+      orderBy: { endDate: 'desc' },
+      take: 1,
+    });
+    const latestUserSub = userSubscriptions[0] || null;
+
     const formattedLibraries = libraries.map((lib) => {
-      // Collect seats
+      // Collect seats with deduplication
       const allSeats: any[] = [];
+      const seenSeatKeys = new Set<string>();
+      const phantomOccupiedSeatsToFix: string[] = [];
+
       const formattedRooms = lib.rooms.map((rm) => {
-        const rowNames = rm.rows.map((rw) => rw.name);
+        const uniqueRowNames = Array.from(new Set(rm.rows.map((rw) => rw.name.trim())));
         rm.rows.forEach((rw) => {
           rw.seats.forEach((st) => {
+            const seatKey = `${rm.id}_${rw.name.trim().toLowerCase()}_${st.seatNumber.trim().toLowerCase()}`;
+            if (seenSeatKeys.has(seatKey)) {
+              return; // Deduplicate repeated seats in the same row/room
+            }
+            seenSeatKeys.add(seatKey);
+
             const activeOccupants = (st.seatAssignments || [])
               .filter((sa: any) => sa.status === 'ACTIVE' && sa.student && sa.student.fullName)
               .map((sa: any) => ({
@@ -130,11 +148,20 @@ export async function GET(req: NextRequest) {
               mainShift = 'SHARED';
             }
 
+            // Fix phantom occupied seats (seats marked OCCUPIED in DB but with 0 active students)
+            let seatStatus = st.status;
+            if (activeOccupants.length > 0) {
+              seatStatus = st.status === 'RESERVED' ? 'RESERVED' : 'OCCUPIED';
+            } else if (st.status === 'OCCUPIED') {
+              seatStatus = 'AVAILABLE';
+              phantomOccupiedSeatsToFix.push(st.id);
+            }
+
             allSeats.push({
               id: st.id,
               seatNumber: st.seatNumber,
               rowName: rw.name,
-              status: activeOccupants.length > 0 ? (st.status === 'RESERVED' ? 'RESERVED' : 'OCCUPIED') : st.status,
+              status: seatStatus,
               studentName: mainName,
               shift: mainShift,
               occupants: activeOccupants,
@@ -146,7 +173,7 @@ export async function GET(req: NextRequest) {
         return {
           id: rm.id,
           name: rm.name,
-          rows: rowNames,
+          rows: uniqueRowNames,
         };
       });
 
@@ -403,10 +430,11 @@ export async function GET(req: NextRequest) {
         };
       });
 
-      // Asynchronously release cut seats in database
-      if (seatsToRelease.length > 0) {
+      // Asynchronously release cut seats and fix phantom occupied seats in database
+      const allSeatsToSetAvailable = [...seatsToRelease, ...phantomOccupiedSeatsToFix];
+      if (allSeatsToSetAvailable.length > 0) {
         prisma.seat.updateMany({
-          where: { id: { in: seatsToRelease } },
+          where: { id: { in: allSeatsToSetAvailable } },
           data: { status: 'AVAILABLE' },
         }).catch(() => {});
       }
@@ -432,16 +460,20 @@ export async function GET(req: NextRequest) {
         notes: t.notes || undefined,
       }));
 
-      const latestSub = (lib as any).subscriptions?.[0];
+      const latestSub = (lib as any).subscriptions?.[0] || latestUserSub;
       const now = new Date();
-      const hasActiveSub = Boolean(
-        latestSub &&
-        (latestSub.status === 'ACTIVE' || latestSub.status === 'MANUAL') &&
-        new Date(latestSub.endDate).getTime() > now.getTime()
-      );
-      const subDaysRemaining = latestSub
-        ? Math.max(0, Math.ceil((new Date(latestSub.endDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
-        : 0;
+      let hasActiveSub = false;
+      let subDaysRemaining = 0;
+
+      if (latestSub) {
+        const subEndDate = new Date(latestSub.endDate);
+        subEndDate.setHours(23, 59, 59, 999);
+        hasActiveSub = Boolean(
+          (latestSub.status === 'ACTIVE' || latestSub.status === 'MANUAL') &&
+          subEndDate.getTime() >= now.getTime()
+        );
+        subDaysRemaining = Math.max(0, Math.ceil((subEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+      }
 
       const formattedSubscription = latestSub
         ? {
