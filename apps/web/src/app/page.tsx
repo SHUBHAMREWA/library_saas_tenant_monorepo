@@ -1998,14 +1998,14 @@ export default function MobileDashboard() {
   // 1.5. INITIAL DATA LOADING (When logged in, syncing with cloud DB and libraries not yet loaded in memory)
   if (mounted && currentUser && libraries.length === 0 && isSyncingData) {
     return (
-      <div className="flex flex-col min-h-screen bg-slate-900 text-white items-center justify-center p-6 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 flex items-center justify-center mb-6 shadow-lg shadow-indigo-500/10">
+      <div className="flex flex-col min-h-screen bg-slate-50 dark:bg-black text-slate-900 dark:text-[#f5f5f5] items-center justify-center p-6 text-center transition-colors">
+        <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-6 shadow-lg shadow-indigo-500/10">
           <Loader2 className="w-8 h-8 animate-spin" />
         </div>
-        <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+        <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
           Loading your study center...
         </h2>
-        <p className="text-xs sm:text-sm text-slate-400 mt-2 max-w-sm">
+        <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-2 max-w-sm">
           Fetching your branch libraries, study halls, seat layouts, and student details from cloud database.
         </p>
       </div>
@@ -2015,34 +2015,49 @@ export default function MobileDashboard() {
   // 2. WELCOME / BLANK DASHBOARD (When logged in, but ZERO libraries created yet)
   if (mounted && currentUser && libraries.length === 0) {
     return (
-      <div className="flex flex-col min-h-screen bg-slate-900 text-white selection:bg-indigo-500 selection:text-white">
+      <div className="flex flex-col min-h-screen bg-slate-50 dark:bg-black text-slate-900 dark:text-[#f5f5f5] selection:bg-indigo-500 selection:text-white transition-colors">
         <PWACompanion />
 
         {/* Header */}
-        <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 sm:px-8 py-3.5 flex items-center justify-between">
+        <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 sm:px-8 py-3.5 flex items-center justify-between transition-colors">
           <button
             type="button"
-            onClick={() => setActiveTab('home')}
+            onClick={() => handleTabChange('home')}
             className="flex items-center gap-3 cursor-pointer group text-left"
             title="Go to Home Dashboard"
           >
             <img
               src="/icons/icon-192x192.png"
               alt="seeLibrary Logo"
-              className="w-14 h-14 rounded-2xl object-contain bg-white shadow-md group-hover:scale-105 border border-slate-700 transition-transform duration-200"
+              className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl object-contain bg-white shadow-md group-hover:scale-105 border border-slate-200 dark:border-slate-700 transition-transform duration-200"
             />
             <div className="flex items-center gap-1.5">
-              <span className="text-2xl font-black tracking-tight text-white group-hover:text-indigo-400 transition-colors">
-                see<span className="text-indigo-400">Library</span>
+              <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                see<span className="text-indigo-600 dark:text-indigo-400">Library</span>
               </span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30">
                 Dashboard
               </span>
             </div>
           </button>
 
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs font-semibold text-slate-200">
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Theme Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+              className="p-2 rounded-xl text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] transition-colors cursor-pointer border border-slate-200 dark:border-slate-800 shrink-0"
+              aria-label="Toggle theme"
+              title={resolvedTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            >
+              {resolvedTheme === 'dark' ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-slate-600" />
+              )}
+            </button>
+
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200">
               <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white font-bold flex items-center justify-center text-xs overflow-hidden">
                 {currentUser.avatar ? (
                   <img src={currentUser.avatar} alt={currentUser.fullName} className="w-full h-full object-cover" />
@@ -2065,41 +2080,42 @@ export default function MobileDashboard() {
                 className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
               >
                 <ShieldCheck className="w-4 h-4 text-slate-950" />
-                <span>Super Admin Portal</span>
+                <span className="hidden sm:inline">Super Admin Portal</span>
+                <span className="sm:hidden">Admin</span>
               </button>
             )}
 
             <button
               type="button"
               onClick={handleUserLogout}
-              className="text-xs text-rose-400 hover:text-rose-300 font-bold px-2.5 py-1.5 rounded-lg hover:bg-rose-500/10 transition-colors flex items-center gap-1"
+              className="text-xs text-rose-500 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300 font-bold px-2.5 py-1.5 rounded-lg hover:bg-rose-500/10 transition-colors flex items-center gap-1 cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
-              <span>Sign Out</span>
+              <span className="hidden sm:inline">Sign Out</span>
             </button>
           </div>
         </header>
 
         {/* Blank Slate Onboarding Card */}
         <main className="flex-1 p-4 sm:p-8 max-w-4xl mx-auto w-full flex flex-col items-center justify-center text-center">
-          <div className="w-full bg-slate-800/60 border border-slate-700/80 rounded-3xl p-8 sm:p-12 shadow-2xl relative overflow-hidden flex flex-col items-center">
+          <div className="w-full bg-white dark:bg-[#121212] border border-slate-200 dark:border-slate-800 rounded-3xl p-8 sm:p-12 shadow-2xl relative overflow-hidden flex flex-col items-center transition-colors">
             {/* Background Glow */}
-            <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-600/10 dark:bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
 
-            <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 flex items-center justify-center mb-6 shadow-md">
+            <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-600/20 border border-indigo-100 dark:border-indigo-500/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-6 shadow-md">
               <Building2 className="w-8 h-8" />
             </div>
 
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold mb-3 border border-emerald-500/30">
-              <Sparkles className="w-3.5 h-3.5" />
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-bold mb-3 border border-emerald-200 dark:border-emerald-500/30">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
               <span>Free Starter Tier Included</span>
             </div>
 
-            <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight max-w-xl">
+            <h2 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight max-w-xl">
               Welcome to seeLibrary, {currentUser.fullName}!
             </h2>
 
-            <p className="text-xs sm:text-sm text-slate-300 mt-3 max-w-lg leading-relaxed">
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-3 max-w-lg leading-relaxed">
               You don't have any study center or library branches created yet. Create your first branch to start setting up study rooms, numbered rows, seat layouts, and admitting students.
             </p>
 
@@ -2137,35 +2153,35 @@ export default function MobileDashboard() {
                   }
                 }}
                 disabled={isSyncingData}
-                className="px-5 py-4 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs rounded-2xl border border-slate-700/80 active:scale-95 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-60"
+                className="px-5 py-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white font-bold text-xs rounded-2xl border border-slate-200 dark:border-slate-700/80 active:scale-95 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-60"
               >
-                <RefreshCw className={`w-4 h-4 ${isSyncingData ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-4 h-4 ${isSyncingData ? 'animate-spin text-indigo-600 dark:text-indigo-400' : ''}`} />
                 <span>{isSyncingData ? 'Syncing...' : 'Sync Cloud Data'}</span>
               </button>
             </div>
 
             {/* Quick 3-Step Guide */}
             <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-4 w-full text-left">
-              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-700/50">
-                <span className="text-[10px] font-black uppercase text-indigo-400">Step 1</span>
-                <h4 className="text-xs font-bold text-white mt-1">Name & Contact</h4>
-                <p className="text-[11px] text-slate-400 mt-1">
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/50">
+                <span className="text-[10px] font-black uppercase text-indigo-600 dark:text-indigo-400">Step 1</span>
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white mt-1">Name & Contact</h4>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                   Enter branch name, location, and owner phone number.
                 </p>
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-700/50">
-                <span className="text-[10px] font-black uppercase text-purple-400">Step 2</span>
-                <h4 className="text-xs font-bold text-white mt-1">Configure Rooms</h4>
-                <p className="text-[11px] text-slate-400 mt-1">
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/50">
+                <span className="text-[10px] font-black uppercase text-purple-600 dark:text-purple-400">Step 2</span>
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white mt-1">Configure Rooms</h4>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                   Designate quiet study halls, AC cubicles, and rows (Row A, Row B).
                 </p>
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-700/50">
-                <span className="text-[10px] font-black uppercase text-emerald-400">Step 3</span>
-                <h4 className="text-xs font-bold text-white mt-1">Seats & Students</h4>
-                <p className="text-[11px] text-slate-400 mt-1">
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/50">
+                <span className="text-[10px] font-black uppercase text-emerald-600 dark:text-emerald-400">Step 3</span>
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white mt-1">Seats & Students</h4>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                   Batch generate seats and register students with shift schedules.
                 </p>
               </div>
