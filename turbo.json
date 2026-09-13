@@ -16,6 +16,9 @@
       "dependsOn": ["^build"],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },
+    "@library/database#build": {
+      "cache": false
+    },
     "typecheck": {
       "dependsOn": ["^build"]
     },
