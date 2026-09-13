@@ -116,15 +116,45 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   // Filtered transactions
   const filteredTransactions = useMemo(() => {
     return transactions.filter((t) => {
-      const matchesSearch =
-        !searchQuery ||
-        (t.studentName && t.studentName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (t.studentPhone && t.studentPhone.includes(searchQuery)) ||
-        (t.receiptNumber && t.receiptNumber.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (t.notes && t.notes.toLowerCase().includes(searchQuery.toLowerCase()));
+      const cleanSearch = searchQuery.trim().toLowerCase();
+      const cleanSearchWithoutHash = cleanSearch.replace(/^#+/, '').trim();
+      const cleanSearchAlphanumeric = cleanSearch.replace(/[^a-z0-9]/gi, '').toLowerCase();
 
+      const txReceiptClean = (t.receiptNumber || '').toLowerCase().trim();
+      const txReceiptAlphanumeric = txReceiptClean.replace(/[^a-z0-9]/gi, '');
+      const txIdClean = (t.id || '').toLowerCase().trim();
+      const txIdAlphanumeric = txIdClean.replace(/[^a-z0-9]/gi, '');
+
+      // Check if search query matches receipt number specifically
+      const matchesReceipt = Boolean(
+        cleanSearch && (
+          (txReceiptClean && (
+            txReceiptClean.includes(cleanSearch) ||
+            txReceiptClean.includes(cleanSearchWithoutHash) ||
+            (cleanSearchAlphanumeric.length >= 3 && txReceiptAlphanumeric.includes(cleanSearchAlphanumeric))
+          )) ||
+          (cleanSearchAlphanumeric.length >= 4 && txIdAlphanumeric.includes(cleanSearchAlphanumeric))
+        )
+      );
+
+      // If user enters a specific receipt number query, immediately match and bypass month/year filters
+      if (cleanSearch && matchesReceipt) {
+        return true;
+      }
+
+      const matchesSearch =
+        !cleanSearch ||
+        matchesReceipt ||
+        (t.studentName && t.studentName.toLowerCase().includes(cleanSearch)) ||
+        (t.studentPhone && (t.studentPhone.includes(cleanSearch) || t.studentPhone.includes(cleanSearchWithoutHash))) ||
+        (t.seatNumber && t.seatNumber.toLowerCase().includes(cleanSearchWithoutHash)) ||
+        (t.notes && t.notes.toLowerCase().includes(cleanSearch));
+
+      if (!matchesSearch) return false;
+
+      // Only apply month/year restrictions if not specifically searching for a unique student/receipt
       let matchesYear = true;
-      if (selectedYear !== 'ALL') {
+      if (selectedYear !== 'ALL' && !cleanSearch) {
         const dMatch = t.paymentDate && new Date(t.paymentDate).getFullYear().toString() === selectedYear;
         const pMatch = t.paidForMonth && t.paidForMonth.includes(selectedYear);
         const vMatch = (t.validFrom && t.validFrom.includes(selectedYear)) || (t.validTo && t.validTo.includes(selectedYear));
@@ -132,7 +162,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
       }
 
       let matchesMonth = true;
-      if (selectedMonth !== 'ALL') {
+      if (selectedMonth !== 'ALL' && !cleanSearch) {
         const pMatch = t.paidForMonth && t.paidForMonth.toLowerCase().includes(selectedMonth.toLowerCase());
         const dMatch = t.paymentDate && new Date(t.paymentDate).toLocaleString('en-US', { month: 'long' }).toLowerCase() === selectedMonth.toLowerCase();
         matchesMonth = Boolean(pMatch || dMatch);
@@ -149,7 +179,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         matchesStatus = Boolean(t.notes && t.notes.toLowerCase().includes('clearance'));
       }
 
-      return matchesSearch && matchesYear && matchesMonth && matchesMode && matchesStatus;
+      return matchesYear && matchesMonth && matchesMode && matchesStatus;
     });
   }, [transactions, searchQuery, selectedYear, selectedMonth, selectedMode, selectedStatus]);
 

@@ -11,19 +11,23 @@ export async function handleGetLibraries(req: NextRequest) {
       return NextResponse.json({ error: 'User email is required' }, { status: 400 });
     }
 
-    const user = await prisma.user.findFirst({
-      where: {
-        email: { equals: email, mode: 'insensitive' },
+    const cleanEmail = email.toLowerCase().trim();
+    const user = await prisma.user.upsert({
+      where: { email: cleanEmail },
+      update: {},
+      create: {
+        id: crypto.randomUUID(),
+        email: cleanEmail,
+        fullName: cleanEmail.split('@')[0],
       },
     });
 
-    if (!user) {
-      return NextResponse.json({ libraries: [] });
-    }
-
     const libraries = await prisma.library.findMany({
       where: {
-        ownerId: user.id,
+        OR: [
+          { ownerId: user.id },
+          { owner: { email: { equals: cleanEmail, mode: 'insensitive' } } },
+        ],
         isActive: true,
       },
       include: {

@@ -1234,10 +1234,32 @@ export class AdminController {
 
   async broadcastNotification(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { title, body } = req.body;
+      const { title, body, target = 'ALL', targetLibraryId, url = '/' } = req.body;
       if (!title || !body) {
         res.status(400).json({ error: 'Title and body are required' });
         return;
+      }
+
+      try {
+        const { prisma } = await import('@library/database');
+        await prisma.appNotification.create({
+          data: {
+            title: String(title).trim(),
+            body: String(body).trim(),
+            type: 'ADMIN_BROADCAST',
+            libraryId: target === 'LIBRARY' && targetLibraryId ? targetLibraryId : null,
+            userId: null,
+            data: {
+              url: url || '/',
+              broadcast: true,
+              target,
+              targetLibraryId: target === 'LIBRARY' ? targetLibraryId : undefined,
+              timestamp: new Date().toISOString(),
+            },
+          },
+        });
+      } catch (dbErr) {
+        console.warn('[AdminController] DB AppNotification creation fallback:', dbErr);
       }
 
       res.status(200).json({ success: true, count: 1, message: 'Broadcast initiated successfully' });

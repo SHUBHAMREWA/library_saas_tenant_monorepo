@@ -7,6 +7,7 @@ const STATIC_PRECACHE = [
   '/manifest.json',
   '/icons/icon-192x192.png',
   '/icons/icon-512x512.png',
+  '/icons/badge-72x72.png',
 ];
 
 // Install Event: Pre-cache core app shell
@@ -114,7 +115,7 @@ self.addEventListener('push', (event) => {
     title: 'seeLibrary SaaS',
     body: 'New alert from your study center',
     icon: '/icons/icon-192x192.png',
-    badge: '/icons/icon-192x192.png',
+    badge: '/icons/badge-72x72.png',
     url: '/',
     tag: 'seelibrary-alert',
   };
@@ -133,7 +134,7 @@ self.addEventListener('push', (event) => {
   const options = {
     body: payload.body,
     icon: payload.icon || '/icons/icon-192x192.png',
-    badge: payload.badge || '/icons/icon-192x192.png',
+    badge: payload.badge || '/icons/badge-72x72.png',
     vibrate: payload.vibrate || [100, 50, 100],
     tag: payload.tag || 'seelibrary-alert',
     renotify: true,
@@ -148,7 +149,22 @@ self.addEventListener('push', (event) => {
     ],
   };
 
-  event.waitUntil(self.registration.showNotification(payload.title, options));
+  // Notify any active client windows so in-app toast pops up immediately
+  const notifyClients = clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+    clientList.forEach((client) => {
+      client.postMessage({
+        type: 'PUSH_NOTIFICATION_RECEIVED',
+        payload,
+      });
+    });
+  });
+
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(payload.title, options),
+      notifyClients,
+    ])
+  );
 });
 
 // Notification Click Handler: Open or focus application window

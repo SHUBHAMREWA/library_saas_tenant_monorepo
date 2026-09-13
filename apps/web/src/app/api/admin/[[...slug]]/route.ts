@@ -21,7 +21,12 @@ export async function POST(
   context: { params: Promise<{ slug?: string[] }> }
 ) {
   const { slug } = await context.params;
-  return proxyAdminRequest(req, getSubpath(slug));
+  const subpath = getSubpath(slug);
+  if (subpath === 'notifications/broadcast') {
+    const { POST: broadcastHandler } = await import('../notifications/broadcast/route');
+    return broadcastHandler(req);
+  }
+  return proxyAdminRequest(req, subpath);
 }
 
 export async function PUT(
