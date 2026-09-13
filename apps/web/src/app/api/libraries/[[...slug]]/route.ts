@@ -4,8 +4,8 @@ import { handleSyncAll } from '@/lib/api-handlers/libraries/sync-all';
 import { handleGetLibrary, handleUpdateLibrary, handleDeleteLibrary } from '@/lib/api-handlers/libraries/library-detail';
 import { handleCreateRoom, handleUpdateRoom, handleDeleteRoom } from '@/lib/api-handlers/libraries/rooms';
 import { handleCreateRows, handleDeleteRow } from '@/lib/api-handlers/libraries/rows';
-import { handleCreateSeats, handleUpdateSeat, handleDeleteSeats, handleAssignSeat } from '@/lib/api-handlers/libraries/seats';
-import { handleCreateStudent, handleUpdateStudent, handleDeleteStudent } from '@/lib/api-handlers/libraries/students';
+import { handleCreateSeats, handleUpdateSeat, handleDeleteSeats, handleAssignSeat, handleGetSeats } from '@/lib/api-handlers/libraries/seats';
+import { handleCreateStudent, handleUpdateStudent, handleDeleteStudent, handleGetStudents } from '@/lib/api-handlers/libraries/students';
 import { handleGetTransactions, handleCreateTransaction } from '@/lib/api-handlers/libraries/transactions';
 import {
   handleGetSubscription,
@@ -31,6 +31,14 @@ export async function GET(
 
   if (slug.length === 1) {
     return handleGetLibrary(req, id);
+  }
+
+  if (resource === 'students' && slug.length === 2) {
+    return handleGetStudents(req, id);
+  }
+
+  if (resource === 'seats' && slug.length === 2) {
+    return handleGetSeats(req, id);
   }
 
   if (resource === 'transactions') {

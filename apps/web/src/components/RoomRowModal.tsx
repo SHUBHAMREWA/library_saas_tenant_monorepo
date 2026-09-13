@@ -17,7 +17,7 @@ interface RoomRowModalProps {
     rowConfigs?: RowConfigItem[];
     seatsPerRow?: number;
     startNumber?: number;
-  }) => void;
+  }) => Promise<void> | void;
 }
 
 export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) {
@@ -48,7 +48,7 @@ export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) 
   const totalSeatsToCreate = rowInputs.length * numSeats;
   const lockerRowsCount = validRows.filter((r) => r.hasLocker).length;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const finalName = roomName.trim() || 'Ground Floor - Silent Hall';
     const finalRows = validRows.length > 0 ? validRows : [
@@ -57,9 +57,8 @@ export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) 
     ];
 
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      onCreated({
+    try {
+      await onCreated({
         roomName: finalName,
         rowNames: finalRows.map((r) => r.name),
         rowConfigs: finalRows,
@@ -67,7 +66,11 @@ export function RoomRowModal({ isOpen, onClose, onCreated }: RoomRowModalProps) 
         startNumber: numStart,
       });
       onClose();
-    }, 200);
+    } catch (err) {
+      console.error('Failed to create room and rows:', err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

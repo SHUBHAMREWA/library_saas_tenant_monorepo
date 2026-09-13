@@ -6,7 +6,7 @@ import { X, Building2, Phone, MapPin, Clock, CheckCircle, Loader2 } from 'lucide
 interface CreateLibraryModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreated: (library: { name: string; contactPhone: string; address?: string }) => void;
+  onCreated: (library: { name: string; contactPhone: string; address?: string }) => Promise<void> | void;
 }
 
 export function CreateLibraryModal({ isOpen, onClose, onCreated }: CreateLibraryModalProps) {
@@ -17,20 +17,23 @@ export function CreateLibraryModal({ isOpen, onClose, onCreated }: CreateLibrary
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !contactPhone.trim()) return;
 
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      onCreated({
+    try {
+      await onCreated({
         name: name.trim(),
         contactPhone: contactPhone.trim(),
         address: address.trim() || undefined,
       });
       onClose();
-    }, 400);
+    } catch (err) {
+      console.error('Failed to create library:', err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
