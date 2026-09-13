@@ -2,6 +2,112 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@library/database';
 import crypto from 'crypto';
 
+export async function handleGetSeats(_req: NextRequest, libraryId: string) {
+  try {
+    if (!libraryId) {
+      return NextResponse.json({ error: 'Library ID is required' }, { status: 400 });
+    }
+
+    const rooms = await prisma.room.findMany({
+      where: { libraryId, isActive: true },
+      include: {
+        rows: {
+          where: { isActive: true },
+          orderBy: { createdAt: 'asc' },
+          include: {
+            seats: {
+              where: { isActive: true },
+              orderBy: { createdAt: 'asc' },
+              include: {
+                seatAssignments: {
+                  where: { status: 'ACTIVE' },
+                  include: {
+                    student: { select: { id: true, fullName: true, phone: true, photoUrl: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const seenSeatKeys = new Set<string>();
+    const allSeats: any[] = [];
+
+    const formattedRooms = rooms.map((rm) => {
+      const uniqueRowNames = Array.from(new Set(rm.rows.map((rw) => rw.name.trim())));
+      rm.rows.forEach((rw) => {
+        rw.seats.forEach((st) => {
+          const seatKey = `${rm.id}_${rw.name.trim().toLowerCase()}_${st.seatNumber.trim().toLowerCase()}`;
+          if (seenSeatKeys.has(seatKey)) return;
+          seenSeatKeys.add(seatKey);
+
+          const activeOccupants = (st.seatAssignments || [])
+            .filter((sa: any) => sa.status === 'ACTIVE' && sa.student && sa.student.fullName)
+            .map((sa: any) => ({
+              studentId: sa.student.id,
+              studentName: sa.student.fullName,
+              phone: sa.student.phone,
+              photoUrl: sa.student.photoUrl || undefined,
+              shift: sa.shift || 'FULL_DAY',
+            }));
+
+          let mainName: string | null = null;
+          let mainShift: string | undefined = undefined;
+
+          if (activeOccupants.length === 1) {
+            mainName = activeOccupants[0].studentName;
+            mainShift = activeOccupants[0].shift;
+          } else if (activeOccupants.length > 1) {
+            mainName = activeOccupants.map((o: any) => `${o.studentName} (${o.shift.charAt(0)})`).join(' • ');
+            mainShift = 'SHARED';
+          }
+
+          let seatStatus = st.status;
+          if (activeOccupants.length > 0) {
+            seatStatus = st.status === 'RESERVED' ? 'RESERVED' : 'OCCUPIED';
+          } else if (st.status === 'OCCUPIED') {
+            seatStatus = 'AVAILABLE';
+          }
+
+          allSeats.push({
+            id: st.id,
+            seatNumber: st.seatNumber,
+            rowName: rw.name,
+            status: seatStatus,
+            studentName: mainName,
+            shift: mainShift,
+            occupants: activeOccupants,
+            roomId: rm.id,
+            hasLocker: st.hasLocker || rw.hasLocker || false,
+          });
+        });
+      });
+
+      return {
+        id: rm.id,
+        name: rm.name,
+        rows: uniqueRowNames,
+      };
+    });
+
+    allSeats.sort((a, b) =>
+      a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' })
+    );
+
+    return NextResponse.json({
+      success: true,
+      rooms: formattedRooms,
+      seats: allSeats,
+    });
+  } catch (error: any) {
+    console.error('API GET /api/libraries/[id]/seats error:', error);
+    return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
+  }
+}
+
 export async function handleCreateSeats(req: NextRequest, libraryId: string) {
   try {
     const body = await req.json();

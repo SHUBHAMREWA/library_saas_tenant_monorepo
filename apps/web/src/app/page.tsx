@@ -369,44 +369,21 @@ export default function MobileDashboard() {
         });
     }
 
-    // 2. Fetch libraries directly from cloud PostgreSQL database
+    // 2. Fast fetch of user libraries directly from cloud PostgreSQL database
     try {
       let fetchedLibraries: LibraryBranch[] | null = null;
-
-      // Primary: sync-all route
       try {
-        const syncRes = await fetch('/api/libraries/sync-all', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userEmail }),
-          signal: AbortSignal.timeout(12000),
+        const getRes = await fetch(`/api/libraries?email=${encodeURIComponent(userEmail.toLowerCase().trim())}`, {
+          signal: AbortSignal.timeout(8000),
         });
-
-        if (syncRes.ok) {
-          const syncData = await syncRes.json();
-          if (Array.isArray(syncData?.libraries)) {
-            fetchedLibraries = syncData.libraries;
+        if (getRes.ok) {
+          const getData = await getRes.json();
+          if (Array.isArray(getData?.libraries)) {
+            fetchedLibraries = getData.libraries;
           }
         }
-      } catch (syncErr) {
-        console.warn('[loadUserLibrariesFromDb] sync-all failed or timed out, trying fast GET /api/libraries:', syncErr);
-      }
-
-      // Secondary Fallback: Direct fast GET /api/libraries
-      if (!fetchedLibraries) {
-        try {
-          const getRes = await fetch(`/api/libraries?email=${encodeURIComponent(userEmail.toLowerCase().trim())}`, {
-            signal: AbortSignal.timeout(8000),
-          });
-          if (getRes.ok) {
-            const getData = await getRes.json();
-            if (Array.isArray(getData?.libraries)) {
-              fetchedLibraries = getData.libraries;
-            }
-          }
-        } catch (getErr) {
-          console.warn('[loadUserLibrariesFromDb] GET /api/libraries fallback error:', getErr);
-        }
+      } catch (getErr) {
+        console.warn('[loadUserLibrariesFromDb] GET /api/libraries error:', getErr);
       }
 
       if (fetchedLibraries && Array.isArray(fetchedLibraries)) {
@@ -428,7 +405,7 @@ export default function MobileDashboard() {
         }
       }
     } catch (err) {
-      console.warn('Database sync encountered an issue:', err);
+      console.warn('Database libraries fetch encountered an issue:', err);
     } finally {
       setIsSyncingData(false);
     }
@@ -562,22 +539,79 @@ export default function MobileDashboard() {
     }
   };
 
-  // Keep fee ledger transactions freshly synced when switching to fee history tab
-  useEffect(() => {
-    if (activeTab === 'transactions' && activeLibrary?.id && hasActiveSubscription) {
-      fetch(`/api/libraries/${activeLibrary.id}/transactions`, {
+  // Tab-specific modular fetchers
+  const fetchLibraryStudents = async (libraryId: string) => {
+    if (!libraryId) return;
+    try {
+      const res = await fetch(`/api/libraries/${libraryId}/students`, {
         headers: currentUser?.email ? { 'x-user-email': currentUser.email } : {},
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.success && Array.isArray(data.transactions)) {
-            updateActiveLibrary((prev) => ({
-              ...prev,
-              feeTransactions: data.transactions,
-            }));
-          }
-        })
-        .catch((err) => console.error('Failed to sync fee transactions:', err));
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.students)) {
+          updateActiveLibrary((prev) => ({
+            ...prev,
+            students: data.students,
+          }));
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch students for library:', err);
+    }
+  };
+
+  const fetchLibrarySeats = async (libraryId: string) => {
+    if (!libraryId) return;
+    try {
+      const res = await fetch(`/api/libraries/${libraryId}/seats`, {
+        headers: currentUser?.email ? { 'x-user-email': currentUser.email } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          updateActiveLibrary((prev) => ({
+            ...prev,
+            rooms: Array.isArray(data.rooms) ? data.rooms : prev.rooms,
+            seats: Array.isArray(data.seats) ? data.seats : prev.seats,
+          }));
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch seats for library:', err);
+    }
+  };
+
+  const fetchLibraryTransactions = async (libraryId: string) => {
+    if (!libraryId || !hasActiveSubscription) return;
+    try {
+      const res = await fetch(`/api/libraries/${libraryId}/transactions`, {
+        headers: currentUser?.email ? { 'x-user-email': currentUser.email } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.transactions)) {
+          updateActiveLibrary((prev) => ({
+            ...prev,
+            feeTransactions: data.transactions,
+          }));
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch transactions for library:', err);
+    }
+  };
+
+  // On-demand tab-specific data synchronization (only fetch data for the current tab!)
+  useEffect(() => {
+    if (!activeLibrary?.id) return;
+    const libId = activeLibrary.id;
+
+    if (activeTab === 'students') {
+      fetchLibraryStudents(libId);
+    } else if (activeTab === 'seats') {
+      fetchLibrarySeats(libId);
+    } else if (activeTab === 'transactions') {
+      fetchLibraryTransactions(libId);
     }
   }, [activeTab, activeLibrary?.id, hasActiveSubscription]);
 
@@ -3382,8 +3416,8 @@ export default function MobileDashboard() {
                 libraryPhone={activeLibrary?.contactPhone}
                 isRefreshing={isSyncingData}
                 onRefresh={async () => {
-                  if (currentUser?.email) {
-                    await loadUserLibrariesFromDb(currentUser.email, { skipAuthSync: true });
+                  if (activeLibrary?.id) {
+                    await fetchLibraryStudents(activeLibrary.id);
                   }
                 }}
                 onAddStudent={() => {
