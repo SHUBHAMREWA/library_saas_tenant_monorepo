@@ -9,6 +9,9 @@ import {
   Users,
   MoreHorizontal,
   Bell,
+  BellRing,
+  Megaphone,
+  X,
   Clock,
   ChevronRight,
   Plus,
@@ -320,6 +323,14 @@ export default function MobileDashboard() {
   const [preselectedSeatNumberForNewStudent, setPreselectedSeatNumberForNewStudent] = useState<string | null>(null);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [pushPermissionStatus, setPushPermissionStatus] = useState<NotificationPermission>('default');
+  const [inAppNotificationPop, setInAppNotificationPop] = useState<{
+    id: string;
+    title: string;
+    body: string;
+    url?: string;
+    type?: string;
+  } | null>(null);
 
   // Selected Room for Room-First Hierarchy
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
@@ -393,13 +404,15 @@ export default function MobileDashboard() {
         } catch {}
 
         if (fetchedLibraries.length > 0) {
-          setActiveLibraryId((prev) => {
-            if (prev && fetchedLibraries.some((l: any) => l.id === prev)) return prev;
-            return fetchedLibraries[0].id;
-          });
+          const savedActiveId = typeof window !== 'undefined' ? localStorage.getItem('seelibrary_active_lib_id') : null;
+          const targetLib = (savedActiveId && fetchedLibraries.find((l: any) => l.id === savedActiveId)) || fetchedLibraries[0];
+          setActiveLibraryId(targetLib.id);
           try {
-            localStorage.setItem('seelibrary_active_lib_id', fetchedLibraries[0].id);
+            localStorage.setItem('seelibrary_active_lib_id', targetLib.id);
           } catch {}
+          // Automatically fetch child data for the active library
+          fetchLibraryStudents(targetLib.id);
+          fetchLibrarySeats(targetLib.id);
         } else {
           setActiveLibraryId(null);
         }
@@ -441,19 +454,16 @@ export default function MobileDashboard() {
   }, []);
 
   // Sync state changes to localStorage and database
-  const handleUserLogin = (user: { fullName: string; email: string; phone: string; role: string; avatar?: string }) => {
+  const handleUserLogin = async (user: { fullName: string; email: string; phone: string; role: string; avatar?: string }) => {
     setCurrentUser(user);
-    setLibraries([]);
-    setActiveLibraryId(null);
+    setIsSyncingData(true);
     try {
       localStorage.setItem('seelibrary_user', JSON.stringify(user));
-      localStorage.removeItem('seelibrary_libraries');
-      localStorage.removeItem('seelibrary_active_lib_id');
     } catch {}
 
-    // Load libraries for this user from database
+    // Automatically load libraries for this user from database
     if (user.email) {
-      loadUserLibrariesFromDb(user.email);
+      await loadUserLibrariesFromDb(user.email);
     }
 
     if (user.role === 'SUPER_ADMIN') {
@@ -499,7 +509,56 @@ export default function MobileDashboard() {
   // Find active library
   const activeLibrary = libraries.find((l) => l.id === activeLibraryId) || libraries[0] || null;
 
-  // Fetch unread push notifications count
+  // Web Audio chime for incoming notification pop
+  const playNotificationChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.frequency.setValueAtTime(587.33, now); // D5
+      gain1.gain.setValueAtTime(0.12, now);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.25);
+
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.frequency.setValueAtTime(880, now + 0.1); // A5
+      gain2.gain.setValueAtTime(0.15, now + 0.1);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.1);
+      osc2.stop(now + 0.4);
+    } catch {}
+  };
+
+  const triggerInAppNotificationPop = (item: {
+    id: string;
+    title: string;
+    body: string;
+    url?: string;
+    type?: string;
+  }) => {
+    setInAppNotificationPop(item);
+    playNotificationChime();
+  };
+
+  // Auto-dismiss in-app notification pop after 8 seconds
+  useEffect(() => {
+    if (!inAppNotificationPop) return;
+    const timer = setTimeout(() => {
+      setInAppNotificationPop(null);
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [inAppNotificationPop]);
+
+  // Fetch unread push notifications count & trigger in-app pop for new announcements
   const fetchUnreadNotifications = async () => {
     if (!currentUser?.email) return;
     try {
@@ -510,15 +569,73 @@ export default function MobileDashboard() {
       if (res.ok) {
         const data = await res.json();
         setUnreadNotificationCount(data.unreadCount || 0);
+
+        // Check if there is an unread broadcast or alert to pop up
+        if (Array.isArray(data.notifications) && data.notifications.length > 0) {
+          const unreadList = data.notifications.filter((n: any) => !n.isRead);
+          if (unreadList.length > 0) {
+            const newest = unreadList[0];
+            try {
+              const lastPoppedId = sessionStorage.getItem('seelibrary_last_popped_notif');
+              if (lastPoppedId !== newest.id) {
+                sessionStorage.setItem('seelibrary_last_popped_notif', newest.id);
+                triggerInAppNotificationPop({
+                  id: newest.id,
+                  title: newest.title,
+                  body: newest.body,
+                  url: newest.data?.url || '/',
+                  type: newest.type,
+                });
+              }
+            } catch {}
+          }
+        }
       }
     } catch {}
   };
 
   useEffect(() => {
     fetchUnreadNotifications();
-    const interval = setInterval(fetchUnreadNotifications, 45000);
+    const interval = setInterval(fetchUnreadNotifications, 25000);
     return () => clearInterval(interval);
   }, [currentUser?.email, activeLibrary?.id]);
+
+  // Listen for real-time service worker push event & push permission status changes
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if ('Notification' in window) {
+      setPushPermissionStatus(Notification.permission);
+    }
+
+    const handlePushStatus = (e: any) => {
+      if (e.detail?.permission) {
+        setPushPermissionStatus(e.detail.permission);
+      }
+    };
+
+    const handleDirectPush = (e: any) => {
+      const payload = e.detail;
+      if (payload?.title && payload?.body) {
+        triggerInAppNotificationPop({
+          id: payload.data?.notificationId || 'push-' + Date.now(),
+          title: payload.title,
+          body: payload.body,
+          url: payload.url || payload.data?.url || '/',
+          type: payload.data?.type || 'ADMIN_BROADCAST',
+        });
+        fetchUnreadNotifications();
+      }
+    };
+
+    window.addEventListener('seelibrary-push-status-changed', handlePushStatus);
+    window.addEventListener('seelibrary-push-received', handleDirectPush);
+
+    return () => {
+      window.removeEventListener('seelibrary-push-status-changed', handlePushStatus);
+      window.removeEventListener('seelibrary-push-received', handleDirectPush);
+    };
+  }, []);
 
   // Subscription Guard Helper: Checks if active library has valid subscription or user is super admin
   const hasActiveSubscription = Boolean(
@@ -2050,7 +2167,59 @@ export default function MobileDashboard() {
   if (mounted && currentUser && libraries.length === 0) {
     return (
       <div className="flex flex-col min-h-screen bg-slate-50 dark:bg-black text-slate-900 dark:text-[#f5f5f5] selection:bg-indigo-500 selection:text-white transition-colors">
-        <PWACompanion />
+        {/* Floating In-App Notification Toast / Banner (Broadcast & Real-Time Alerts) */}
+        {inAppNotificationPop && (
+          <div className="fixed top-3 sm:top-5 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-20px)] max-w-md bg-white/95 dark:bg-[#18181b]/95 backdrop-blur-md border border-indigo-500/40 dark:border-indigo-500/50 rounded-2xl shadow-2xl p-3 sm:p-3.5 flex items-start gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+              {inAppNotificationPop.type === 'ADMIN_BROADCAST' ? (
+                <Megaphone className="w-4.5 h-4.5 animate-pulse" />
+              ) : (
+                <BellRing className="w-4.5 h-4.5 animate-pulse" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                  {inAppNotificationPop.type === 'ADMIN_BROADCAST' ? '📢 Announcement' : '🔔 Alert'}
+                </span>
+                <h4 className="text-xs font-black text-slate-900 dark:text-white truncate">
+                  {inAppNotificationPop.title}
+                </h4>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-neutral-300 mt-1 line-clamp-2 leading-relaxed">
+                {inAppNotificationPop.body}
+              </p>
+              <div className="flex items-center gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInAppNotificationPop(null);
+                    setIsNotificationCenterOpen(true);
+                  }}
+                  className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold shadow-xs active:scale-95 transition-all cursor-pointer"
+                >
+                  View Details
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInAppNotificationPop(null)}
+                  className="px-2 py-1 text-slate-400 hover:text-slate-700 dark:hover:text-white text-[10px] font-semibold rounded-lg transition-colors cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setInAppNotificationPop(null)}
+              className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white shrink-0 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        <PWACompanion userEmail={currentUser?.email} />
 
         {/* Header */}
         <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 sm:px-8 py-3.5 flex items-center justify-between transition-colors">
@@ -2080,15 +2249,33 @@ export default function MobileDashboard() {
             <button
               type="button"
               onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-              className="p-2 rounded-xl text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] transition-colors cursor-pointer border border-slate-200 dark:border-slate-800 shrink-0"
+              className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-xl text-slate-600 dark:text-neutral-300 bg-slate-100/80 dark:bg-[#1c1c1e] hover:bg-slate-200/70 dark:hover:bg-[#262626] border border-slate-200/80 dark:border-neutral-800 flex items-center justify-center transition-all cursor-pointer shrink-0 active:scale-95 shadow-2xs"
               aria-label="Toggle theme"
               title={resolvedTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
             >
               {resolvedTheme === 'dark' ? (
-                <Sun className="w-4 h-4 text-amber-400" />
+                <Sun className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-400" />
               ) : (
-                <Moon className="w-4 h-4 text-slate-600" />
+                <Moon className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
               )}
+            </button>
+
+            {/* Notification Center Button */}
+            <button
+              type="button"
+              onClick={() => setIsNotificationCenterOpen(true)}
+              className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-xl text-slate-600 dark:text-neutral-300 bg-slate-100/80 dark:bg-[#1c1c1e] hover:bg-slate-200/70 dark:hover:bg-[#262626] border border-slate-200/80 dark:border-neutral-800 relative flex items-center justify-center transition-all cursor-pointer shrink-0 active:scale-95 shadow-2xs"
+              aria-label="Notifications"
+              title="Open Notification Center"
+            >
+              <Bell className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+              {unreadNotificationCount > 0 ? (
+                <span className="absolute -top-1 -right-1 px-1.5 py-0.2 min-w-[18px] h-[18px] bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-xs animate-bounce border-2 border-white dark:border-black">
+                  {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                </span>
+              ) : pushPermissionStatus === 'default' ? (
+                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-500 rounded-full ring-2 ring-white dark:ring-black animate-pulse" title="Notifications not enabled - tap to allow" />
+              ) : null}
             </button>
 
             <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200">
@@ -2230,6 +2417,17 @@ export default function MobileDashboard() {
             onCreated={handleCreateLibrary}
           />
         )}
+
+        {isNotificationCenterOpen && (
+          <NotificationCenterModal
+            isOpen={isNotificationCenterOpen}
+            onClose={() => {
+              setIsNotificationCenterOpen(false);
+              fetchUnreadNotifications();
+            }}
+            userEmail={currentUser?.email}
+          />
+        )}
       </div>
     );
   }
@@ -2237,6 +2435,58 @@ export default function MobileDashboard() {
   // 3. AUTHENTICATED DASHBOARD (With created libraries)
   return (
     <div className="flex flex-col min-h-screen pb-20 md:pb-8 select-none bg-slate-50 dark:bg-black text-slate-900 dark:text-[#f5f5f5] md:pl-64 transition-colors overflow-x-hidden w-full max-w-full">
+      {/* Floating In-App Notification Toast / Banner (Broadcast & Real-Time Alerts) */}
+      {inAppNotificationPop && (
+        <div className="fixed top-3 sm:top-5 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-20px)] max-w-md bg-white/95 dark:bg-[#18181b]/95 backdrop-blur-md border border-indigo-500/40 dark:border-indigo-500/50 rounded-2xl shadow-2xl p-3 sm:p-3.5 flex items-start gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+            {inAppNotificationPop.type === 'ADMIN_BROADCAST' ? (
+              <Megaphone className="w-4.5 h-4.5 animate-pulse" />
+            ) : (
+              <BellRing className="w-4.5 h-4.5 animate-pulse" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                {inAppNotificationPop.type === 'ADMIN_BROADCAST' ? '📢 Announcement' : '🔔 Alert'}
+              </span>
+              <h4 className="text-xs font-black text-slate-900 dark:text-white truncate">
+                {inAppNotificationPop.title}
+              </h4>
+            </div>
+            <p className="text-[11px] text-slate-600 dark:text-neutral-300 mt-1 line-clamp-2 leading-relaxed">
+              {inAppNotificationPop.body}
+            </p>
+            <div className="flex items-center gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setInAppNotificationPop(null);
+                  setIsNotificationCenterOpen(true);
+                }}
+                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold shadow-xs active:scale-95 transition-all cursor-pointer"
+              >
+                View Details
+              </button>
+              <button
+                type="button"
+                onClick={() => setInAppNotificationPop(null)}
+                className="px-2 py-1 text-slate-400 hover:text-slate-700 dark:hover:text-white text-[10px] font-semibold rounded-lg transition-colors cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setInAppNotificationPop(null)}
+            className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white shrink-0 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       <PWACompanion userEmail={currentUser?.email} libraryId={activeLibrary?.id} />
 
       {/* Desktop Sidebar (visible on md: screens and above) */}
@@ -2408,31 +2658,34 @@ export default function MobileDashboard() {
           <button
             type="button"
             onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-            className="p-1.5 sm:p-2 rounded-xl text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] transition-colors cursor-pointer shrink-0"
+            className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-xl text-slate-600 dark:text-neutral-300 bg-slate-100/80 dark:bg-[#1c1c1e] hover:bg-slate-200/70 dark:hover:bg-[#262626] border border-slate-200/80 dark:border-neutral-800 flex items-center justify-center transition-all cursor-pointer shrink-0 active:scale-95 shadow-2xs"
             aria-label="Toggle theme"
             title={resolvedTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           >
             {resolvedTheme === 'dark' ? (
-              <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
+              <Sun className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-400" />
             ) : (
-              <Moon className="w-4 h-4 sm:w-5 sm:h-5" />
+              <Moon className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
             )}
           </button>
 
+          {/* Notification Center Button (Mobile) */}
           <button
             type="button"
             onClick={() => setIsNotificationCenterOpen(true)}
-            className="p-1.5 sm:p-2 rounded-full text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] relative transition-colors cursor-pointer shrink-0"
+            className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-xl text-slate-600 dark:text-neutral-300 bg-slate-100/80 dark:bg-[#1c1c1e] hover:bg-slate-200/70 dark:hover:bg-[#262626] border border-slate-200/80 dark:border-neutral-800 relative flex items-center justify-center transition-all cursor-pointer shrink-0 active:scale-95 shadow-2xs"
             aria-label="Notifications"
             title="Open Notification Center"
           >
-            <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
+            <Bell className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
             {unreadNotificationCount > 0 ? (
-              <span className="absolute top-0.5 right-0.5 px-1 py-0.2 bg-rose-500 text-white text-[8px] sm:text-[9px] font-black rounded-full shadow-xs">
+              <span className="absolute -top-1 -right-1 px-1.5 py-0.2 min-w-[18px] h-[18px] bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-xs animate-bounce border-2 border-white dark:border-black">
                 {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
               </span>
+            ) : pushPermissionStatus === 'default' ? (
+              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-500 rounded-full ring-2 ring-white dark:ring-black animate-pulse" title="Notifications not enabled - tap to allow" />
             ) : expiringSoonCount > 0 ? (
-              <span className="absolute top-1 right-1 w-2 h-2 bg-amber-500 rounded-full" />
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-amber-500 rounded-full ring-2 ring-white dark:ring-black" />
             ) : null}
           </button>
 
@@ -2515,8 +2768,8 @@ export default function MobileDashboard() {
         {/* Tab 1: Home Dashboard */}
         {activeTab === 'home' && (
           <>
-            {/* Only show setup guide if no library has been created or selected yet */}
-            {!activeLibrary && (
+            {/* Only show setup guide if no library exists and not currently syncing data */}
+            {!activeLibrary && !isSyncingData && (
               <QuickCheckHero
                 onOpenAuth={() => setIsAuthModalOpen(true)}
                 onOpenCreateLibrary={() => setIsLibraryModalOpen(true)}

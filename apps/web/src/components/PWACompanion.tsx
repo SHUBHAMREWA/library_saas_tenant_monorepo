@@ -22,6 +22,7 @@ function urlBase64ToUint8Array(base64String: string) {
 export function PWACompanion({ userEmail, libraryId }: PWACompanionProps = {}) {
   const [mounted, setMounted] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [canInstall, setCanInstall] = useState(false);
   const [pushStatus, setPushStatus] = useState<'default' | 'granted' | 'denied'>('default');
@@ -31,7 +32,19 @@ export function PWACompanion({ userEmail, libraryId }: PWACompanionProps = {}) {
 
   useEffect(() => {
     setMounted(true);
-    // 1. Service Worker Registration
+
+    // 0. Standalone PWA detection (downloaded mobile app)
+    const checkStandalone = () => {
+      if (typeof window === 'undefined') return;
+      const isDisplayStandalone =
+        window.matchMedia('(display-mode: standalone)').matches ||
+        (window.navigator as any).standalone === true ||
+        document.referrer.includes('android-app://');
+      setIsStandalone(isDisplayStandalone);
+    };
+    checkStandalone();
+
+    // 1. Service Worker Registration & Message Listener
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       navigator.serviceWorker
         .register('/sw.js')
@@ -41,6 +54,15 @@ export function PWACompanion({ userEmail, libraryId }: PWACompanionProps = {}) {
         .catch((err) => {
           console.warn('[PWA] Service Worker registration failed:', err);
         });
+
+      const handleSwMessage = (event: MessageEvent) => {
+        if (event.data?.type === 'PUSH_NOTIFICATION_RECEIVED') {
+          window.dispatchEvent(
+            new CustomEvent('seelibrary-push-received', { detail: event.data.payload })
+          );
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
     }
 
     // 2. Online / Offline status monitoring
@@ -53,11 +75,13 @@ export function PWACompanion({ userEmail, libraryId }: PWACompanionProps = {}) {
       window.addEventListener('offline', handleOffline);
     }
 
-    // 3. BeforeInstallPrompt PWA event capture
+    // 3. BeforeInstallPrompt PWA event capture (only if not standalone)
     const handleBeforeInstall = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      setCanInstall(true);
+      if (!isStandalone) {
+        setCanInstall(true);
+      }
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
@@ -78,7 +102,7 @@ export function PWACompanion({ userEmail, libraryId }: PWACompanionProps = {}) {
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
     };
-  }, []);
+  }, [isStandalone]);
 
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;
@@ -86,6 +110,7 @@ export function PWACompanion({ userEmail, libraryId }: PWACompanionProps = {}) {
     const { outcome } = await deferredPrompt.userChoice;
     if (outcome === 'accepted') {
       setCanInstall(false);
+      setIsStandalone(true);
     }
     setDeferredPrompt(null);
   };
@@ -106,6 +131,9 @@ export function PWACompanion({ userEmail, libraryId }: PWACompanionProps = {}) {
     try {
       const permission = await Notification.requestPermission();
       setPushStatus(permission);
+      window.dispatchEvent(
+        new CustomEvent('seelibrary-push-status-changed', { detail: { permission } })
+      );
 
       if (permission === 'granted') {
         if ('serviceWorker' in navigator && 'PushManager' in window) {
@@ -137,8 +165,9 @@ export function PWACompanion({ userEmail, libraryId }: PWACompanionProps = {}) {
 
           // Show local confirmation alert
           reg.showNotification('seeLibrary Alerts Enabled', {
-            body: 'You will now receive real-time alerts for student fee renewals and seat expiries.',
+            body: 'You will now receive real-time alerts for student fee renewals and admin announcements.',
             icon: '/icons/icon-192x192.png',
+            badge: '/icons/badge-72x72.png',
           });
         }
 
@@ -192,7 +221,11 @@ export function PWACompanion({ userEmail, libraryId }: PWACompanionProps = {}) {
             <div>
               <div className="flex items-center gap-2">
                 <p className="text-xs font-bold text-slate-900 dark:text-white">
-                  {showSuccessBadge ? 'Push Alerts Enabled!' : 'Enable Real-Time Alerts'}
+                  {showSuccessBadge
+                    ? 'Push Alerts Enabled!'
+                    : isStandalone
+                    ? '🔔 Enable Notifications on this Device'
+                    : 'Enable Real-Time Alerts'}
                 </p>
                 {!showSuccessBadge && (
                   <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300">
@@ -203,6 +236,8 @@ export function PWACompanion({ userEmail, libraryId }: PWACompanionProps = {}) {
               <p className="text-[11px] text-slate-600 dark:text-neutral-300 mt-0.5">
                 {showSuccessBadge
                   ? 'Background alerts are active on this device.'
+                  : isStandalone
+                  ? 'Allow notifications to receive instant student expiry alerts and admin announcements on this mobile app.'
                   : 'Get instant notifications for student fee expiries, renewals & dues on this device.'}
               </p>
             </div>
@@ -230,13 +265,13 @@ export function PWACompanion({ userEmail, libraryId }: PWACompanionProps = {}) {
         </div>
       )}
 
-      {/* Optional Install to Home Screen Banner if prompt is available */}
-      {canInstall && (
+      {/* Optional Install to Home Screen Banner if prompt is available and NOT already standalone */}
+      {!isStandalone && canInstall && (
         <div className="mx-4 mt-2 mb-2 p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-between shadow-xs">
           <div className="flex items-center gap-2.5">
             <Download className="w-5 h-5 text-indigo-600" />
             <div>
-              <p className="text-xs font-bold text-indigo-900">Install Library Hub App</p>
+              <p className="text-xs font-bold text-indigo-900">Install seeLibrary App</p>
               <p className="text-[11px] text-indigo-700">Add to phone home screen for 1-tap launch</p>
             </div>
           </div>

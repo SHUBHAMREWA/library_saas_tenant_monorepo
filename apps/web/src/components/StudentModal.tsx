@@ -36,7 +36,7 @@ interface StudentModalProps {
     kycPhotoUrl?: string | null;
     kycDocId?: string;
     kycType?: string;
-  }) => void;
+  }) => Promise<void> | void;
 }
 
 export const StudentModal: React.FC<StudentModalProps> = ({
@@ -205,6 +205,18 @@ export const StudentModal: React.FC<StudentModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-black/60 dark:bg-black/80 backdrop-blur-xs overflow-y-auto p-3 sm:p-6 flex min-h-full items-center justify-center">
       <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] w-full max-w-md rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4 my-auto relative animate-in fade-in zoom-in-95 duration-200 border border-slate-100 dark:border-[#262626]">
+        {/* Loading Overlay */}
+        {isSubmitting && (
+          <div className="absolute inset-0 z-50 bg-white/90 dark:bg-[#121212]/90 backdrop-blur-xs rounded-2xl flex flex-col items-center justify-center space-y-3 p-6 animate-in fade-in duration-150">
+            <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shadow-xs">
+              <Loader2 className="w-6 h-6 animate-spin" />
+            </div>
+            <div className="text-center">
+              <h4 className="font-bold text-slate-900 dark:text-white text-sm">Enrolling Student...</h4>
+              <p className="text-xs text-slate-500 dark:text-neutral-400 mt-0.5">Creating profile & saving details to database</p>
+            </div>
+          </div>
+        )}
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#262626] pb-3">
           <div>
