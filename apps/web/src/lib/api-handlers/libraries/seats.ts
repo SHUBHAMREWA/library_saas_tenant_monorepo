@@ -359,6 +359,8 @@ export async function handleAssignSeat(req: NextRequest, libraryId: string) {
     const end = new Date();
     end.setMonth(end.getMonth() + 1);
 
+    const isUnassign = Boolean(body.unassign) || !seatNumber || seatNumber === 'UNASSIGN';
+
     if (!membership) {
       membership = await prisma.membership.create({
         data: {
@@ -372,6 +374,13 @@ export async function handleAssignSeat(req: NextRequest, libraryId: string) {
           shift: (shift || 'FULL_DAY') as any,
         },
       });
+    } else if (isUnassign) {
+      if (membership) {
+        await prisma.membership.update({
+          where: { id: membership.id },
+          data: { status: 'PAUSED' },
+        });
+      }
     } else {
       const isPastOrExpired = !membership.expectedEndDate || new Date(membership.expectedEndDate).getTime() <= now.getTime();
       membership = await prisma.membership.update({
@@ -407,7 +416,7 @@ export async function handleAssignSeat(req: NextRequest, libraryId: string) {
       }
     }
 
-    if (seatId || seatNumber) {
+    if (!isUnassign && (seatId || seatNumber)) {
       let targetSeat = null;
       if (seatId) {
         targetSeat = await prisma.seat.findFirst({

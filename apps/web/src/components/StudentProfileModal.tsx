@@ -483,22 +483,23 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
     setIsLoading(true);
     setStatusMsg(null);
     try {
-      const targetSeatObj = availableSeats.find((s) => s.id === selectedSeat || s.seatNumber === selectedSeat);
-      const targetSeatNum = selectedSeat === 'UNASSIGN' ? null : (targetSeatObj ? targetSeatObj.seatNumber : selectedSeat);
+      const isUnassign = selectedSeat === 'UNASSIGN';
+      const targetSeatObj = isUnassign ? null : availableSeats.find((s) => s.id === selectedSeat || s.seatNumber === selectedSeat);
+      const targetSeatNum = isUnassign ? null : (targetSeatObj ? targetSeatObj.seatNumber : selectedSeat);
       await onAssignSeat(
         student.id,
         targetSeatNum,
         student.shift,
         false,
-        targetSeatObj?.id,
-        targetSeatObj?.roomId,
-        targetSeatObj?.rowName
+        isUnassign ? undefined : targetSeatObj?.id,
+        isUnassign ? null : targetSeatObj?.roomId,
+        isUnassign ? undefined : targetSeatObj?.rowName
       );
-      setStatusMsg(selectedSeat === 'UNASSIGN' ? 'Seat unassigned successfully' : `Assigned to Seat ${targetSeatNum}`);
+      setStatusMsg(isUnassign ? 'Seat unassigned successfully' : `Assigned to Seat ${targetSeatNum}`);
       setIsChangingSeat(false);
       setSelectedSeat('');
 
-      if (selectedSeat !== 'UNASSIGN' && (student.membershipEndsInDays <= 0 || student.status === 'INACTIVE' || student.status === 'EXPIRED')) {
+      if (!isUnassign && (student.membershipEndsInDays <= 0 || student.status === 'INACTIVE' || student.status === 'EXPIRED')) {
         if (onCollectFee) {
           onCollectFee(student);
         }
@@ -515,7 +516,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
     setIsLoading(true);
     setStatusMsg(null);
     try {
-      await onAssignSeat(student.id, null, undefined, false, student.seatId || undefined, student.roomId, student.rowName || undefined);
+      await onAssignSeat(student.id, null, undefined, false, undefined, null, undefined);
       setStatusMsg('Seat unassigned successfully');
       setIsChangingSeat(false);
     } catch {
