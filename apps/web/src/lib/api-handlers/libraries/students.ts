@@ -57,6 +57,7 @@ export async function handleGetStudents(req: NextRequest, libraryId: string) {
         amount: Number(t.amount),
         totalFee: t.totalFee ? Number(t.totalFee) : undefined,
         remainingFee: t.remainingFee ? Number(t.remainingFee) : undefined,
+        validFrom: t.validFrom ? t.validFrom.toISOString() : undefined,
         validTo: t.validTo ? t.validTo.toISOString() : undefined,
         paidForMonth: t.paidForMonth,
         paymentDate: t.paymentDate.toISOString(),

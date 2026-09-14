@@ -40,6 +40,7 @@ interface AssignSeatModalProps {
   onClose: () => void;
   seat: SeatInfo | null;
   students: StudentItem[];
+  isLoadingStudents?: boolean;
   initialShift?: string;
   onAssign: (studentId: string, seatNumber: string, shift?: string, isReserved?: boolean) => Promise<void> | void;
   onEnrollNewStudent: (seatNumber: string) => void;
@@ -60,6 +61,7 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
   onClose,
   seat,
   students,
+  isLoadingStudents,
   initialShift,
   onAssign,
   onEnrollNewStudent,
@@ -1053,6 +1055,13 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
                     </div>
                   );
                 })
+              ) : isLoadingStudents && students.length === 0 ? (
+                <div className="text-center py-6 px-4 text-slate-400 dark:text-neutral-500 text-xs bg-slate-50 dark:bg-[#1c1c1e] rounded-xl border border-dashed border-slate-200 dark:border-[#262626] space-y-2">
+                  <div className="flex items-center justify-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-xs">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Loading enrolled students...</span>
+                  </div>
+                </div>
               ) : (
                 <div className="text-center py-6 px-4 text-slate-400 dark:text-neutral-500 text-xs bg-slate-50 dark:bg-[#1c1c1e] rounded-xl border border-dashed border-slate-200 dark:border-[#262626] space-y-2.5">
                   <p className="font-medium text-slate-600 dark:text-neutral-400">
