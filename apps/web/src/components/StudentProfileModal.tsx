@@ -110,8 +110,8 @@ interface StudentProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   student: StudentItem | null;
-  availableSeats: { id: string; seatNumber: string; rowName?: string }[];
-  onAssignSeat: (studentId: string, seatNumber: string | null) => Promise<void> | void;
+  availableSeats: { id: string; seatNumber: string; rowName?: string; roomId?: string | null }[];
+  onAssignSeat: (studentId: string, seatNumber: string | null, shift?: string, isReserved?: boolean, seatId?: string, roomId?: string | null, rowName?: string) => Promise<void> | void;
   onUpdateStudent?: (studentId: string, data: Partial<StudentItem>) => Promise<void> | void;
   onDeleteStudent?: (studentId: string) => Promise<void> | void;
   onCollectFee?: (student: StudentItem) => void;
@@ -483,8 +483,18 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
     setIsLoading(true);
     setStatusMsg(null);
     try {
-      await onAssignSeat(student.id, selectedSeat === 'UNASSIGN' ? null : selectedSeat);
-      setStatusMsg(selectedSeat === 'UNASSIGN' ? 'Seat unassigned successfully' : `Assigned to Seat ${selectedSeat}`);
+      const targetSeatObj = availableSeats.find((s) => s.id === selectedSeat || s.seatNumber === selectedSeat);
+      const targetSeatNum = selectedSeat === 'UNASSIGN' ? null : (targetSeatObj ? targetSeatObj.seatNumber : selectedSeat);
+      await onAssignSeat(
+        student.id,
+        targetSeatNum,
+        student.shift,
+        false,
+        targetSeatObj?.id,
+        targetSeatObj?.roomId,
+        targetSeatObj?.rowName
+      );
+      setStatusMsg(selectedSeat === 'UNASSIGN' ? 'Seat unassigned successfully' : `Assigned to Seat ${targetSeatNum}`);
       setIsChangingSeat(false);
       setSelectedSeat('');
 
@@ -505,7 +515,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
     setIsLoading(true);
     setStatusMsg(null);
     try {
-      await onAssignSeat(student.id, null);
+      await onAssignSeat(student.id, null, undefined, false, student.seatId || undefined, student.roomId, student.rowName || undefined);
       setStatusMsg('Seat unassigned successfully');
       setIsChangingSeat(false);
     } catch {

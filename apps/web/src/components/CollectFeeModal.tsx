@@ -15,8 +15,8 @@ interface CollectFeeModalProps {
   preselectedSeatNumber?: string | null;
   preselectedShift?: 'MORNING' | 'EVENING' | 'FULL_DAY' | null;
   preselectedDuration?: 'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY' | null;
-  availableSeats?: { id: string; seatNumber: string; rowName?: string }[];
-  onAssignSeat?: (studentId: string, seatNumber: string | null, shift?: string) => Promise<void> | void;
+  availableSeats?: { id: string; seatNumber: string; rowName?: string; roomId?: string | null }[];
+  onAssignSeat?: (studentId: string, seatNumber: string | null, shift?: string, isReserved?: boolean, seatId?: string, roomId?: string | null, rowName?: string) => Promise<void> | void;
   libraryName?: string;
   libraryPhone?: string;
   onRecordPayment: (paymentData: {
@@ -412,7 +412,8 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
       if (assignedSeatNumber && assignedSeatNumber !== currentStudent?.seatNumber && onAssignSeat) {
         setIsLoading(true);
         try {
-          await onAssignSeat(selectedStudentId, assignedSeatNumber, selectedShift);
+          const targetSeatObj = availableSeats?.find((s) => s.seatNumber === assignedSeatNumber || s.id === assignedSeatNumber);
+          await onAssignSeat(selectedStudentId, assignedSeatNumber, selectedShift, false, targetSeatObj?.id, targetSeatObj?.roomId, targetSeatObj?.rowName);
           alert(`Seat ${assignedSeatNumber} successfully assigned to ${currentStudent?.fullName || 'student'}. Fee for this period (${paidForMonth}) was already cleared.`);
           onClose();
         } catch (err) {
@@ -448,7 +449,8 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
     try {
       if (assignedSeatNumber && assignedSeatNumber !== currentStudent?.seatNumber && onAssignSeat) {
         try {
-          await onAssignSeat(selectedStudentId, assignedSeatNumber, selectedShift);
+          const targetSeatObj = availableSeats?.find((s) => s.seatNumber === assignedSeatNumber || s.id === assignedSeatNumber);
+          await onAssignSeat(selectedStudentId, assignedSeatNumber, selectedShift, false, targetSeatObj?.id, targetSeatObj?.roomId, targetSeatObj?.rowName);
         } catch (err) {
           console.error('Failed to assign seat during fee collection:', err);
         }

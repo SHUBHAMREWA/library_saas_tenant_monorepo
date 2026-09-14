@@ -53,7 +53,17 @@ export async function handleSyncAll(req: NextRequest) {
                 phone: true,
                 seatAssignments: {
                   where: { status: 'ACTIVE' },
-                  include: { seat: true },
+                  include: {
+                    seat: {
+                      include: {
+                        row: {
+                          include: {
+                            room: true,
+                          },
+                        },
+                      },
+                    },
+                  },
                   take: 1,
                 },
               },
@@ -93,7 +103,17 @@ export async function handleSyncAll(req: NextRequest) {
             },
             seatAssignments: {
               orderBy: { createdAt: 'desc' },
-              include: { seat: true },
+              include: {
+                seat: {
+                  include: {
+                    row: {
+                      include: {
+                        room: true,
+                      },
+                    },
+                  },
+                },
+              },
               take: 5,
             },
             feeTransactions: {
@@ -237,9 +257,7 @@ export async function handleSyncAll(req: NextRequest) {
         let assignedSeatNumber: string | null = null;
         let lastAssignedSeatNumber: string | null = null;
         if (activeSeat?.seat) {
-          const matchingSeat = allSeats.find(
-            (s) => s.id === activeSeat.seat.id || s.seatNumber === activeSeat.seat.seatNumber
-          );
+          const matchingSeat = allSeats.find((s) => s.id === activeSeat.seat.id);
           if (!isExpired) {
             assignedSeatNumber = activeSeat.seat.seatNumber;
             if (matchingSeat) {
@@ -401,7 +419,11 @@ export async function handleSyncAll(req: NextRequest) {
           id: std.id,
           fullName: std.fullName,
           phone: std.phone,
+          seatId: activeSeat?.seat?.id || null,
           seatNumber: assignedSeatNumber,
+          roomId: activeSeat?.seat?.row?.roomId || null,
+          roomName: activeSeat?.seat?.row?.room?.name || null,
+          rowName: activeSeat?.seat?.row?.name || null,
           previousSeatNumber,
           inactiveDays,
           stayDuration,
