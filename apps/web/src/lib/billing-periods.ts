@@ -1,4 +1,4 @@
-﻿// =======================================================
+// =======================================================
 // Billing Periods Engine: Rolling 30-Day Period Formatter & Helpers
 // Aligns 30-day membership cycles across two calendar months
 // (e.g. 10 Jan - 10 Feb -> "January – February 2026")
@@ -141,4 +141,41 @@ export function getBillingPeriodFilterOptions(refDate: Date = new Date()): Array
   }
 
   return options;
+}
+
+/**
+ * Adds N calendar months to an ISO date string (YYYY-MM-DD),
+ * safely handling varying month lengths without overflow bugs (e.g. 31 Jan + 1 mo -> 28 Feb).
+ */
+export function addMonthsToDate(dateStr: string, months: number): string {
+  if (!dateStr || months <= 0) return dateStr;
+  const parts = dateStr.split('-').map(Number);
+  if (parts.length < 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) {
+    const d = new Date(dateStr);
+    d.setMonth(d.getMonth() + months);
+    return d.toISOString().split('T')[0];
+  }
+  const [year, month, day] = parts;
+  // Note: month is 1-indexed in dateStr
+  const target = new Date(year, month - 1 + months, day);
+  // If date rolled over past the end of target month (e.g. Feb 31 -> Mar 3)
+  if (target.getDate() !== day) {
+    target.setDate(0); // Clamps to last day of target month
+  }
+  const y = target.getFullYear();
+  const m = String(target.getMonth() + 1).padStart(2, '0');
+  const d = String(target.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Computes difference in calendar months (or approximate rounded months) between two dates
+ */
+export function getMonthsDifference(fromStr: string, toStr: string): number {
+  if (!fromStr || !toStr) return 1;
+  const from = new Date(fromStr);
+  const to = new Date(toStr);
+  if (isNaN(from.getTime()) || isNaN(to.getTime())) return 1;
+  const days = Math.max(1, Math.round((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)));
+  return Math.max(1, Math.round(days / 30));
 }
