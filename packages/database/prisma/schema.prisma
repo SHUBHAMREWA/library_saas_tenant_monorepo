@@ -215,6 +215,7 @@ model Student {
   @@index([libraryId, phone])
   @@index([libraryId, fullName])
   @@index([libraryId, isActive])
+  @@index([libraryId, isActive, createdAt(sort: Desc)])
   @@map("students")
 }
 
@@ -239,6 +240,7 @@ model Membership {
 
   @@index([libraryId, status, expectedEndDate])
   @@index([studentId])
+  @@index([studentId, status, createdAt(sort: Desc)])
   @@map("memberships")
 }
 
@@ -261,6 +263,8 @@ model SeatAssignment {
 
   @@index([libraryId, studentId, status])
   @@index([seatId, shift, status])
+  @@index([studentId, status])
+  @@index([seatId, status])
   @@map("seat_assignments")
 }
 
@@ -327,6 +331,7 @@ model Payment {
 
   @@index([libraryId])
   @@index([provider, providerOrderId])
+  @@index([status])
   @@map("payments")
 }
 
@@ -390,6 +395,8 @@ model StudentFeeTransaction {
 
   @@index([libraryId, paymentDate(sort: Desc)])
   @@index([studentId, paidForMonth])
+  @@index([studentId, paymentDate(sort: Desc)])
+  @@index([libraryId, paidForMonth])
   @@map("student_fee_transactions")
 }
 

@@ -116,7 +116,7 @@ export async function sendPushNotification(
     title: payload.title,
     body: payload.body,
     icon: payload.icon || '/icons/icon-192x192.png',
-    badge: payload.badge || '/icons/icon-192x192.png',
+    badge: payload.badge || '/icons/badge-96x96.png',
     url: payload.url || '/',
     tag: payload.tag || 'library-notification',
     data: {

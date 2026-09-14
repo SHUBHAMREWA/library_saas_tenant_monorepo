@@ -3,18 +3,29 @@ import { prisma } from '@library/database';
 import { deleteFromCloudinary } from '@/lib/cloudinary';
 import crypto from 'crypto';
 
-export async function handleGetStudents(_req: NextRequest, libraryId: string) {
+export async function handleGetStudents(req: NextRequest, libraryId: string) {
   try {
     if (!libraryId) {
       return NextResponse.json({ error: 'Library ID is required' }, { status: 400 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const search = searchParams.get('search')?.trim();
+
+    const whereClause: any = { libraryId, isActive: true };
+    if (search) {
+      whereClause.OR = [
+        { fullName: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search } },
+      ];
+    }
+
     const students = await prisma.student.findMany({
-      where: { libraryId, isActive: true },
+      where: whereClause,
       include: {
         memberships: {
           orderBy: { createdAt: 'desc' },
-          take: 5,
+          take: 3,
         },
         seatAssignments: {
           where: { status: 'ACTIVE' },
@@ -26,7 +37,7 @@ export async function handleGetStudents(_req: NextRequest, libraryId: string) {
             { paymentDate: 'desc' },
             { createdAt: 'desc' },
           ],
-          take: 20,
+          take: 5,
         },
       },
       orderBy: { createdAt: 'desc' },

@@ -422,8 +422,23 @@ export const StudentList: React.FC<StudentListProps> = ({
   libraryPhone,
 }) => {
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [visibleCount, setVisibleCount] = useState(35);
   const [filterTab, setFilterTab] = useState<StudentFilterTab>(initialFilterTab);
   const [localRefreshing, setLocalRefreshing] = useState(false);
+
+  // Debounce search input by 200ms to eliminate UI typing lag
+  React.useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 200);
+    return () => clearTimeout(handler);
+  }, [search]);
+
+  // Reset pagination window when tab or search filter changes
+  React.useEffect(() => {
+    setVisibleCount(35);
+  }, [filterTab, debouncedSearch]);
 
   const handleRefreshClick = async () => {
     if (onRefresh) {
@@ -477,11 +492,13 @@ export const StudentList: React.FC<StudentListProps> = ({
   ).length;
 
   const filtered = useMemo(() => {
+    const query = debouncedSearch.toLowerCase().trim();
     return students.filter((s) => {
       const matchesSearch =
-        s.fullName.toLowerCase().includes(search.toLowerCase()) ||
-        s.phone.includes(search) ||
-        (s.seatNumber && s.seatNumber.toLowerCase().includes(search.toLowerCase()));
+        !query ||
+        s.fullName.toLowerCase().includes(query) ||
+        s.phone.includes(query) ||
+        (s.seatNumber && s.seatNumber.toLowerCase().includes(query));
       if (!matchesSearch) return false;
 
       const isNoSeat = !s.seatNumber || s.status === 'INACTIVE';
@@ -506,7 +523,11 @@ export const StudentList: React.FC<StudentListProps> = ({
 
       return true;
     });
-  }, [students, search, filterTab]);
+  }, [students, debouncedSearch, filterTab]);
+
+  const visibleStudents = useMemo(() => {
+    return filtered.slice(0, visibleCount);
+  }, [filtered, visibleCount]);
 
   return (
     <div className="space-y-3 w-full max-w-full overflow-x-hidden">
@@ -615,13 +636,13 @@ export const StudentList: React.FC<StudentListProps> = ({
         </div>
 
         <span className="text-[11px] font-medium text-slate-500 dark:text-[#a8a8a8] shrink-0 ml-auto">
-          Showing <strong>{filtered.length}</strong> of {students.length} students
+          Showing <strong>{Math.min(visibleCount, filtered.length)}</strong> of {filtered.length} students
         </span>
       </div>
 
       {/* Student List */}
       <div className="space-y-2">
-        {filtered.map((student) => {
+        {visibleStudents.map((student) => {
           const isNoSeat = !student.seatNumber || student.status === 'INACTIVE';
 
           // Accurate agreed monthly plan rate (respects student's custom monthly enrollment rate e.g. ₹500, ₹600)
@@ -880,6 +901,18 @@ export const StudentList: React.FC<StudentListProps> = ({
             </div>
           );
         })}
+
+        {filtered.length > visibleCount && (
+          <div className="pt-2 pb-2 text-center">
+            <button
+              type="button"
+              onClick={() => setVisibleCount((prev) => prev + 35)}
+              className="w-full sm:w-auto px-6 py-2.5 rounded-xl border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#181818] hover:bg-slate-50 dark:hover:bg-[#222222] text-xs font-bold text-slate-700 dark:text-neutral-200 shadow-2xs transition-all cursor-pointer"
+            >
+              Load More ({filtered.length - visibleCount} more students)
+            </button>
+          </div>
+        )}
 
         {students.length === 0 ? (
           <div className="p-10 text-center bg-slate-50/70 dark:bg-[#121212] rounded-2xl border-2 border-dashed border-slate-200 dark:border-[#262626] flex flex-col items-center justify-center">

@@ -24,10 +24,7 @@ export async function handleGetLibraries(req: NextRequest) {
 
     const libraries = await prisma.library.findMany({
       where: {
-        OR: [
-          { ownerId: user.id },
-          { owner: { email: { equals: cleanEmail, mode: 'insensitive' } } },
-        ],
+        ownerId: user.id,
         isActive: true,
       },
       include: {
@@ -65,23 +62,26 @@ export async function handleGetLibraries(req: NextRequest) {
           include: {
             memberships: {
               orderBy: { createdAt: 'desc' },
-              take: 5,
+              take: 2,
             },
             seatAssignments: {
+              where: { status: 'ACTIVE' },
               orderBy: { createdAt: 'desc' },
               include: { seat: true },
-              take: 5,
+              take: 2,
             },
             feeTransactions: {
               orderBy: [
                 { paymentDate: 'desc' },
                 { createdAt: 'desc' },
               ],
+              take: 2,
             },
           },
           orderBy: { createdAt: 'desc' },
         },
         feeTransactions: {
+          take: 100,
           orderBy: [
             { paymentDate: 'desc' },
             { createdAt: 'desc' },
@@ -115,6 +115,7 @@ export async function handleGetLibraries(req: NextRequest) {
     });
     const latestUserSub = userSubscriptions[0] || null;
 
+    const allCleanupPromises: Promise<any>[] = [];
     const formattedLibraries = libraries.map((lib) => {
       const allSeats: any[] = [];
       const seenSeatKeys = new Set<string>();
@@ -416,16 +417,20 @@ export async function handleGetLibraries(req: NextRequest) {
 
       const allSeatsToSetAvailable = [...seatsToRelease, ...phantomOccupiedSeatsToFix];
       if (allSeatsToSetAvailable.length > 0) {
-        prisma.seat.updateMany({
-          where: { id: { in: allSeatsToSetAvailable } },
-          data: { status: 'AVAILABLE' },
-        }).catch(() => {});
+        allCleanupPromises.push(
+          prisma.seat.updateMany({
+            where: { id: { in: allSeatsToSetAvailable } },
+            data: { status: 'AVAILABLE' },
+          })
+        );
       }
       if (assignmentsToRelease.length > 0) {
-        prisma.seatAssignment.updateMany({
-          where: { id: { in: assignmentsToRelease } },
-          data: { status: 'RELEASED' },
-        }).catch(() => {});
+        allCleanupPromises.push(
+          prisma.seatAssignment.updateMany({
+            where: { id: { in: assignmentsToRelease } },
+            data: { status: 'RELEASED' },
+          })
+        );
       }
 
       const formattedLibraryTransactions = (lib.feeTransactions || []).map((t) => ({
@@ -484,6 +489,10 @@ export async function handleGetLibraries(req: NextRequest) {
         subscription: formattedSubscription,
       };
     });
+
+    if (allCleanupPromises.length > 0) {
+      await Promise.allSettled(allCleanupPromises);
+    }
 
     return NextResponse.json({ libraries: formattedLibraries });
   } catch (error: any) {

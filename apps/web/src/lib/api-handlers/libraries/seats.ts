@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@library/database';
+import { serverCache } from '@/lib/server-cache';
 import crypto from 'crypto';
 
 export async function handleGetSeats(_req: NextRequest, libraryId: string) {
   try {
     if (!libraryId) {
       return NextResponse.json({ error: 'Library ID is required' }, { status: 400 });
+    }
+
+    const cacheKey = `seats:${libraryId}`;
+    const cached = serverCache.get<any>(cacheKey);
+    if (cached) {
+      return NextResponse.json(cached);
     }
 
     const rooms = await prisma.room.findMany({
@@ -97,11 +104,14 @@ export async function handleGetSeats(_req: NextRequest, libraryId: string) {
       a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' })
     );
 
-    return NextResponse.json({
+    const payload = {
       success: true,
       rooms: formattedRooms,
       seats: allSeats,
-    });
+    };
+    serverCache.set(cacheKey, payload, 30);
+
+    return NextResponse.json(payload);
   } catch (error: any) {
     console.error('API GET /api/libraries/[id]/seats error:', error);
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
@@ -206,6 +216,8 @@ export async function handleCreateSeats(req: NextRequest, libraryId: string) {
       });
     }
 
+    serverCache.invalidate(libraryId);
+
     return NextResponse.json({
       success: true,
       seats: newSeats,
@@ -240,6 +252,7 @@ export async function handleUpdateSeat(req: NextRequest, libraryId: string) {
           where: { id: existingSeat.id },
           data: { status },
         });
+        serverCache.invalidate(libraryId);
         return NextResponse.json({ success: true, seat: updated });
       }
     }
@@ -250,6 +263,7 @@ export async function handleUpdateSeat(req: NextRequest, libraryId: string) {
       data: { status },
     });
 
+    serverCache.invalidate(libraryId);
     return NextResponse.json({ success: true, count: updated.count });
   } catch (error: any) {
     console.error('API PATCH /api/libraries/[id]/seats error:', error);
@@ -305,6 +319,8 @@ export async function handleDeleteSeats(req: NextRequest, libraryId: string) {
     const deleteResult = await prisma.seat.deleteMany({
       where: { id: { in: seatIds }, libraryId },
     });
+
+    serverCache.invalidate(libraryId);
 
     return NextResponse.json({
       success: true,
@@ -456,6 +472,8 @@ export async function handleAssignSeat(req: NextRequest, libraryId: string) {
         },
       });
 
+      serverCache.invalidate(libraryId);
+
       return NextResponse.json({
         success: true,
         assigned: true,
@@ -467,6 +485,8 @@ export async function handleAssignSeat(req: NextRequest, libraryId: string) {
         shift: shift || membership.shift,
       });
     }
+
+    serverCache.invalidate(libraryId);
 
     return NextResponse.json({
       success: true,

@@ -7,7 +7,11 @@ const STATIC_PRECACHE = [
   '/manifest.json',
   '/icons/icon-192x192.png',
   '/icons/icon-512x512.png',
+  '/icons/badge.png',
   '/icons/badge-72x72.png',
+  '/icons/badge-96x96.png',
+  '/icons/badge-128x128.png',
+  '/icons/badge-192x192.png',
 ];
 
 // Install Event: Pre-cache core app shell
@@ -115,7 +119,7 @@ self.addEventListener('push', (event) => {
     title: 'seeLibrary SaaS',
     body: 'New alert from your study center',
     icon: '/icons/icon-192x192.png',
-    badge: '/icons/badge-72x72.png',
+    badge: '/icons/badge-96x96.png',
     url: '/',
     tag: 'seelibrary-alert',
   };
@@ -134,7 +138,7 @@ self.addEventListener('push', (event) => {
   const options = {
     body: payload.body,
     icon: payload.icon || '/icons/icon-192x192.png',
-    badge: payload.badge || '/icons/badge-72x72.png',
+    badge: payload.badge || '/icons/badge-96x96.png',
     vibrate: payload.vibrate || [100, 50, 100],
     tag: payload.tag || 'seelibrary-alert',
     renotify: true,
@@ -148,6 +152,17 @@ self.addEventListener('push', (event) => {
       { action: 'dismiss', title: 'Dismiss' },
     ],
   };
+
+  // Set or increment app badge on device home screen/taskbar if Badging API is supported
+  const updateBadge = (async () => {
+    if ('setAppBadge' in self.navigator) {
+      try {
+        await self.navigator.setAppBadge();
+      } catch (e) {
+        // Badging API ignored if not supported or permitted
+      }
+    }
+  })();
 
   // Notify any active client windows so in-app toast pops up immediately
   const notifyClients = clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
@@ -163,6 +178,7 @@ self.addEventListener('push', (event) => {
     Promise.all([
       self.registration.showNotification(payload.title, options),
       notifyClients,
+      updateBadge,
     ])
   );
 });
@@ -170,6 +186,11 @@ self.addEventListener('push', (event) => {
 // Notification Click Handler: Open or focus application window
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+
+  // Clear or decrement badge count
+  if ('clearAppBadge' in self.navigator) {
+    self.navigator.clearAppBadge().catch(() => {});
+  }
 
   if (event.action === 'dismiss') {
     return;
