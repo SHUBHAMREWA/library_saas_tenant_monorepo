@@ -97,8 +97,6 @@ export async function handleGetStudents(req: NextRequest, libraryId: string) {
       let studentStatus: 'ACTIVE' | 'INACTIVE' | 'EXPIRED' = 'INACTIVE';
       if (activeSeat) {
         studentStatus = isExpired ? 'EXPIRED' : 'ACTIVE';
-      } else if (hasPaidTx && !isExpired) {
-        studentStatus = 'ACTIVE';
       } else {
         studentStatus = 'INACTIVE';
       }

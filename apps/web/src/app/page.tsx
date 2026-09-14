@@ -1910,17 +1910,19 @@ export default function MobileDashboard() {
 
     // 2. Sync with database
     try {
+      const isUnassign = !seatNumber || seatNumber === 'UNASSIGN';
       const res = await fetch(`/api/libraries/${activeLibrary.id}/seats/assign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           studentId,
-          seatId,
-          seatNumber,
-          roomId,
-          rowName,
-          shift,
-          reserveSeat: isReserved
+          seatId: isUnassign ? null : (seatId || null),
+          seatNumber: isUnassign ? null : (seatNumber || null),
+          roomId: isUnassign ? null : (roomId || null),
+          rowName: isUnassign ? null : (rowName || null),
+          shift: isUnassign ? undefined : shift,
+          reserveSeat: isReserved,
+          unassign: isUnassign,
         }),
       });
       if (!res.ok) {
