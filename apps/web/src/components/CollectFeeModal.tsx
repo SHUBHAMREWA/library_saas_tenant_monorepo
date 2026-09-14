@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, CheckCircle2, IndianRupee, Calendar, CreditCard, User, Armchair, ShieldCheck, Clock, AlertCircle, Printer, FileCheck, Copy, Search, ChevronDown, Check, Loader2 } from 'lucide-react';
+import { X, CheckCircle2, IndianRupee, Calendar, CreditCard, User, Armchair, ShieldCheck, Clock, AlertCircle, Printer, FileCheck, Copy, Search, ChevronDown, Check, Loader2, Plus, Minus } from 'lucide-react';
 import { StudentItem, getStudentPreviousSeat } from './StudentList';
 import { WhatsAppIcon } from './WhatsAppIcon';
 import { generateWhatsAppReceiptText, openWhatsApp, FeeReceiptData, formatShiftSummary } from '@/lib/receipt-utils';
-import { formatMonthPeriod, getDetailedPeriodLabel } from '@/lib/billing-periods';
+import { formatMonthPeriod, getDetailedPeriodLabel, addMonthsToDate, getMonthsDifference } from '@/lib/billing-periods';
 
 interface CollectFeeModalProps {
   isOpen: boolean;
@@ -91,13 +91,13 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
   const [isStudentDropdownOpen, setIsStudentDropdownOpen] = useState<boolean>(false);
   const [assignedSeatNumber, setAssignedSeatNumber] = useState<string>('');
   const [paymentType, setPaymentType] = useState<'REMAINING_DUE' | 'NEW_MONTH'>('NEW_MONTH');
+  const [monthsCount, setMonthsCount] = useState<number>(1);
   const [totalFee, setTotalFee] = useState<number | ''>(1200);
   const [amount, setAmount] = useState<number | ''>(1200); // Get Fee / Collected
   const [validFrom, setValidFrom] = useState<string>(new Date().toISOString().split('T')[0]);
   const [validTo, setValidTo] = useState<string>(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 30);
-    return d.toISOString().split('T')[0];
+    const d = new Date().toISOString().split('T')[0];
+    return addMonthsToDate(d, 1);
   });
   const [paidForMonth, setPaidForMonth] = useState<string>(currentMonth);
   const [selectedShift, setSelectedShift] = useState<'MORNING' | 'EVENING' | 'FULL_DAY'>('FULL_DAY');
@@ -135,18 +135,46 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
     return { shift: 'FULL_DAY' as const, duration: 'FULL_DAY' as const };
   };
 
+  const handleDurationChange = (
+    newMonthsCount: number,
+    customFrom?: string,
+    overrideShift?: 'MORNING' | 'EVENING' | 'FULL_DAY',
+    overrideDuration?: 'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY',
+    overrideStudent?: StudentItem | null
+  ) => {
+    const std = overrideStudent !== undefined ? overrideStudent : (students.find((s) => s.id === selectedStudentId) || preselectedStudent);
+    const shiftToUse = overrideShift || selectedShift;
+    const durationToUse = overrideDuration || stayDuration;
+    const from = customFrom || validFrom || new Date().toISOString().split('T')[0];
+    const newValidTo = addMonthsToDate(from, newMonthsCount);
+
+    setMonthsCount(newMonthsCount);
+    setValidFrom(from);
+    setValidTo(newValidTo);
+    setPaidForMonth(formatMonthPeriod(from, newValidTo));
+
+    if (paymentType === 'NEW_MONTH') {
+      const isUnenrolled = !std?.transactions?.length && !std?.seatNumber;
+      const agreed = isUnenrolled ? 0 : getStudentAgreedRate(std);
+      const singleFee = getSuggestedFee(shiftToUse, durationToUse, agreed > 0 ? agreed : undefined);
+      const multipliedTotal = singleFee * newMonthsCount;
+      setTotalFee(multipliedTotal);
+      setAmount(multipliedTotal);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
       setRecordedReceipt(null);
       setCopied(false);
       setStudentSearchQuery('');
       setIsStudentDropdownOpen(false);
+      setMonthsCount(1);
       const activeStudent = preselectedStudent || (students.length > 0 ? students[0] : null);
       const todayStr = new Date().toISOString().split('T')[0];
-      const nextMonth = new Date();
-      nextMonth.setDate(nextMonth.getDate() + 30);
+      const nextMonth = addMonthsToDate(todayStr, 1);
       setValidFrom(todayStr);
-      setValidTo(nextMonth.toISOString().split('T')[0]);
+      setValidTo(nextMonth);
       setPaymentMode('UPI');
       setPaymentDate(todayStr);
 
@@ -180,14 +208,12 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
           setNotes(`Remaining fee clearance for ${targetMonth}`);
         } else {
           setPaymentType('NEW_MONTH');
-          // For unenrolled students (no transactions), use suggested fee based on selected shift
-          // rather than their "agreed rate" (which defaults to 1200 for unenrolled students)
           const isUnenrolled = !activeStudent.transactions?.length && !activeStudent.seatNumber;
           const agreed = isUnenrolled ? 0 : getStudentAgreedRate(activeStudent);
           const fee = getSuggestedFee(initShift, initDuration, agreed > 0 ? agreed : undefined);
           setTotalFee(fee);
           setAmount(fee);
-          setPaidForMonth(currentMonth);
+          setPaidForMonth(formatMonthPeriod(todayStr, nextMonth));
           setNotes('');
         }
       } else {
@@ -203,7 +229,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         const fee = getSuggestedFee(initShift, initDuration);
         setTotalFee(fee);
         setAmount(fee);
-        setPaidForMonth(currentMonth);
+        setPaidForMonth(formatMonthPeriod(todayStr, nextMonth));
         setAssignedSeatNumber(preselectedSeatNumber || '');
         setNotes('');
       }
@@ -213,6 +239,11 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
   // When student selection changes, auto-update default amount & plan
   const handleStudentChange = (stdId: string) => {
     setSelectedStudentId(stdId);
+    setMonthsCount(1);
+    const todayStr = new Date().toISOString().split('T')[0];
+    const nextMonth = addMonthsToDate(todayStr, 1);
+    setValidFrom(todayStr);
+    setValidTo(nextMonth);
     const found = students.find((s) => s.id === stdId);
     if (found) {
       const prevSeat = getStudentPreviousSeat(found);
@@ -240,7 +271,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         const fee = getSuggestedFee(initShift, initDuration, agreed > 0 ? agreed : undefined);
         setTotalFee(fee);
         setAmount(fee);
-        setPaidForMonth(currentMonth);
+        setPaidForMonth(formatMonthPeriod(todayStr, nextMonth));
         setNotes('');
       }
     }
@@ -554,7 +585,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
               )}
               <div className="flex justify-between border-t border-slate-200/80 dark:border-[#333] pt-2">
                 <span className="text-slate-500 dark:text-neutral-400">
-                  {recordedReceipt.isSettlingDue ? 'Pending Due Balance:' : 'Total Monthly Fee:'}
+                  {recordedReceipt.isSettlingDue ? 'Pending Due Balance:' : 'Total Plan Fee:'}
                 </span>
                 <span className="font-bold text-slate-900 dark:text-white">
                   ₹{recordedReceipt.totalFee?.toLocaleString('en-IN')}
@@ -945,15 +976,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                       onClick={() => {
                         const currValidTo = validTo || new Date().toISOString().split('T')[0];
                         const nextFrom = currValidTo;
-                        const d = new Date(nextFrom);
-                        d.setDate(d.getDate() + 30);
-                        const nextTo = d.toISOString().split('T')[0];
-                        setValidFrom(nextFrom);
-                        setValidTo(nextTo);
-                        setPaidForMonth(formatMonthPeriod(nextFrom, nextTo));
-                        const agreed = getStudentAgreedRate(currentStudent);
-                        setTotalFee(agreed);
-                        setAmount(agreed);
+                        handleDurationChange(monthsCount, nextFrom);
                       }}
                       className="text-[11px] font-bold text-emerald-800 dark:text-emerald-200 hover:underline cursor-pointer flex items-center gap-1"
                     >
@@ -1142,13 +1165,14 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                           resolveStudentShiftAndDuration(currentStudent).shift === shiftOption.id &&
                           resolveStudentShiftAndDuration(currentStudent).duration === nextDuration;
                         const agreed = getStudentAgreedRate(currentStudent);
-                        const fee = getSuggestedFee(
+                        const singleFee = getSuggestedFee(
                           shiftOption.id,
                           nextDuration,
                           isStudentDefaultPlan ? agreed : undefined
                         );
-                        setTotalFee(fee);
-                        setAmount(fee);
+                        const newTotal = singleFee * monthsCount;
+                        setTotalFee(newTotal);
+                        setAmount(newTotal);
                       }}
                       className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
                         selectedShift === shiftOption.id
@@ -1201,13 +1225,14 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                             resolveStudentShiftAndDuration(currentStudent).shift === selectedShift &&
                             resolveStudentShiftAndDuration(currentStudent).duration === dur.id;
                           const agreed = getStudentAgreedRate(currentStudent);
-                          const fee = getSuggestedFee(
+                          const singleFee = getSuggestedFee(
                             selectedShift,
                             dur.id,
                             isStudentDefaultPlan ? agreed : undefined
                           );
-                          setTotalFee(fee);
-                          setAmount(fee);
+                          const newTotal = singleFee * monthsCount;
+                          setTotalFee(newTotal);
+                          setAmount(newTotal);
                         }}
                         className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
                           stayDuration === dur.id
@@ -1368,6 +1393,91 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
             </span>
           </div>
 
+          {/* Duration / Multi-Month Cycle Selector (Only in NEW_MONTH mode) */}
+          {paymentType === 'NEW_MONTH' && (
+            <div className="p-3 bg-slate-50/90 dark:bg-[#181818] border border-slate-200 dark:border-[#2a2a2a] rounded-xl space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-700 dark:text-neutral-300 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span>Membership Duration</span>
+                </label>
+                <span className="text-[10px] font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
+                  {monthsCount === 1 ? '1 Month Cycle' : monthsCount === 12 ? '1 Year (12 Months)' : `${monthsCount} Months Cycle`}
+                </span>
+              </div>
+
+              {/* Quick Presets + Stepper */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {[
+                  { count: 1, label: '1 Mo' },
+                  { count: 2, label: '2 Mos' },
+                  { count: 3, label: '3 Mos' },
+                  { count: 6, label: '6 Mos' },
+                  { count: 12, label: '1 Year' },
+                ].map((preset) => {
+                  const isSelected = monthsCount === preset.count;
+                  return (
+                    <button
+                      key={preset.count}
+                      type="button"
+                      onClick={() => handleDurationChange(preset.count)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-white dark:bg-[#222] border border-slate-200 dark:border-[#333] text-slate-700 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-[#2c2c2c]'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+
+                {/* Add More Month Stepper Controls */}
+                <div className="ml-auto flex items-center gap-1 bg-white dark:bg-[#222] border border-slate-200 dark:border-[#333] rounded-lg p-0.5">
+                  <button
+                    type="button"
+                    disabled={monthsCount <= 1}
+                    onClick={() => handleDurationChange(Math.max(1, monthsCount - 1))}
+                    className="p-1 rounded text-slate-600 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-[#333] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                    title="Decrease 1 Month"
+                  >
+                    <Minus className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="text-xs font-black px-1.5 text-slate-800 dark:text-white min-w-[2.2rem] text-center">
+                    {monthsCount}m
+                  </span>
+                  <button
+                    type="button"
+                    disabled={monthsCount >= 36}
+                    onClick={() => handleDurationChange(monthsCount + 1)}
+                    className="p-1 rounded text-slate-600 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-[#333] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                    title="Add 1 More Month"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Dynamic Calculation Breakdown */}
+              {(() => {
+                const isUnenrolled = !currentStudent?.transactions?.length && !currentStudent?.seatNumber;
+                const agreed = isUnenrolled ? 0 : getStudentAgreedRate(currentStudent);
+                const singleFee = getSuggestedFee(selectedShift, stayDuration, agreed > 0 ? agreed : undefined);
+                const approxDays = validFrom && validTo ? Math.max(1, Math.round((new Date(validTo).getTime() - new Date(validFrom).getTime()) / (1000 * 60 * 60 * 24))) : monthsCount * 30;
+                return (
+                  <div className="pt-2 border-t border-slate-200/70 dark:border-[#2a2a2a] flex items-center justify-between text-[11px]">
+                    <span className="text-slate-500 dark:text-neutral-400">
+                      Rate calculation: <strong className="text-slate-800 dark:text-neutral-200">₹{singleFee.toLocaleString('en-IN')}/mo × {monthsCount} {monthsCount === 1 ? 'month' : 'months'}</strong>
+                    </span>
+                    <span className="font-bold text-emerald-700 dark:text-emerald-400">
+                      ≈ {approxDays} Days Active
+                    </span>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
           {/* Date Range: Valid From & Valid To */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-slate-700 dark:text-neutral-300 flex items-center gap-1.5">
@@ -1385,9 +1495,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                     const newFrom = e.target.value;
                     setValidFrom(newFrom);
                     if (newFrom) {
-                      const d = new Date(newFrom);
-                      d.setDate(d.getDate() + 30);
-                      const newTo = d.toISOString().split('T')[0];
+                      const newTo = addMonthsToDate(newFrom, monthsCount);
                       setValidTo(newTo);
                       setPaidForMonth(formatMonthPeriod(newFrom, newTo));
                     }
@@ -1405,6 +1513,8 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                     const newTo = e.target.value;
                     setValidTo(newTo);
                     if (validFrom && newTo) {
+                      const diffMonths = getMonthsDifference(validFrom, newTo);
+                      setMonthsCount(diffMonths);
                       setPaidForMonth(formatMonthPeriod(validFrom, newTo));
                     }
                   }}
@@ -1419,6 +1529,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                 <span className="text-slate-500 dark:text-neutral-400 font-medium text-[11px]">Period Cycle:</span>
                 <span className="font-bold text-indigo-700 dark:text-indigo-300 text-[11px]">
                   {getDetailedPeriodLabel(validFrom, validTo)}
+                  {monthsCount > 1 ? ` (${monthsCount} Months)` : ''}
                 </span>
               </div>
             )}

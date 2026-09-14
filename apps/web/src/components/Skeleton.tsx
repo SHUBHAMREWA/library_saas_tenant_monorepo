@@ -207,40 +207,6 @@ export function TransactionsSkeleton() {
 }
 
 /**
- * Lead Kanban Board Skeleton
- */
-export function KanbanSkeleton() {
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-      {[1, 2, 3, 4].map((colIdx) => (
-        <div
-          key={colIdx}
-          className="bg-slate-50 dark:bg-[#121212] rounded-2xl border border-slate-200 dark:border-[#262626] p-3 space-y-3 min-h-[350px]"
-        >
-          <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-[#262626]">
-            <Skeleton className="h-4 w-24" />
-            <Skeleton className="h-4 w-6 rounded-full" />
-          </div>
-          {[1, 2].map((cardIdx) => (
-            <div
-              key={cardIdx}
-              className="bg-white dark:bg-[#1c1c1e] p-3 rounded-xl border border-slate-200 dark:border-[#262626] space-y-2"
-            >
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-3 w-20" />
-              <div className="pt-2 flex items-center justify-between">
-                <Skeleton className="h-5 w-16 rounded-md" />
-                <Skeleton className="h-5 w-5 rounded-full" />
-              </div>
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/**
  * Subscription Card Skeleton
  */
 export function SubscriptionSkeleton() {

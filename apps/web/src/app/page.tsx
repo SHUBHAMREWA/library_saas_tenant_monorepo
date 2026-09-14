@@ -55,7 +55,6 @@ import {
   SeatGridSkeleton,
   StudentListSkeleton,
   TransactionsSkeleton,
-  KanbanSkeleton,
   SubscriptionSkeleton,
   AdminSkeleton,
 } from '../components/Skeleton';
@@ -74,11 +73,6 @@ const SeatGrid = dynamic(
 const StudentList = dynamic(
   () => import('../components/StudentList').then((m) => m.StudentList),
   { loading: () => <StudentListSkeleton /> }
-);
-
-const KanbanBoard = dynamic(
-  () => import('../components/KanbanBoard').then((m) => m.KanbanBoard),
-  { loading: () => <KanbanSkeleton /> }
 );
 
 const TransactionsView = dynamic(
@@ -219,7 +213,6 @@ export default function MobileDashboard() {
   const [isSyncingData, setIsSyncingData] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'seats' | 'students' | 'transactions' | 'more'>('home');
 
-  const [studentSubTab, setStudentSubTab] = useState<'directory' | 'pipeline'>('directory');
   const [studentFilterTab, setStudentFilterTab] = useState<StudentFilterTab>('ALL');
   const [isCollectFeeModalOpen, setIsCollectFeeModalOpen] = useState(false);
   const [studentForFeeCollection, setStudentForFeeCollection] = useState<StudentItem | null>(null);
@@ -2972,7 +2965,6 @@ export default function MobileDashboard() {
                 tabIndex={0}
                 onClick={() => {
                   setStudentFilterTab('ALL');
-                  setStudentSubTab('directory');
                   handleTabChange('students');
                 }}
                 className="bg-white dark:bg-[#121212] p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-[#262626] shadow-xs hover:border-indigo-400 dark:hover:border-indigo-600 transition-all cursor-pointer group flex flex-col justify-between"
@@ -3069,7 +3061,6 @@ export default function MobileDashboard() {
                 tabIndex={0}
                 onClick={() => {
                   setStudentFilterTab('FEE_DUE');
-                  setStudentSubTab('directory');
                   handleTabChange('students');
                 }}
                 className={`bg-white dark:bg-[#121212] p-3.5 sm:p-4 rounded-2xl border shadow-xs transition-all cursor-pointer group flex flex-col justify-between ${
@@ -3237,8 +3228,7 @@ export default function MobileDashboard() {
                         type="button"
                         onClick={() => {
                           setStudentFilterTab('FEE_DUE');
-                          setStudentSubTab('directory');
-                          setActiveTab('students');
+                          handleTabChange('students');
                         }}
                         className="text-[11px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer"
                       >
@@ -3264,8 +3254,7 @@ export default function MobileDashboard() {
                         type="button"
                         onClick={() => {
                           setStudentFilterTab('FEE_DUE');
-                          setStudentSubTab('directory');
-                          setActiveTab('students');
+                          handleTabChange('students');
                         }}
                         className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-bold shadow-2xs transition-all cursor-pointer inline-flex items-center gap-1"
                       >
@@ -3333,8 +3322,7 @@ export default function MobileDashboard() {
                       type="button"
                       onClick={() => {
                         setStudentFilterTab('EXPIRING_5_DAYS');
-                        setStudentSubTab('directory');
-                        setActiveTab('students');
+                        handleTabChange('students');
                       }}
                       className="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline cursor-pointer"
                     >
@@ -3828,49 +3816,24 @@ export default function MobileDashboard() {
           </section>
         )}
 
-        {/* Tab 3: Students Directory & Pipeline Kanban */}
+        {/* Tab 3: Students Directory */}
         {activeTab === 'students' && (
           <section className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-[#f5f5f5]">
-                  {studentSubTab === 'directory' ? 'Student Directory' : 'Admission & Lead Pipeline'}
+                  Student Directory
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-neutral-400">
-                  {studentSubTab === 'directory'
-                    ? `${students.filter((s) => Boolean(s.seatNumber)).length} active • ${students.filter((s) => !s.seatNumber).length} inactive (no seat)`
-                    : 'Touch-optimized stage workflow from inquiry to active enrollment'}
+                  {students.filter((s) => Boolean(s.seatNumber)).length} active • {students.filter((s) => !s.seatNumber).length} inactive (no seat)
                 </p>
               </div>
 
-              {/* View Switcher: Directory vs Pipeline */}
-              <div className="inline-flex bg-slate-200/80 dark:bg-[#1c1c1e] p-1 rounded-xl shadow-inner self-start border border-transparent dark:border-[#262626]">
-                <button
-                  type="button"
-                  onClick={() => setStudentSubTab('directory')}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                    studentSubTab === 'directory'
-                      ? 'bg-white dark:bg-[#262626] text-indigo-700 dark:text-indigo-400 shadow-xs'
-                      : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
-                  }`}
-                >
-                  Directory
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStudentSubTab('pipeline')}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                    studentSubTab === 'pipeline'
-                      ? 'bg-white dark:bg-[#262626] text-indigo-700 dark:text-indigo-400 shadow-xs'
-                      : 'text-slate-600 dark:text-neutral-400 hover:text-slate-900 dark:hover:text-neutral-200'
-                  }`}
-                >
-                  Leads Kanban
-                </button>
+              <div className="flex items-center gap-2 self-start sm:self-auto">
                 <button
                   type="button"
                   onClick={() => handleTabChange('transactions')}
-                  className="px-3 py-1.5 text-xs font-bold rounded-lg transition-all text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 flex items-center gap-1 cursor-pointer"
+                  className="px-3 py-1.5 text-xs font-bold rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 flex items-center gap-1.5 transition-all shadow-2xs active:scale-95 cursor-pointer"
                   title="View all fee transactions"
                 >
                   <IndianRupee className="w-3.5 h-3.5" />
@@ -3879,45 +3842,41 @@ export default function MobileDashboard() {
               </div>
             </div>
 
-            {studentSubTab === 'directory' ? (
-              isLoadingStudents && students.length === 0 ? (
-                <StudentListSkeleton />
-              ) : (
-                <StudentList
-                  students={students}
-                  initialFilterTab={studentFilterTab}
-                  libraryName={activeLibrary?.name}
-                  libraryPhone={activeLibrary?.contactPhone}
-                  isRefreshing={isLoadingStudents || isSyncingData}
-                  onRefresh={async () => {
-                    if (activeLibrary?.id) {
-                      await fetchLibraryStudents(activeLibrary.id);
-                    }
-                  }}
-                  onAddStudent={() => {
-                    requireSubscription('Enroll Students', () => {
-                      setPreselectedSeatNumberForNewStudent(null);
-                      setIsStudentModalOpen(true);
-                    });
-                  }}
-                  onStudentClick={(student, tab) => {
-                    setProfileInitialTab(tab || 'profile');
-                    setSelectedStudentForProfile(student);
-                  }}
-                  onCollectFee={(student) => {
-                    requireSubscription('Collect Fees', () => {
-                      setStudentForFeeCollection(student);
-                      setIsCollectFeeModalOpen(true);
-                    });
-                  }}
-                  onAssignSeat={(student) => {
-                    setProfileInitialTab('profile');
-                    setSelectedStudentForProfile(student);
-                  }}
-                />
-              )
+            {isLoadingStudents && students.length === 0 ? (
+              <StudentListSkeleton />
             ) : (
-              <KanbanBoard libraryId={activeLibrary?.id} />
+              <StudentList
+                students={students}
+                initialFilterTab={studentFilterTab}
+                libraryName={activeLibrary?.name}
+                libraryPhone={activeLibrary?.contactPhone}
+                isRefreshing={isLoadingStudents || isSyncingData}
+                onRefresh={async () => {
+                  if (activeLibrary?.id) {
+                    await fetchLibraryStudents(activeLibrary.id);
+                  }
+                }}
+                onAddStudent={() => {
+                  requireSubscription('Enroll Students', () => {
+                    setPreselectedSeatNumberForNewStudent(null);
+                    setIsStudentModalOpen(true);
+                  });
+                }}
+                onStudentClick={(student, tab) => {
+                  setProfileInitialTab(tab || 'profile');
+                  setSelectedStudentForProfile(student);
+                }}
+                onCollectFee={(student) => {
+                  requireSubscription('Collect Fees', () => {
+                    setStudentForFeeCollection(student);
+                    setIsCollectFeeModalOpen(true);
+                  });
+                }}
+                onAssignSeat={(student) => {
+                  setProfileInitialTab('profile');
+                  setSelectedStudentForProfile(student);
+                }}
+              />
             )}
           </section>
         )}
