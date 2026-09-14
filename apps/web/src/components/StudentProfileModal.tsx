@@ -44,6 +44,7 @@ import {
 import {
   generateWhatsAppReceiptText,
   generateWhatsAppFeeReminderText,
+  generateStudentWhatsAppMessage,
   openWhatsApp,
 } from '@/lib/receipt-utils';
 import { CameraCaptureModal } from './CameraCaptureModal';
@@ -158,7 +159,11 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
 
   const handleSendFeeReminder = () => {
     if (!student) return;
-    const text = generateWhatsAppFeeReminderText({
+    const isInactive = !student.seatNumber || student.status === 'INACTIVE';
+    const isExpiringSoon = !isFeePending && !isInactive && student.membershipEndsInDays !== undefined && student.membershipEndsInDays > 0 && student.membershipEndsInDays <= 5;
+    const category = isInactive ? 'INACTIVE' : isFeePending ? 'FEE_DUE' : isExpiringSoon ? 'EXPIRING_SOON' : 'ACTIVE_PAID';
+
+    const text = generateStudentWhatsAppMessage({
       libraryName,
       libraryPhone,
       studentName: student.fullName,
@@ -170,6 +175,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
           ? student.remainingFee
           : student.monthlyFee,
       paidForMonth: new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+      category,
     });
     openWhatsApp(student.phone, text);
   };
@@ -691,15 +697,42 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                     >
                       <Phone className="w-3.5 h-3.5" />
                     </a>
-                    <a
-                      href={`https://wa.me/91${student.phone.replace(/\D/g, '')}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60 transition-all shadow-2xs active:scale-95"
-                      title="Message on WhatsApp"
-                    >
-                      <WhatsAppIcon className="w-3.5 h-3.5" />
-                    </a>
+                    {(() => {
+                      const isInactive = !student.seatNumber || student.status === 'INACTIVE';
+                      const hasDue = Boolean(isFeePending);
+                      const dueAmount = student.remainingFee && student.remainingFee > 0 ? student.remainingFee : student.monthlyFee;
+                      const isExpiringSoon = !hasDue && !isInactive && student.membershipEndsInDays !== undefined && student.membershipEndsInDays > 0 && student.membershipEndsInDays <= 5;
+                      const category = isInactive ? 'INACTIVE' : hasDue ? 'FEE_DUE' : isExpiringSoon ? 'EXPIRING_SOON' : 'ACTIVE_PAID';
+
+                      const text = generateStudentWhatsAppMessage({
+                        libraryName: libraryName || 'seeLibrary Study Center',
+                        libraryPhone,
+                        studentName: student.fullName,
+                        studentPhone: student.phone,
+                        seatNumber: student.seatNumber,
+                        shift: formatShift(student.shift),
+                        dueAmount,
+                        paidForMonth: new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+                        category,
+                      });
+
+                      let buttonTitle = `Message ${student.fullName} on WhatsApp`;
+                      if (category === 'INACTIVE') buttonTitle = `Send Re-join invitation to ${student.fullName}`;
+                      else if (category === 'FEE_DUE') buttonTitle = `Send Fee Reminder to ${student.fullName}`;
+                      else if (category === 'EXPIRING_SOON') buttonTitle = `Send Renewal Reminder to ${student.fullName}`;
+
+                      return (
+                        <a
+                          href={`https://wa.me/91${student.phone.replace(/\D/g, '')}?text=${encodeURIComponent(text)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60 transition-all shadow-2xs active:scale-95"
+                          title={buttonTitle}
+                        >
+                          <WhatsAppIcon className="w-3.5 h-3.5" />
+                        </a>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>

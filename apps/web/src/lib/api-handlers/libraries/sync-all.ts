@@ -12,19 +12,27 @@ export async function handleSyncAll(req: NextRequest) {
     }
 
     const cleanEmail = userEmail.toLowerCase().trim();
-    const user = await prisma.user.upsert({
-      where: { email: cleanEmail },
-      update: {},
-      create: {
-        id: crypto.randomUUID(),
-        email: cleanEmail,
-        fullName: cleanEmail.split('@')[0],
-      },
+    let user = await prisma.user.findFirst({
+      where: { email: { equals: cleanEmail, mode: 'insensitive' } },
     });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          id: crypto.randomUUID(),
+          email: cleanEmail,
+          fullName: cleanEmail.split('@')[0],
+        },
+      });
+    }
 
     const finalDbLibs = await prisma.library.findMany({
       where: {
-        ownerId: user.id,
+        OR: [
+          { ownerId: user.id },
+          { owner: { email: { equals: cleanEmail, mode: 'insensitive' } } },
+          { contactEmail: { equals: cleanEmail, mode: 'insensitive' } },
+        ],
         isActive: true,
       },
       include: {

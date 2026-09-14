@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { Phone, Search, Armchair, Shield, Check, Clock, Plus, Bell, Calendar, Filter, RefreshCw } from 'lucide-react';
 import { WhatsAppIcon } from './WhatsAppIcon';
-import { generateWhatsAppFeeReminderText } from '@/lib/receipt-utils';
+import { generateStudentWhatsAppMessage, generateWhatsAppFeeReminderText } from '@/lib/receipt-utils';
 import { formatMonthPeriod } from '@/lib/billing-periods';
 
 export interface StudentFeeRecord {
@@ -440,6 +440,9 @@ export const StudentList: React.FC<StudentListProps> = ({
     setVisibleCount(35);
   }, [filterTab, debouncedSearch]);
 
+  // Infinite scroll sentinel ref to load more records on demand when scrolling
+  const loadMoreSentinelRef = React.useRef<HTMLDivElement | null>(null);
+
   const handleRefreshClick = async () => {
     if (onRefresh) {
       setLocalRefreshing(true);
@@ -528,6 +531,23 @@ export const StudentList: React.FC<StudentListProps> = ({
   const visibleStudents = useMemo(() => {
     return filtered.slice(0, visibleCount);
   }, [filtered, visibleCount]);
+
+  React.useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + 35, filtered.length));
+        }
+      },
+      { rootMargin: '250px' }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [filtered.length, visibleCount]);
 
   return (
     <div className="space-y-3 w-full max-w-full overflow-x-hidden">
@@ -851,47 +871,70 @@ export const StudentList: React.FC<StudentListProps> = ({
                   </a>
 
                   {(() => {
-                    const hasOverallDue = isStudentFeeDue;
+                    const isStudentInactive = !student.seatNumber || student.status === 'INACTIVE' || filterTab === 'INACTIVE';
+                    const isStudentExpiringSoon = !isStudentInactive && (filterTab === 'EXPIRING_5_DAYS' || (student.membershipEndsInDays !== undefined && student.membershipEndsInDays > 0 && student.membershipEndsInDays <= 5 && !isStudentFeeDue));
+                    const hasOverallDue = !isStudentInactive && (isStudentFeeDue || filterTab === 'FEE_DUE' || filterTab === 'MONTH_UNPAID' || filterTab === 'MONTH_PARTIAL_DUE');
+
+                    let waCategory: 'INACTIVE' | 'FEE_DUE' | 'EXPIRING_SOON' | 'ACTIVE_PAID' = 'ACTIVE_PAID';
+                    if (isStudentInactive) {
+                      waCategory = 'INACTIVE';
+                    } else if (hasOverallDue) {
+                      waCategory = 'FEE_DUE';
+                    } else if (isStudentExpiringSoon) {
+                      waCategory = 'EXPIRING_SOON';
+                    } else {
+                      waCategory = 'ACTIVE_PAID';
+                    }
+
                     const dueAmount = student.remainingFee && student.remainingFee > 0 ? student.remainingFee : studentTrueMonthlyRate;
                     const monthPeriod = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
-                    const reminderText = hasOverallDue
-                      ? generateWhatsAppFeeReminderText({
-                          libraryName: libraryName || 'seeLibrary Study Center',
-                          libraryPhone,
-                          studentName: student.fullName,
-                          studentPhone: student.phone,
-                          seatNumber: student.seatNumber,
-                          shift: formatShift(student.shift),
-                          dueAmount,
-                          paidForMonth: monthPeriod,
-                        })
-                      : '';
+                    const reminderText = generateStudentWhatsAppMessage({
+                      libraryName: libraryName || 'seeLibrary Study Center',
+                      libraryPhone,
+                      studentName: student.fullName,
+                      studentPhone: student.phone,
+                      seatNumber: student.seatNumber,
+                      shift: formatShift(student.shift),
+                      dueAmount,
+                      paidForMonth: monthPeriod,
+                      category: waCategory,
+                    });
 
-                    const waHref = hasOverallDue
-                      ? `https://wa.me/91${student.phone.replace(/\D/g, '')}?text=${encodeURIComponent(reminderText)}`
-                      : `https://wa.me/91${student.phone.replace(/\D/g, '')}`;
+                    const waHref = `https://wa.me/91${student.phone.replace(/\D/g, '')}?text=${encodeURIComponent(reminderText)}`;
+
+                    let buttonTitle = `WhatsApp ${student.fullName}`;
+                    if (waCategory === 'INACTIVE') {
+                      buttonTitle = `Send Re-join invitation to ${student.fullName}`;
+                    } else if (waCategory === 'FEE_DUE') {
+                      buttonTitle = `Send Fee Reminder (Due: ₹${dueAmount}) to ${student.fullName}`;
+                    } else if (waCategory === 'EXPIRING_SOON') {
+                      buttonTitle = `Send Renewal Reminder to ${student.fullName}`;
+                    }
 
                     return (
                       <a
                         href={waHref}
                         target="_blank"
                         rel="noopener noreferrer"
-                        title={
-                          hasOverallDue
-                            ? `Send Fee Reminder on WhatsApp (Due: ₹${dueAmount}) to ${student.fullName}`
-                            : `WhatsApp ${student.fullName}`
-                        }
+                        title={buttonTitle}
                         className={`h-7 px-2 rounded-lg border flex items-center gap-1 text-[11px] font-semibold transition-all shadow-2xs active:scale-95 cursor-pointer relative ${
-                          hasOverallDue
+                          waCategory === 'FEE_DUE'
                             ? 'border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 text-amber-700 dark:text-amber-300'
+                            : waCategory === 'EXPIRING_SOON'
+                            ? 'border-orange-300 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/50 hover:bg-orange-100 text-orange-700 dark:text-orange-300'
+                            : waCategory === 'INACTIVE'
+                            ? 'border-indigo-200 dark:border-indigo-800/60 bg-indigo-50/70 dark:bg-indigo-950/40 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300'
                             : 'border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400'
                         }`}
                       >
                         <WhatsAppIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                         <span>WhatsApp</span>
-                        {hasOverallDue && (
+                        {waCategory === 'FEE_DUE' && (
                           <span className="w-2 h-2 rounded-full bg-amber-500 absolute -top-0.5 -right-0.5 ring-2 ring-white dark:ring-[#121212]" />
+                        )}
+                        {waCategory === 'EXPIRING_SOON' && (
+                          <span className="w-2 h-2 rounded-full bg-orange-500 absolute -top-0.5 -right-0.5 ring-2 ring-white dark:ring-[#121212]" />
                         )}
                       </a>
                     );
@@ -903,10 +946,10 @@ export const StudentList: React.FC<StudentListProps> = ({
         })}
 
         {filtered.length > visibleCount && (
-          <div className="pt-2 pb-2 text-center">
+          <div ref={loadMoreSentinelRef} className="pt-2 pb-2 text-center">
             <button
               type="button"
-              onClick={() => setVisibleCount((prev) => prev + 35)}
+              onClick={() => setVisibleCount((prev) => Math.min(prev + 35, filtered.length))}
               className="w-full sm:w-auto px-6 py-2.5 rounded-xl border border-slate-200 dark:border-[#262626] bg-white dark:bg-[#181818] hover:bg-slate-50 dark:hover:bg-[#222222] text-xs font-bold text-slate-700 dark:text-neutral-200 shadow-2xs transition-all cursor-pointer"
             >
               Load More ({filtered.length - visibleCount} more students)
