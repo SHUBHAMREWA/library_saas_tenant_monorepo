@@ -337,6 +337,23 @@ export default function MobileDashboard() {
   const [editingRoom, setEditingRoom] = useState<{ id: string; name: string } | null>(null);
   const [activeRoomMenuId, setActiveRoomMenuId] = useState<string | null>(null);
 
+  // Safe LocalStorage Cache Helper (Prevents QuotaExceededError by omitting heavy transaction histories)
+  const saveLibrariesToStorageSafely = (libs: LibraryBranch[]) => {
+    try {
+      const sanitized = libs.map((l) => ({
+        ...l,
+        feeTransactions: (l.feeTransactions || []).slice(0, 25),
+        students: (l.students || []).map((s) => ({
+          ...s,
+          transactions: (s.transactions || []).slice(0, 2),
+        })),
+      }));
+      localStorage.setItem('seelibrary_libraries', JSON.stringify(sanitized));
+    } catch (e) {
+      console.warn('[Storage] Could not persist libraries cache:', e);
+    }
+  };
+
   // Sync and fetch libraries from PostgreSQL
   const loadUserLibrariesFromDb = async (
     userEmail: string,
@@ -399,9 +416,7 @@ export default function MobileDashboard() {
 
       if (fetchedLibraries && Array.isArray(fetchedLibraries)) {
         setLibraries(fetchedLibraries);
-        try {
-          localStorage.setItem('seelibrary_libraries', JSON.stringify(fetchedLibraries));
-        } catch {}
+        saveLibrariesToStorageSafely(fetchedLibraries);
 
         if (fetchedLibraries.length > 0) {
           const savedActiveId = typeof window !== 'undefined' ? localStorage.getItem('seelibrary_active_lib_id') : null;
@@ -410,9 +425,7 @@ export default function MobileDashboard() {
           try {
             localStorage.setItem('seelibrary_active_lib_id', targetLib.id);
           } catch {}
-          // Automatically fetch child data for the active library
-          fetchLibraryStudents(targetLib.id);
-          fetchLibrarySeats(targetLib.id);
+          // On-demand: Tab listener automatically loads tab-specific data when user visits that tab
         } else {
           setActiveLibraryId(null);
         }
@@ -589,6 +602,20 @@ export default function MobileDashboard() {
     const interval = setInterval(fetchUnreadNotifications, 25000);
     return () => clearInterval(interval);
   }, [currentUser?.email, activeLibrary?.id]);
+
+  // Sync unread notification count with native PWA App Badging API (Device home screen & taskbar badge)
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return;
+    try {
+      if ('setAppBadge' in navigator) {
+        if (unreadNotificationCount > 0) {
+          (navigator as any).setAppBadge(unreadNotificationCount).catch(() => {});
+        } else {
+          (navigator as any).clearAppBadge().catch(() => {});
+        }
+      }
+    } catch {}
+  }, [unreadNotificationCount]);
 
   // Listen for real-time service worker push event & push permission status changes
   useEffect(() => {
@@ -890,9 +917,7 @@ export default function MobileDashboard() {
         }
         return lib;
       });
-      try {
-        localStorage.setItem('seelibrary_libraries', JSON.stringify(updated));
-      } catch {}
+      saveLibrariesToStorageSafely(updated);
       return updated;
     });
   };

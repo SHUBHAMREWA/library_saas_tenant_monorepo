@@ -44,7 +44,7 @@ export async function proxyAdminRequest(req: NextRequest, subpath: string): Prom
       headers: forwardHeaders,
       body: body || undefined,
       cache: 'no-store',
-      signal: AbortSignal.timeout(7000),
+      signal: AbortSignal.timeout(2000),
     });
 
     const data = await res.text();
@@ -66,7 +66,7 @@ export async function proxyAdminRequest(req: NextRequest, subpath: string): Prom
           headers: forwardHeaders,
           body: body || undefined,
           cache: 'no-store',
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(5000),
         });
 
         const fbData = await fbRes.text();

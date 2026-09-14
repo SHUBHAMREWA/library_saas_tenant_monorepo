@@ -32,11 +32,23 @@ export async function handleGetTransactions(req: NextRequest, libraryId: string)
       }
     }
 
+    const { searchParams } = new URL(req.url);
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '150', 10), 1), 500);
+    const month = searchParams.get('month')?.trim();
+
+    const whereClause: any = { libraryId };
+    if (month && month !== 'ALL') {
+      whereClause.paidForMonth = { contains: month, mode: 'insensitive' };
+    }
+
     const transactions = await prisma.studentFeeTransaction.findMany({
-      where: { libraryId },
+      where: whereClause,
+      take: limit,
       include: {
         student: {
-          include: {
+          select: {
+            fullName: true,
+            phone: true,
             seatAssignments: {
               where: { status: 'ACTIVE' },
               include: { seat: true },
