@@ -338,10 +338,18 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white font-bold flex items-center justify-center text-xs shrink-0 overflow-hidden">
                 {currentUser.avatar ? (
-                  <img src={currentUser.avatar} alt={currentUser.fullName} className="w-full h-full object-cover" />
-                ) : (
-                  currentUser.fullName.charAt(0).toUpperCase()
-                )}
+                  <img
+                    src={currentUser.avatar}
+                    alt={currentUser.fullName}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLElement).style.display = 'none';
+                    }}
+                  />
+                ) : null}
+                <span className={currentUser.avatar ? 'hidden' : 'block'}>
+                  {currentUser.fullName?.charAt(0).toUpperCase() || 'U'}
+                </span>
               </div>
               <div className="min-w-0">
                 <h5 className="text-xs font-bold text-slate-900 dark:text-white truncate">{currentUser.fullName}</h5>

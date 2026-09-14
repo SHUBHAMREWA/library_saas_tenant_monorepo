@@ -20,13 +20,17 @@ import {
 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import { FooterShareBar } from './FooterShareBar';
+import { WhatsAppIcon } from './WhatsAppIcon';
 
 interface PublicLandingPageProps {
   onOpenAuth: () => void;
-  onLaunchDemo: () => void;
 }
 
-export function PublicLandingPage({ onOpenAuth, onLaunchDemo }: PublicLandingPageProps) {
+const WHATSAPP_URL = `https://wa.me/917898522932?text=${encodeURIComponent(
+  'Hello seeLibrary! I want to know more about the Library Management System and set up my study library branch.'
+)}`;
+
+export function PublicLandingPage({ onOpenAuth }: PublicLandingPageProps) {
   const { resolvedTheme, toggleTheme } = useTheme();
 
   return (
@@ -77,15 +81,17 @@ export function PublicLandingPage({ onOpenAuth, onLaunchDemo }: PublicLandingPag
           >
             Sign In
           </button>
-          <button
-            type="button"
-            onClick={onLaunchDemo}
-            className="px-2.5 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-white text-[11px] sm:text-xs font-bold rounded-xl shadow-md shadow-indigo-600/20 active:scale-95 transition-all flex items-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+          <a
+            href={WHATSAPP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-2.5 sm:px-4 py-1.5 sm:py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-bold rounded-xl shadow-md shadow-emerald-600/20 active:scale-95 transition-all flex items-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+            title="Chat with us on WhatsApp"
           >
-            <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-200 fill-amber-200" />
-            <span className="hidden sm:inline">1-Click Demo (Without Login)</span>
-            <span className="sm:hidden">1-Click Demo</span>
-          </button>
+            <WhatsAppIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
+            <span className="hidden sm:inline">WhatsApp (+91 78985 22932)</span>
+            <span className="sm:hidden">WhatsApp</span>
+          </a>
         </div>
       </header>
 
@@ -125,14 +131,15 @@ export function PublicLandingPage({ onOpenAuth, onLaunchDemo }: PublicLandingPag
             <ArrowRight className="w-4 h-4" />
           </button>
 
-          <button
-            type="button"
-            onClick={onLaunchDemo}
-            className="w-full sm:w-auto px-6 py-3.5 bg-white dark:bg-slate-800/90 hover:bg-amber-50/50 dark:hover:bg-slate-700/90 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40 font-bold text-sm rounded-2xl transition-all flex items-center justify-center gap-2 shadow-sm dark:shadow-lg dark:shadow-amber-500/10 active:scale-95 cursor-pointer"
+          <a
+            href={WHATSAPP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full sm:w-auto px-6 py-3.5 bg-white dark:bg-slate-800/90 hover:bg-emerald-50/50 dark:hover:bg-slate-700/90 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-500/40 font-bold text-sm rounded-2xl transition-all flex items-center justify-center gap-2 shadow-sm dark:shadow-lg dark:shadow-emerald-500/10 active:scale-95 cursor-pointer"
           >
-            <Sparkles className="w-4 h-4 text-amber-500 dark:text-amber-400" />
-            <span>1-Click Demo</span>
-          </button>
+            <WhatsAppIcon className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Chat on WhatsApp (+91 78985 22932)</span>
+          </a>
         </div>
 
         {/* Free Tier Highlight */}

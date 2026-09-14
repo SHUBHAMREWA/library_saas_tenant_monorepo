@@ -477,16 +477,6 @@ export default function MobileDashboard() {
     }
   };
 
-  const handleLaunchDemo = () => {
-    handleUserLogin({
-      fullName: 'Rahul Sharma',
-      email: 'rahul.owner@seelibrary.io',
-      phone: '9876543210',
-      role: 'OWNER',
-      avatar: 'https://ui-avatars.com/api/?name=Rahul+Sharma&background=4f46e5&color=fff',
-    });
-  };
-
   const handleUserLogout = () => {
     setCurrentUser(null);
     setLibraries([]);
@@ -2025,7 +2015,6 @@ export default function MobileDashboard() {
         <PWACompanion />
         <PublicLandingPage
           onOpenAuth={() => setIsAuthModalOpen(true)}
-          onLaunchDemo={handleLaunchDemo}
         />
 
         {isAuthModalOpen && (
@@ -2222,29 +2211,26 @@ export default function MobileDashboard() {
         <PWACompanion userEmail={currentUser?.email} />
 
         {/* Header */}
-        <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 sm:px-8 py-3.5 flex items-center justify-between transition-colors">
+        <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 sm:px-8 py-2.5 sm:py-3.5 flex items-center justify-between gap-2 transition-colors w-full">
           <button
             type="button"
             onClick={() => handleTabChange('home')}
-            className="flex items-center gap-3 cursor-pointer group text-left"
-            title="Go to Home Dashboard"
+            className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group text-left shrink-0 min-w-0"
+            title="Go to Home"
           >
             <img
               src="/icons/icon-192x192.png"
               alt="seeLibrary Logo"
-              className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl object-contain bg-white shadow-md group-hover:scale-105 border border-slate-200 dark:border-slate-700 transition-transform duration-200"
+              className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl object-contain bg-white shadow-xs group-hover:scale-105 border border-slate-200 dark:border-slate-700 transition-transform duration-200 shrink-0"
             />
-            <div className="flex items-center gap-1.5">
-              <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+            <div className="flex items-center min-w-0">
+              <span className="text-lg sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors whitespace-nowrap">
                 see<span className="text-indigo-600 dark:text-indigo-400">Library</span>
-              </span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30">
-                Dashboard
               </span>
             </div>
           </button>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             {/* Theme Toggle Button */}
             <button
               type="button"
@@ -2256,7 +2242,7 @@ export default function MobileDashboard() {
               {resolvedTheme === 'dark' ? (
                 <Sun className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-400" />
               ) : (
-                <Moon className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+                <Moon className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-indigo-600 dark:text-indigo-400" />
               )}
             </button>
 
@@ -2278,15 +2264,23 @@ export default function MobileDashboard() {
               ) : null}
             </button>
 
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200">
-              <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white font-bold flex items-center justify-center text-xs overflow-hidden">
-                {currentUser.avatar ? (
-                  <img src={currentUser.avatar} alt={currentUser.fullName} className="w-full h-full object-cover" />
-                ) : (
-                  currentUser.fullName.charAt(0)
-                )}
+            <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 sm:py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 shrink-0">
+              <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white font-bold flex items-center justify-center text-xs overflow-hidden shrink-0">
+                {currentUser?.avatar ? (
+                  <img
+                    src={currentUser.avatar}
+                    alt={currentUser.fullName}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLElement).style.display = 'none';
+                    }}
+                  />
+                ) : null}
+                <span className={currentUser?.avatar ? 'hidden' : 'block'}>
+                  {currentUser?.fullName?.charAt(0).toUpperCase() || 'U'}
+                </span>
               </div>
-              <span className="hidden sm:inline font-bold">{currentUser.fullName}</span>
+              <span className="hidden sm:inline font-bold truncate max-w-[120px]">{currentUser?.fullName}</span>
             </div>
 
             {isSuperAdmin && (
@@ -2298,9 +2292,9 @@ export default function MobileDashboard() {
                   } catch {}
                   router.push('/admin');
                 }}
-                className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
+                className="px-2.5 sm:px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-all cursor-pointer shrink-0"
               >
-                <ShieldCheck className="w-4 h-4 text-slate-950" />
+                <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-950" />
                 <span className="hidden sm:inline">Super Admin Portal</span>
                 <span className="sm:hidden">Admin</span>
               </button>
@@ -2309,7 +2303,8 @@ export default function MobileDashboard() {
             <button
               type="button"
               onClick={handleUserLogout}
-              className="text-xs text-rose-500 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300 font-bold px-2.5 py-1.5 rounded-lg hover:bg-rose-500/10 transition-colors flex items-center gap-1 cursor-pointer"
+              className="text-xs text-rose-500 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300 font-bold px-2 sm:px-2.5 py-1.5 rounded-lg hover:bg-rose-500/10 transition-colors flex items-center gap-1 cursor-pointer shrink-0"
+              title="Sign Out"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Sign Out</span>
@@ -2699,10 +2694,18 @@ export default function MobileDashboard() {
               >
                 <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center overflow-hidden shrink-0">
                   {currentUser.avatar ? (
-                    <img src={currentUser.avatar} alt={currentUser.fullName} className="w-full h-full object-cover" />
-                  ) : (
-                    currentUser.fullName.charAt(0)
-                  )}
+                    <img
+                      src={currentUser.avatar}
+                      alt={currentUser.fullName}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  ) : null}
+                  <span className={currentUser.avatar ? 'hidden' : 'block'}>
+                    {currentUser.fullName?.charAt(0).toUpperCase() || 'U'}
+                  </span>
                 </div>
                 <span className="hidden sm:inline font-bold">{currentUser.fullName}</span>
               </button>
