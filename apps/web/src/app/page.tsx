@@ -49,6 +49,7 @@ import type { StudentItem, StudentFeeRecord, StudentFilterTab } from '../compone
 import { DesktopSidebar } from '../components/DesktopSidebar';
 import { QuickCheckHero } from '../components/QuickCheckHero';
 import { FooterShareBar } from '../components/FooterShareBar';
+import { getMonthsDifference } from '@/lib/billing-periods';
 import {
   DashboardSkeleton,
   DashboardChartSkeleton,
@@ -840,26 +841,53 @@ export default function MobileDashboard() {
     }
   };
 
-  // On-demand tab-specific data synchronization (only fetch data for the active tab!)
+  // Fast parallel data fetching across tabs
   useEffect(() => {
     if (!activeLibrary?.id) return;
     const libId = activeLibrary.id;
 
-    if (activeTab === 'students') {
-      fetchLibraryStudents(libId);
-    } else if (activeTab === 'seats') {
+    if (activeTab === 'seats') {
+      // Fetch seats and simultaneously fetch students in parallel
       fetchLibrarySeats(libId);
+      fetchLibraryStudents(libId);
+    } else if (activeTab === 'students') {
+      fetchLibraryStudents(libId);
+      if (!activeLibrary.seats || activeLibrary.seats.length === 0) {
+        fetchLibrarySeats(libId);
+      }
     } else if (activeTab === 'transactions') {
       fetchLibraryTransactions(libId);
+      if (!activeLibrary.students || activeLibrary.students.length === 0) {
+        fetchLibraryStudents(libId);
+      }
+    } else if (activeTab === 'home') {
+      // Pre-warm seats and students in parallel in background
+      if (!activeLibrary.seats || activeLibrary.seats.length === 0) {
+        fetchLibrarySeats(libId);
+      }
+      if (!activeLibrary.students || activeLibrary.students.length === 0) {
+        fetchLibraryStudents(libId);
+      }
     }
   }, [activeTab, activeLibrary?.id, hasActiveSubscription]);
 
-  // On-demand modal triggers: if user opens student/seat/collect fee modal, ensure relevant data is ready
+  // When active library changes or initializes, immediately fetch seats & students in parallel
+  useEffect(() => {
+    if (!activeLibrary?.id) return;
+    const libId = activeLibrary.id;
+    fetchLibrarySeats(libId);
+    fetchLibraryStudents(libId);
+  }, [activeLibrary?.id]);
+
+  // On-demand modal triggers: if user opens student/seat/collect fee modal, ensure both seats and students are loaded
   useEffect(() => {
     if (!activeLibrary?.id) return;
     if (isStudentModalOpen || Boolean(selectedSeatForAssignment)) {
       if (!activeLibrary.seats || activeLibrary.seats.length === 0) {
         fetchLibrarySeats(activeLibrary.id);
+      }
+      if (!activeLibrary.students || activeLibrary.students.length === 0) {
+        fetchLibraryStudents(activeLibrary.id);
       }
     }
   }, [isStudentModalOpen, selectedSeatForAssignment, activeLibrary?.id]);
@@ -869,6 +897,9 @@ export default function MobileDashboard() {
     if (isCollectFeeModalOpen) {
       if (!activeLibrary.students || activeLibrary.students.length === 0) {
         fetchLibraryStudents(activeLibrary.id);
+      }
+      if (!activeLibrary.seats || activeLibrary.seats.length === 0) {
+        fetchLibrarySeats(activeLibrary.id);
       }
     }
   }, [isCollectFeeModalOpen, activeLibrary?.id]);
@@ -1990,10 +2021,16 @@ export default function MobileDashboard() {
       const updatedStudents = lib.students.map((s) => {
         if (s.id === paymentData.studentId) {
           const currentDays = Math.max(0, s.membershipEndsInDays || 0);
-          const updatedMonthlyFee = paymentData.totalFee !== undefined && Number(paymentData.totalFee) > 0
+          const txMonths = (paymentData.validFrom && paymentData.validTo)
+            ? getMonthsDifference(paymentData.validFrom, paymentData.validTo)
+            : 1;
+          const rawTotal = paymentData.totalFee !== undefined && Number(paymentData.totalFee) > 0
             ? Number(paymentData.totalFee)
             : paymentData.amount > 0
             ? Number(paymentData.amount)
+            : 0;
+          const updatedMonthlyFee = rawTotal > 0
+            ? Math.round(rawTotal / (txMonths || 1))
             : (s.monthlyFee || s.totalFee || 0);
 
           // Update prior partial transactions for this student/month
@@ -3919,6 +3956,12 @@ export default function MobileDashboard() {
                   transactions={activeLibrary.feeTransactions || []}
                   libraryName={activeLibrary.name}
                   libraryPhone={activeLibrary.contactPhone}
+                  isRefreshing={isLoadingTransactions}
+                  onRefresh={async () => {
+                    if (activeLibrary?.id) {
+                      await fetchLibraryTransactions(activeLibrary.id);
+                    }
+                  }}
                   onViewReceipt={(tx) => setSelectedReceiptTx(tx)}
                   onOpenCollectFee={() => {
                     requireSubscription('Collect Fees', () => {
@@ -4251,6 +4294,7 @@ export default function MobileDashboard() {
           }}
           seat={selectedSeatForAssignment}
           students={students}
+          isLoadingStudents={isLoadingStudents}
           initialShift={preselectedShiftForAssignment}
           onAssign={async (studentId, seatNumber, shift, isReserved) => {
             await handleAssignSeat(studentId, seatNumber, shift, isReserved);

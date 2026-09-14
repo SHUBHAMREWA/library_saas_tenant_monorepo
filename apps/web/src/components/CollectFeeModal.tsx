@@ -61,8 +61,9 @@ export const getStudentAgreedRate = (std?: StudentItem | null): number => {
   if (!std) return 0;
   const txs = std.transactions || [];
   for (const tx of txs) {
-    if (tx.totalFee && Number(tx.totalFee) > 0) return Number(tx.totalFee);
-    if (tx.amount && Number(tx.amount) > 0) return Number(tx.amount);
+    const months = (tx.validFrom && tx.validTo) ? getMonthsDifference(tx.validFrom, tx.validTo) : 1;
+    if (tx.totalFee && Number(tx.totalFee) > 0) return Math.round(Number(tx.totalFee) / (months || 1));
+    if (tx.amount && Number(tx.amount) > 0) return Math.round(Number(tx.amount) / (months || 1));
   }
   if (std.monthlyFee && Number(std.monthlyFee) > 0) return Number(std.monthlyFee);
   if (std.totalFee && Number(std.totalFee) > 0) return Number(std.totalFee);

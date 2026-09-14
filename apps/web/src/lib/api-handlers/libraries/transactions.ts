@@ -169,9 +169,16 @@ export async function handleCreateTransaction(req: NextRequest, libraryId: strin
     const receiptNumber = `REC-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
     const parsedPaymentDate = paymentDate ? new Date(paymentDate) : new Date();
 
+    const parsedStart = validFrom ? new Date(validFrom) : parsedPaymentDate;
+    const parsedEnd = validTo ? new Date(validTo) : new Date(parsedStart.getTime() + 30 * 86400000);
+    const txMonths = (validFrom && validTo)
+      ? Math.max(1, Math.round((new Date(validTo).getTime() - new Date(validFrom).getTime()) / (1000 * 60 * 60 * 24 * 30)))
+      : 1;
+    const singleMonthFee = totalFee !== undefined && Number(totalFee) > 0
+      ? Math.round(Number(totalFee) / (txMonths || 1))
+      : Number(amount);
+
     if (!activeMembership) {
-      const parsedStart = validFrom ? new Date(validFrom) : parsedPaymentDate;
-      const parsedEnd = validTo ? new Date(validTo) : new Date(parsedStart.getTime() + 30 * 86400000);
       activeMembership = await prisma.membership.create({
         data: {
           id: crypto.randomUUID(),
@@ -180,7 +187,7 @@ export async function handleCreateTransaction(req: NextRequest, libraryId: strin
           startDate: parsedStart,
           expectedEndDate: parsedEnd,
           status: 'ACTIVE',
-          feeAmount: totalFee !== undefined ? Number(totalFee) : Number(amount),
+          feeAmount: singleMonthFee,
           shift: (shift || 'FULL_DAY') as any,
         },
       });
@@ -274,8 +281,8 @@ export async function handleCreateTransaction(req: NextRequest, libraryId: strin
       }
 
       const effectiveFeeAmount = isSettlingDue
-        ? Number(activeMembership.feeAmount || totalFee || amount)
-        : (totalFee !== undefined && Number(totalFee) > 0 ? Number(totalFee) : Number(amount));
+        ? Number(activeMembership.feeAmount || singleMonthFee)
+        : singleMonthFee;
 
       await prisma.membership.update({
         where: { id: activeMembership.id },

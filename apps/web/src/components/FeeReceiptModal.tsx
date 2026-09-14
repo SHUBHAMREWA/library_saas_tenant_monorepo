@@ -18,6 +18,17 @@ import { StudentFeeRecord } from './StudentList';
 import { WhatsAppIcon } from './WhatsAppIcon';
 import { generateWhatsAppReceiptText, openWhatsApp } from '@/lib/receipt-utils';
 
+function formatFriendlyDate(dateStr?: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
 interface FeeReceiptModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -194,14 +205,14 @@ export const FeeReceiptModal: React.FC<FeeReceiptModalProps> = ({
             </div>
 
             {/* Period / Validity Range if present */}
-            <div className="flex items-center justify-between text-xs py-1.5 px-3 bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 rounded-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs py-2 px-3 bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 rounded-xl">
               <span className="text-[11px] font-semibold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
                 <span>Paid For: {transaction.paidForMonth}</span>
               </span>
               {transaction.validFrom && transaction.validTo && (
                 <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
-                  {transaction.validFrom} to {transaction.validTo}
+                  Validity: {formatFriendlyDate(transaction.validFrom)} – {formatFriendlyDate(transaction.validTo)}
                 </span>
               )}
             </div>

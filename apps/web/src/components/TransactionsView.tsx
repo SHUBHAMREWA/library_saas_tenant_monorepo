@@ -14,6 +14,7 @@ import {
   Filter,
   CheckCircle2,
   TrendingUp,
+  RefreshCw,
 } from 'lucide-react';
 import { StudentFeeRecord } from './StudentList';
 import { WhatsAppIcon } from './WhatsAppIcon';
@@ -27,6 +28,8 @@ interface TransactionsViewProps {
   onViewReceipt?: (transaction: StudentFeeRecord) => void;
   libraryName?: string;
   libraryPhone?: string;
+  isRefreshing?: boolean;
+  onRefresh?: () => Promise<void> | void;
 }
 
 const MONTH_NAMES = [
@@ -62,6 +65,8 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   onViewReceipt,
   libraryName = 'seeLibrary Study Center',
   libraryPhone,
+  isRefreshing,
+  onRefresh,
 }) => {
   const currentYearStr = new Date().getFullYear().toString();
   const currentMonthName = new Date().toLocaleString('en-US', { month: 'long' });
@@ -71,6 +76,19 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthName);
   const [selectedMode, setSelectedMode] = useState<string>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
+  const [localRefreshing, setLocalRefreshing] = useState(false);
+
+  const handleRefreshClick = async () => {
+    if (!onRefresh || isRefreshing || localRefreshing) return;
+    setLocalRefreshing(true);
+    try {
+      await onRefresh();
+    } catch (err) {
+      console.error('Failed to refresh transactions:', err);
+    } finally {
+      setLocalRefreshing(false);
+    }
+  };
 
   // Derive unique years available in transactions (spanning 2024 to 2050)
   const availableYears = useMemo(() => {
@@ -105,8 +123,25 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   }, []);
 
   const thisMonthRevenue = useMemo(() => {
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonthIdx = now.getMonth();
+    const monthStart = new Date(curYear, curMonthIdx, 1, 0, 0, 0, 0);
+    const monthEnd = new Date(curYear, curMonthIdx + 1, 0, 23, 59, 59, 999);
+
     return transactions
       .filter((t) => {
+        if (t.paymentDate) {
+          const pDate = new Date(t.paymentDate);
+          if (pDate.getFullYear() === curYear && pDate.getMonth() === curMonthIdx) return true;
+        }
+        if (t.validFrom) {
+          const vFrom = new Date(t.validFrom);
+          const vTo = t.validTo ? new Date(t.validTo) : new Date(vFrom.getFullYear(), vFrom.getMonth() + 1, 0, 23, 59, 59, 999);
+          if (!isNaN(vFrom.getTime()) && !isNaN(vTo.getTime())) {
+            if (vFrom <= monthEnd && vTo >= monthStart) return true;
+          }
+        }
         const periodStr = t.paidForMonth || (t.validFrom && t.validTo ? formatMonthPeriod(t.validFrom, t.validTo) : '');
         return periodStr === currentMonthStr || t.paidForMonth === currentMonthStr;
       })
@@ -165,7 +200,19 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
       if (selectedMonth !== 'ALL' && !cleanSearch) {
         const pMatch = t.paidForMonth && t.paidForMonth.toLowerCase().includes(selectedMonth.toLowerCase());
         const dMatch = t.paymentDate && new Date(t.paymentDate).toLocaleString('en-US', { month: 'long' }).toLowerCase() === selectedMonth.toLowerCase();
-        matchesMonth = Boolean(pMatch || dMatch);
+        let vMatch = false;
+        if (t.validFrom) {
+          const vFrom = new Date(t.validFrom);
+          const vTo = t.validTo ? new Date(t.validTo) : new Date(vFrom.getFullYear(), vFrom.getMonth() + 1, 0, 23, 59, 59, 999);
+          const targetYearNum = selectedYear !== 'ALL' ? parseInt(selectedYear, 10) : vFrom.getFullYear();
+          const mIdx = MONTH_NAMES.findIndex((m) => m.toLowerCase() === selectedMonth.toLowerCase());
+          if (mIdx !== -1 && !isNaN(vFrom.getTime()) && !isNaN(vTo.getTime())) {
+            const mStart = new Date(targetYearNum, mIdx, 1, 0, 0, 0, 0);
+            const mEnd = new Date(targetYearNum, mIdx + 1, 0, 23, 59, 59, 999);
+            vMatch = vFrom <= mEnd && vTo >= mStart;
+          }
+        }
+        matchesMonth = Boolean(pMatch || dMatch || vMatch);
       }
 
       const matchesMode = selectedMode === 'ALL' || t.paymentMode.toUpperCase() === selectedMode.toUpperCase();
@@ -201,14 +248,29 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={onOpenCollectFee}
-          className="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>+ Record Fee Payment</span>
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={handleRefreshClick}
+              disabled={isRefreshing || localRefreshing}
+              className="bg-white dark:bg-[#1c1c1e] hover:bg-slate-50 dark:hover:bg-[#262626] active:bg-slate-100 text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 shrink-0 shadow-xs cursor-pointer transition-colors disabled:opacity-60"
+              title="Refresh latest fee transactions from database"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 ${(isRefreshing || localRefreshing) ? 'animate-spin' : ''}`} />
+              <span>{(isRefreshing || localRefreshing) ? 'Refreshing...' : 'Refresh'}</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={onOpenCollectFee}
+            className="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Record Fee Payment</span>
+          </button>
+        </div>
       </div>
 
       {/* Metric Summary Cards */}
@@ -513,14 +575,27 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 ? 'No fee payment records match your active search filter.'
                 : 'Log student membership fee payments to start tracking library collections and monthly revenue history.'}
             </p>
-            <button
-              type="button"
-              onClick={onOpenCollectFee}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Record Fee Payment</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {onRefresh && (
+                <button
+                  type="button"
+                  onClick={handleRefreshClick}
+                  disabled={isRefreshing || localRefreshing}
+                  className="px-4 py-2 bg-slate-100 dark:bg-[#1f1f1f] hover:bg-slate-200 dark:hover:bg-[#2a2a2a] text-slate-700 dark:text-neutral-200 rounded-xl text-xs font-semibold shadow-xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 ${(isRefreshing || localRefreshing) ? 'animate-spin' : ''}`} />
+                  <span>{(isRefreshing || localRefreshing) ? 'Refreshing...' : 'Refresh Data'}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onOpenCollectFee}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Record Fee Payment</span>
+              </button>
+            </div>
           </div>
         )}
       </div>

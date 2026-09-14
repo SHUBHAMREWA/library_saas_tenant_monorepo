@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { Phone, Search, Armchair, Shield, Check, Clock, Plus, Bell, Calendar, Filter, RefreshCw } from 'lucide-react';
 import { WhatsAppIcon } from './WhatsAppIcon';
 import { generateStudentWhatsAppMessage, generateWhatsAppFeeReminderText } from '@/lib/receipt-utils';
-import { formatMonthPeriod } from '@/lib/billing-periods';
+import { formatMonthPeriod, getMonthsDifference } from '@/lib/billing-periods';
 
 export interface StudentFeeRecord {
   id: string;
@@ -104,12 +104,17 @@ export function getStudentMonthPaymentInfo(
 
     if (tx.validFrom) {
       const vFrom = new Date(tx.validFrom);
-      if (!isNaN(vFrom.getTime())) {
-        const vMonthName = vFrom.toLocaleString('en-US', { month: 'long' });
-        const vYearStr = vFrom.getFullYear().toString();
-        const monthMatch = vMonthName.toLowerCase() === selectedMonth.toLowerCase();
-        const yearMatch = selectedYear === 'ALL' || vYearStr === selectedYear;
-        if (monthMatch && yearMatch) return true;
+      const vTo = tx.validTo ? new Date(tx.validTo) : new Date(vFrom.getFullYear(), vFrom.getMonth() + 1, 0, 23, 59, 59, 999);
+      if (!isNaN(vFrom.getTime()) && !isNaN(vTo.getTime())) {
+        const targetYearNum = selectedYear !== 'ALL' ? parseInt(selectedYear, 10) : vFrom.getFullYear();
+        const mIdx = MONTH_NAMES.findIndex((m) => m.toLowerCase() === selectedMonth.toLowerCase());
+        if (mIdx !== -1) {
+          const monthStart = new Date(targetYearNum, mIdx, 1, 0, 0, 0, 0);
+          const monthEnd = new Date(targetYearNum, mIdx + 1, 0, 23, 59, 59, 999);
+          if (vFrom <= monthEnd && vTo >= monthStart) {
+            return true;
+          }
+        }
       }
     }
 
@@ -156,35 +161,26 @@ export function getStudentMonthPaymentInfo(
     };
   }
 
-  // Find max totalFee across these transactions
+  // Find max totalFee across these transactions (for single month or divided by duration)
   let maxTxTotalFee = 0;
   monthTxs.forEach((tx) => {
-    if (tx.totalFee && Number(tx.totalFee) > maxTxTotalFee) {
-      maxTxTotalFee = Number(tx.totalFee);
+    const txM = (tx.validFrom && tx.validTo) ? getMonthsDifference(tx.validFrom, tx.validTo) : 1;
+    if (tx.totalFee && Number(tx.totalFee) > 0) {
+      const perM = Math.round(Number(tx.totalFee) / (txM || 1));
+      if (perM > maxTxTotalFee) maxTxTotalFee = perM;
     }
-  });
-
-  // Calculate highest historical month sum across all transactions of student
-  const allMonthsSum = new Map<string, number>();
-  (student.transactions || []).forEach((tx) => {
-    const k = tx.paidForMonth?.trim().toLowerCase() || '';
-    allMonthsSum.set(k, (allMonthsSum.get(k) || 0) + Number(tx.amount || 0));
-    if (tx.totalFee && Number(tx.totalFee) > maxTxTotalFee) {
-      maxTxTotalFee = Math.max(maxTxTotalFee, Number(tx.totalFee));
-    }
-  });
-  let highestEverMonth = 0;
-  allMonthsSum.forEach((v) => {
-    if (v > highestEverMonth) highestEverMonth = v;
   });
 
   // Base monthly agreed plan rate
   const latestTx = (student.transactions || [])[0];
+  const txMonths = (latestTx?.validFrom && latestTx?.validTo)
+    ? getMonthsDifference(latestTx.validFrom, latestTx.validTo)
+    : 1;
   const studentBaseMonthlyRate =
     (latestTx?.totalFee && Number(latestTx.totalFee) > 0)
-      ? Number(latestTx.totalFee)
+      ? Math.round(Number(latestTx.totalFee) / (txMonths || 1))
       : (latestTx?.amount && Number(latestTx.amount) > 0)
-      ? Number(latestTx.amount)
+      ? Math.round(Number(latestTx.amount) / (txMonths || 1))
       : (student.monthlyFee && Number(student.monthlyFee) > 0)
       ? Number(student.monthlyFee)
       : (student.totalFee && Number(student.totalFee) > 0)

@@ -48,6 +48,7 @@ import {
   openWhatsApp,
 } from '@/lib/receipt-utils';
 import { CameraCaptureModal } from './CameraCaptureModal';
+import { getMonthsDifference } from '@/lib/billing-periods';
 
 function formatFriendlyDate(dateStr?: string): string {
   if (!dateStr) return '';
@@ -202,8 +203,14 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   const computedMonthlyRate = useMemo(() => {
     if (!student) return 0;
     const latestTx = student.transactions?.[0];
-    if (latestTx?.totalFee && Number(latestTx.totalFee) > 0) return Number(latestTx.totalFee);
-    if (latestTx?.amount && Number(latestTx.amount) > 0) return Number(latestTx.amount);
+    if (latestTx?.totalFee && Number(latestTx.totalFee) > 0) {
+      const months = (latestTx.validFrom && latestTx.validTo) ? getMonthsDifference(latestTx.validFrom, latestTx.validTo) : 1;
+      return Math.round(Number(latestTx.totalFee) / (months || 1));
+    }
+    if (latestTx?.amount && Number(latestTx.amount) > 0) {
+      const months = (latestTx.validFrom && latestTx.validTo) ? getMonthsDifference(latestTx.validFrom, latestTx.validTo) : 1;
+      return Math.round(Number(latestTx.amount) / (months || 1));
+    }
     if (student.monthlyFee && Number(student.monthlyFee) > 0) return Number(student.monthlyFee);
     if (student.totalFee && Number(student.totalFee) > 0) return Number(student.totalFee);
     return 0; // No default — student must be enrolled+fee paid first
@@ -335,13 +342,17 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
       const isFutureMonth = targetYearNum > currentCalYear || (targetYearNum === currentCalYear && mIdx > currentCalMonthIdx);
       const isPastMonth = targetYearNum < currentCalYear || (targetYearNum === currentCalYear && mIdx < currentCalMonthIdx);
 
-      // Search all transactions for this student matching this start month and year
+      const monthStart = new Date(targetYearNum, mIdx, 1, 0, 0, 0, 0);
+      const monthEnd = new Date(targetYearNum, mIdx + 1, 0, 23, 59, 59, 999);
+
+      // Search all transactions for this student matching or overlapping this month
       const matchingTxs = (student.transactions || []).filter((tx) => {
-        // If validFrom is specified, transaction strictly belongs to validFrom's start month & year
+        // If validFrom is specified, check date range overlap with this month
         if (tx.validFrom) {
           const vFrom = new Date(tx.validFrom);
-          if (!isNaN(vFrom.getTime())) {
-            return vFrom.getFullYear() === targetYearNum && vFrom.getMonth() === mIdx;
+          const vTo = tx.validTo ? new Date(tx.validTo) : new Date(vFrom.getFullYear(), vFrom.getMonth() + 1, 0, 23, 59, 59, 999);
+          if (!isNaN(vFrom.getTime()) && !isNaN(vTo.getTime())) {
+            return vFrom <= monthEnd && vTo >= monthStart;
           }
         }
 
