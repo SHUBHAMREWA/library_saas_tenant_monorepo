@@ -15,7 +15,7 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser?: { fullName: string; email: string; phone: string; role: string; avatar?: string } | null;
-  onLoginSuccess: (user: { fullName: string; email: string; phone: string; role: string; avatar?: string }) => void;
+  onLoginSuccess: (user: { fullName: string; email: string; phone: string; role: string; avatar?: string }) => void | Promise<void>;
   onLogout?: () => void;
 }
 
@@ -86,7 +86,7 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
       const avatar = payload?.picture;
       const role = await resolveRole(userEmail, fullName, avatar);
 
-      onLoginSuccess({
+      await onLoginSuccess({
         fullName,
         email: userEmail,
         phone: '',
@@ -122,7 +122,7 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
                 const avatar = user.picture;
                 const role = await resolveRole(userEmail, fullName, avatar);
 
-                onLoginSuccess({
+                await onLoginSuccess({
                   fullName,
                   email: userEmail,
                   phone: '',
@@ -295,7 +295,7 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
       }
 
       const user = data.user;
-      onLoginSuccess({
+      await onLoginSuccess({
         fullName: user.fullName || userName || cleanEmail.split('@')[0],
         email: user.email || cleanEmail,
         phone: user.phone || '',
@@ -308,7 +308,7 @@ export function AuthModal({ isOpen, onClose, currentUser, onLoginSuccess, onLogo
       if (cleanOtp === '123456') {
         const name = userName.trim() || cleanEmail.split('@')[0];
         const role = await resolveRole(cleanEmail, name);
-        onLoginSuccess({
+        await onLoginSuccess({
           fullName: name,
           email: cleanEmail,
           phone: '',

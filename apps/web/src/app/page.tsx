@@ -188,6 +188,19 @@ export interface LibraryBranch {
   feeTransactions?: StudentFeeRecord[];
   createdAt: string;
   hasActiveSubscription?: boolean;
+  stats?: {
+    totalSeats: number;
+    occupiedSeats: number;
+    availableSeats: number;
+    occupancyPercentage: number;
+    totalStudents: number;
+    activeStudents: number;
+    unassignedStudents: number;
+    thisMonthFeeCollected: number;
+    totalPendingDuesAmount: number;
+    studentsWithDuesCount: number;
+    expiringSoonCount: number;
+  };
   subscription?: {
     id: string;
     planCode: string;
@@ -415,19 +428,44 @@ export default function MobileDashboard() {
       }
 
       if (fetchedLibraries && Array.isArray(fetchedLibraries)) {
-        setLibraries(fetchedLibraries);
-        saveLibrariesToStorageSafely(fetchedLibraries);
-
         if (fetchedLibraries.length > 0) {
+          setLibraries(fetchedLibraries);
+          saveLibrariesToStorageSafely(fetchedLibraries);
+
           const savedActiveId = typeof window !== 'undefined' ? localStorage.getItem('seelibrary_active_lib_id') : null;
           const targetLib = (savedActiveId && fetchedLibraries.find((l: any) => l.id === savedActiveId)) || fetchedLibraries[0];
           setActiveLibraryId(targetLib.id);
           try {
             localStorage.setItem('seelibrary_active_lib_id', targetLib.id);
           } catch {}
-          // On-demand: Tab listener automatically loads tab-specific data when user visits that tab
         } else {
-          setActiveLibraryId(null);
+          // If server returned 0 libraries, verify if local cache has valid libraries before clearing state
+          const savedLibs = typeof window !== 'undefined' ? localStorage.getItem('seelibrary_libraries') : null;
+          let parsed: any[] = [];
+          try { parsed = savedLibs ? JSON.parse(savedLibs) : []; } catch {}
+          if (parsed.length > 0) {
+            setLibraries(parsed);
+            const savedActiveId = typeof window !== 'undefined' ? localStorage.getItem('seelibrary_active_lib_id') : null;
+            const target = (savedActiveId && parsed.find((l: any) => l.id === savedActiveId)) || parsed[0];
+            setActiveLibraryId(target.id);
+          } else {
+            setLibraries([]);
+            setActiveLibraryId(null);
+          }
+        }
+      } else {
+        // In case of network error or server timeout, fallback to cached libraries
+        const savedLibs = typeof window !== 'undefined' ? localStorage.getItem('seelibrary_libraries') : null;
+        if (savedLibs) {
+          try {
+            const parsed = JSON.parse(savedLibs);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setLibraries(parsed);
+              const savedActiveId = typeof window !== 'undefined' ? localStorage.getItem('seelibrary_active_lib_id') : null;
+              const target = (savedActiveId && parsed.find((l: any) => l.id === savedActiveId)) || parsed[0];
+              setActiveLibraryId(target.id);
+            }
+          } catch {}
         }
       }
     } catch (err) {
@@ -440,6 +478,20 @@ export default function MobileDashboard() {
   useEffect(() => {
     setMounted(true);
     try {
+      // 1. Immediately hydrate cached libraries on mount for instant dashboard rendering
+      const savedLibs = localStorage.getItem('seelibrary_libraries');
+      if (savedLibs) {
+        try {
+          const parsedLibs = JSON.parse(savedLibs);
+          if (Array.isArray(parsedLibs) && parsedLibs.length > 0) {
+            setLibraries(parsedLibs);
+            const savedActiveId = localStorage.getItem('seelibrary_active_lib_id');
+            const targetLib = (savedActiveId && parsedLibs.find((l: any) => l.id === savedActiveId)) || parsedLibs[0];
+            setActiveLibraryId(targetLib.id);
+          }
+        } catch {}
+      }
+
       const savedUser = localStorage.getItem('seelibrary_user') || localStorage.getItem('quickcheck_user');
 
       let parsedUser = null;
@@ -472,6 +524,20 @@ export default function MobileDashboard() {
     setIsSyncingData(true);
     try {
       localStorage.setItem('seelibrary_user', JSON.stringify(user));
+    } catch {}
+
+    // Check if there are cached libraries in localStorage for immediate rendering
+    try {
+      const savedLibs = localStorage.getItem('seelibrary_libraries');
+      if (savedLibs) {
+        const parsedLibs = JSON.parse(savedLibs);
+        if (Array.isArray(parsedLibs) && parsedLibs.length > 0) {
+          setLibraries(parsedLibs);
+          const savedActiveId = localStorage.getItem('seelibrary_active_lib_id');
+          const targetLib = (savedActiveId && parsedLibs.find((l: any) => l.id === savedActiveId)) || parsedLibs[0];
+          setActiveLibraryId(targetLib.id);
+        }
+      }
     } catch {}
 
     // Automatically load libraries for this user from database
@@ -673,9 +739,47 @@ export default function MobileDashboard() {
     }
   };
 
-  // Tab-specific modular fetchers
+  // Tab-specific loading state indicators
+  const [isLoadingStudents, setIsLoadingStudents] = useState(false);
+  const [isLoadingSeats, setIsLoadingSeats] = useState(false);
+  const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
+
+  // Mutator for specific library by ID (thread-safe for on-demand fetchers)
+  const updateLibraryById = (targetLibId: string, updater: (prevLib: LibraryBranch) => LibraryBranch) => {
+    if (!targetLibId) return;
+    setLibraries((prev) => {
+      const updated = prev.map((lib) => {
+        if (lib.id === targetLibId) {
+          const res = updater(lib);
+          if (res.seats && Array.isArray(res.seats)) {
+            const seen = new Set<string>();
+            res.seats = res.seats.filter((s) => {
+              const k = `${s.roomId || ''}_${(s.rowName || '').toLowerCase().trim()}_${(s.seatNumber || '').toLowerCase().trim()}`;
+              if (seen.has(k)) return false;
+              seen.add(k);
+              return true;
+            }).sort((a, b) =>
+              a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' })
+            );
+          }
+          return res;
+        }
+        return lib;
+      });
+      saveLibrariesToStorageSafely(updated);
+      return updated;
+    });
+  };
+
+  const updateActiveLibrary = (updater: (prevLib: LibraryBranch) => LibraryBranch) => {
+    if (!activeLibrary?.id) return;
+    updateLibraryById(activeLibrary.id, updater);
+  };
+
+  // Tab-specific modular on-demand fetchers (ONLY fetches data for the requested library)
   const fetchLibraryStudents = async (libraryId: string) => {
     if (!libraryId) return;
+    setIsLoadingStudents(true);
     try {
       const res = await fetch(`/api/libraries/${libraryId}/students`, {
         headers: currentUser?.email ? { 'x-user-email': currentUser.email } : {},
@@ -683,7 +787,7 @@ export default function MobileDashboard() {
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.students)) {
-          updateActiveLibrary((prev) => ({
+          updateLibraryById(libraryId, (prev) => ({
             ...prev,
             students: data.students,
           }));
@@ -691,11 +795,14 @@ export default function MobileDashboard() {
       }
     } catch (err) {
       console.warn('Failed to fetch students for library:', err);
+    } finally {
+      setIsLoadingStudents(false);
     }
   };
 
   const fetchLibrarySeats = async (libraryId: string) => {
     if (!libraryId) return;
+    setIsLoadingSeats(true);
     try {
       const res = await fetch(`/api/libraries/${libraryId}/seats`, {
         headers: currentUser?.email ? { 'x-user-email': currentUser.email } : {},
@@ -703,7 +810,7 @@ export default function MobileDashboard() {
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
-          updateActiveLibrary((prev) => ({
+          updateLibraryById(libraryId, (prev) => ({
             ...prev,
             rooms: Array.isArray(data.rooms) ? data.rooms : prev.rooms,
             seats: Array.isArray(data.seats) ? data.seats : prev.seats,
@@ -712,11 +819,14 @@ export default function MobileDashboard() {
       }
     } catch (err) {
       console.warn('Failed to fetch seats for library:', err);
+    } finally {
+      setIsLoadingSeats(false);
     }
   };
 
   const fetchLibraryTransactions = async (libraryId: string) => {
     if (!libraryId || !hasActiveSubscription) return;
+    setIsLoadingTransactions(true);
     try {
       const res = await fetch(`/api/libraries/${libraryId}/transactions`, {
         headers: currentUser?.email ? { 'x-user-email': currentUser.email } : {},
@@ -724,7 +834,7 @@ export default function MobileDashboard() {
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.transactions)) {
-          updateActiveLibrary((prev) => ({
+          updateLibraryById(libraryId, (prev) => ({
             ...prev,
             feeTransactions: data.transactions,
           }));
@@ -732,10 +842,12 @@ export default function MobileDashboard() {
       }
     } catch (err) {
       console.warn('Failed to fetch transactions for library:', err);
+    } finally {
+      setIsLoadingTransactions(false);
     }
   };
 
-  // On-demand tab-specific data synchronization (only fetch data for the current tab!)
+  // On-demand tab-specific data synchronization (only fetch data for the active tab!)
   useEffect(() => {
     if (!activeLibrary?.id) return;
     const libId = activeLibrary.id;
@@ -748,6 +860,25 @@ export default function MobileDashboard() {
       fetchLibraryTransactions(libId);
     }
   }, [activeTab, activeLibrary?.id, hasActiveSubscription]);
+
+  // On-demand modal triggers: if user opens student/seat/collect fee modal, ensure relevant data is ready
+  useEffect(() => {
+    if (!activeLibrary?.id) return;
+    if (isStudentModalOpen || Boolean(selectedSeatForAssignment)) {
+      if (!activeLibrary.seats || activeLibrary.seats.length === 0) {
+        fetchLibrarySeats(activeLibrary.id);
+      }
+    }
+  }, [isStudentModalOpen, selectedSeatForAssignment, activeLibrary?.id]);
+
+  useEffect(() => {
+    if (!activeLibrary?.id) return;
+    if (isCollectFeeModalOpen) {
+      if (!activeLibrary.students || activeLibrary.students.length === 0) {
+        fetchLibraryStudents(activeLibrary.id);
+      }
+    }
+  }, [isCollectFeeModalOpen, activeLibrary?.id]);
 
   // Active library child entities
   const rawSeats = activeLibrary ? activeLibrary.seats : [];
@@ -859,16 +990,35 @@ export default function MobileDashboard() {
   const currentRoomSeats = currentSelectedRoom ? getSeatsForRoom(currentSelectedRoom) : [];
   const currentRoomOccupied = currentRoomSeats.filter((s) => s.status === 'OCCUPIED').length;
 
-  // Metrics computed purely on real data
-  const totalSeats = seats.length;
-  const occupiedCount = seats.filter((s) => s.status === 'OCCUPIED').length;
-  const availableCount = seats.filter((s) => s.status === 'AVAILABLE').length;
-  const occupancyPercentage = totalSeats > 0 ? Math.round((occupiedCount / totalSeats) * 100) : 0;
-  const expiringSoonCount = students.filter((s) => Boolean(s.seatNumber) && s.membershipEndsInDays <= 5 && s.status === 'ACTIVE').length;
+  // Metrics computed purely on real data with fallback to lightweight activeLibrary.stats for instant dashboard rendering
+  const totalSeats = seats.length > 0 ? seats.length : (activeLibrary?.stats?.totalSeats ?? 0);
+  const occupiedCount = seats.length > 0
+    ? seats.filter((s) => s.status === 'OCCUPIED').length
+    : (activeLibrary?.stats?.occupiedSeats ?? 0);
+  const availableCount = seats.length > 0
+    ? seats.filter((s) => s.status === 'AVAILABLE').length
+    : (activeLibrary?.stats?.availableSeats ?? Math.max(0, totalSeats - occupiedCount));
+  const occupancyPercentage = totalSeats > 0
+    ? (seats.length > 0
+        ? Math.round((occupiedCount / totalSeats) * 100)
+        : (activeLibrary?.stats?.occupancyPercentage ?? Math.round((occupiedCount / totalSeats) * 100)))
+    : 0;
+
+  const totalStudentsCount = students.length > 0 ? students.length : (activeLibrary?.stats?.totalStudents ?? 0);
+  const activeStudentsCount = students.length > 0
+    ? students.filter((s) => s.status === 'ACTIVE').length
+    : (activeLibrary?.stats?.activeStudents ?? 0);
+  const unassignedStudentsCount = students.length > 0
+    ? students.filter((s) => !s.seatNumber).length
+    : (activeLibrary?.stats?.unassignedStudents ?? 0);
+
+  const expiringSoonCount = students.length > 0
+    ? students.filter((s) => Boolean(s.seatNumber) && s.membershipEndsInDays <= 5 && s.status === 'ACTIVE').length
+    : (activeLibrary?.stats?.expiringSoonCount ?? 0);
 
   // Financial and Operational metrics for Home Tab
-  const thisMonthFeeCollected = useMemo(() => {
-    if (!activeLibrary?.feeTransactions) return 0;
+  const calculatedThisMonthFee = useMemo(() => {
+    if (!activeLibrary?.feeTransactions || activeLibrary.feeTransactions.length === 0) return null;
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
@@ -885,42 +1035,28 @@ export default function MobileDashboard() {
     }, 0);
   }, [activeLibrary?.feeTransactions]);
 
-  const totalPendingDuesAmount = useMemo(() => {
+  const thisMonthFeeCollected = calculatedThisMonthFee !== null
+    ? calculatedThisMonthFee
+    : (activeLibrary?.stats?.thisMonthFeeCollected ?? 0);
+
+  const calculatedPendingDues = useMemo(() => {
+    if (!students || students.length === 0) return null;
     return students.reduce((acc, s) => acc + (Number(s.remainingFee) || 0), 0);
   }, [students]);
+
+  const totalPendingDuesAmount = calculatedPendingDues !== null
+    ? calculatedPendingDues
+    : (activeLibrary?.stats?.totalPendingDuesAmount ?? 0);
+
+  const studentsWithDuesCount = students.length > 0
+    ? students.filter((s) => (Number(s.remainingFee) || 0) > 0 || (s.membershipEndsInDays <= 5 && s.status === 'ACTIVE')).length
+    : (activeLibrary?.stats?.studentsWithDuesCount ?? 0);
 
   const studentsWithDuesList = useMemo(() => {
     return students
       .filter((s) => (Number(s.remainingFee) || 0) > 0 || (s.membershipEndsInDays <= 5 && s.status === 'ACTIVE'))
       .sort((a, b) => (Number(b.remainingFee) || 0) - (Number(a.remainingFee) || 0));
   }, [students]);
-
-  // Mutators for active library
-  const updateActiveLibrary = (updater: (prevLib: LibraryBranch) => LibraryBranch) => {
-    if (!activeLibrary) return;
-    setLibraries((prev) => {
-      const updated = prev.map((lib) => {
-        if (lib.id === activeLibrary.id) {
-          const res = updater(lib);
-          if (res.seats && Array.isArray(res.seats)) {
-            const seen = new Set<string>();
-            res.seats = res.seats.filter((s) => {
-              const k = `${s.roomId || ''}_${(s.rowName || '').toLowerCase().trim()}_${(s.seatNumber || '').toLowerCase().trim()}`;
-              if (seen.has(k)) return false;
-              seen.add(k);
-              return true;
-            }).sort((a, b) =>
-              a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' })
-            );
-          }
-          return res;
-        }
-        return lib;
-      });
-      saveLibrariesToStorageSafely(updated);
-      return updated;
-    });
-  };
 
   const handleCreateLibrary = async (data: { name: string; contactPhone: string; address?: string }) => {
     const effectiveEmail =
@@ -2178,7 +2314,7 @@ export default function MobileDashboard() {
   }
 
   // 2. WELCOME / BLANK DASHBOARD (When logged in, but ZERO libraries created yet)
-  if (mounted && currentUser && libraries.length === 0) {
+  if (mounted && currentUser && libraries.length === 0 && !isSyncingData) {
     return (
       <div className="flex flex-col min-h-screen bg-slate-50 dark:bg-black text-slate-900 dark:text-[#f5f5f5] selection:bg-indigo-500 selection:text-white transition-colors">
         {/* Floating In-App Notification Toast / Banner (Broadcast & Real-Time Alerts) */}
@@ -2678,14 +2814,14 @@ export default function MobileDashboard() {
           <button
             type="button"
             onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-            className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-xl text-slate-600 dark:text-neutral-300 bg-slate-100/80 dark:bg-[#1c1c1e] hover:bg-slate-200/70 dark:hover:bg-[#262626] border border-slate-200/80 dark:border-neutral-800 flex items-center justify-center transition-all cursor-pointer shrink-0 active:scale-95 shadow-2xs"
+            className="p-2 rounded-full text-slate-600 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer shrink-0 active:scale-95"
             aria-label="Toggle theme"
             title={resolvedTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           >
             {resolvedTheme === 'dark' ? (
-              <Sun className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-400" />
+              <Sun className="w-5 h-5 text-amber-400" />
             ) : (
-              <Moon className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+              <Moon className="w-5 h-5" />
             )}
           </button>
 
@@ -2693,31 +2829,31 @@ export default function MobileDashboard() {
           <button
             type="button"
             onClick={() => setIsNotificationCenterOpen(true)}
-            className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-xl text-slate-600 dark:text-neutral-300 bg-slate-100/80 dark:bg-[#1c1c1e] hover:bg-slate-200/70 dark:hover:bg-[#262626] border border-slate-200/80 dark:border-neutral-800 relative flex items-center justify-center transition-all cursor-pointer shrink-0 active:scale-95 shadow-2xs"
+            className="p-2 rounded-full text-slate-600 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] hover:text-slate-900 dark:hover:text-white relative transition-colors cursor-pointer shrink-0 active:scale-95"
             aria-label="Notifications"
             title="Open Notification Center"
           >
-            <Bell className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+            <Bell className="w-5 h-5" />
             {unreadNotificationCount > 0 ? (
-              <span className="absolute -top-1 -right-1 px-1.5 py-0.2 min-w-[18px] h-[18px] bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-xs animate-bounce border-2 border-white dark:border-black">
+              <span className="absolute top-1 right-1 px-1 min-w-[16px] h-[16px] bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-xs">
                 {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
               </span>
             ) : pushPermissionStatus === 'default' ? (
-              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-500 rounded-full ring-2 ring-white dark:ring-black animate-pulse" title="Notifications not enabled - tap to allow" />
+              <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-amber-500 rounded-full ring-2 ring-white dark:ring-black animate-pulse" title="Notifications not enabled - tap to allow" />
             ) : expiringSoonCount > 0 ? (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-amber-500 rounded-full ring-2 ring-white dark:ring-black" />
+              <span className="absolute top-1 right-1 w-2 h-2 bg-amber-500 rounded-full ring-2 ring-white dark:ring-black" />
             ) : null}
           </button>
 
           {currentUser && (
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center shrink-0">
               <button
                 type="button"
                 onClick={() => setIsAuthModalOpen(true)}
-                className="flex items-center gap-1.5 p-1 sm:px-2.5 sm:py-1.5 bg-slate-100 dark:bg-[#1c1c1e] hover:bg-slate-200 dark:hover:bg-[#262626] rounded-xl text-xs font-semibold text-slate-700 dark:text-neutral-200 transition-colors shrink-0"
+                className="p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-[#1c1c1e] transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 active:scale-95"
                 title="Click to view profile or sign out"
               >
-                <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center overflow-hidden shrink-0">
+                <div className="w-7 h-7 rounded-xl bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center overflow-hidden shrink-0 shadow-xs">
                   {currentUser.avatar ? (
                     <img
                       src={currentUser.avatar}
@@ -2732,7 +2868,7 @@ export default function MobileDashboard() {
                     {currentUser.fullName?.charAt(0).toUpperCase() || 'U'}
                   </span>
                 </div>
-                <span className="hidden sm:inline font-bold">{currentUser.fullName}</span>
+                <span className="hidden sm:inline font-bold text-xs text-slate-800 dark:text-white pr-1">{currentUser.fullName}</span>
               </button>
             </div>
           )}
@@ -2768,23 +2904,43 @@ export default function MobileDashboard() {
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5">
+          {/* Desktop Notification Center Button */}
+          <button
+            type="button"
+            onClick={() => setIsNotificationCenterOpen(true)}
+            className="p-2 rounded-full text-slate-600 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] hover:text-slate-900 dark:hover:text-white relative transition-colors cursor-pointer shrink-0 active:scale-95"
+            aria-label="Notifications"
+            title="Open Notification Center"
+          >
+            <Bell className="w-5 h-5" />
+            {unreadNotificationCount > 0 ? (
+              <span className="absolute top-1 right-1 px-1 min-w-[16px] h-[16px] bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-xs">
+                {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+              </span>
+            ) : pushPermissionStatus === 'default' ? (
+              <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-amber-500 rounded-full ring-2 ring-white dark:ring-black animate-pulse" title="Notifications not enabled" />
+            ) : expiringSoonCount > 0 ? (
+              <span className="absolute top-1 right-1 w-2 h-2 bg-amber-500 rounded-full ring-2 ring-white dark:ring-black" />
+            ) : null}
+          </button>
+
           {/* Desktop Theme Switcher Toggle */}
           <button
             type="button"
             onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-            className="p-2 rounded-xl text-slate-500 dark:text-neutral-400 hover:text-slate-700 dark:hover:text-[#f5f5f5] hover:bg-slate-100 dark:hover:bg-[#1c1c1e] relative transition-colors cursor-pointer"
+            className="p-2 rounded-full text-slate-600 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer shrink-0 active:scale-95"
             aria-label="Toggle theme"
             title={resolvedTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           >
             {resolvedTheme === 'dark' ? (
-              <Sun className="w-4 h-4 text-amber-400" />
+              <Sun className="w-5 h-5 text-amber-400" />
             ) : (
-              <Moon className="w-4 h-4" />
+              <Moon className="w-5 h-5" />
             )}
           </button>
 
-          <div className="h-4 w-[1px] bg-slate-200 dark:bg-[#262626]" />
+          <div className="h-4 w-[1px] bg-slate-200 dark:bg-[#262626] mx-1" />
           <div className="text-xs text-slate-500 dark:text-neutral-400 font-medium">
             {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
           </div>
@@ -2831,14 +2987,14 @@ export default function MobileDashboard() {
                 </div>
                 <div className="mt-2 flex items-baseline justify-between">
                   <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
-                    {students.length}
+                    {totalStudentsCount}
                   </div>
                   <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md">
-                    {students.filter((s) => s.status === 'ACTIVE').length} Active
+                    {activeStudentsCount} Active
                   </span>
                 </div>
                 <div className="mt-2 text-[11px] text-slate-500 dark:text-neutral-400 flex items-center justify-between border-t border-slate-100 dark:border-[#202020] pt-2">
-                  <span>{students.filter((s) => !s.seatNumber).length} Unassigned</span>
+                  <span>{unassignedStudentsCount} Unassigned</span>
                   <span className="text-indigo-600 dark:text-indigo-400 font-semibold group-hover:translate-x-0.5 transition-transform flex items-center">
                     Directory &rarr;
                   </span>
@@ -2900,7 +3056,7 @@ export default function MobileDashboard() {
                   </span>
                 </div>
                 <div className="mt-2 text-[11px] text-slate-500 dark:text-neutral-400 flex items-center justify-between border-t border-slate-100 dark:border-[#202020] pt-2">
-                  <span>{(activeLibrary?.feeTransactions || []).length} Total Txs</span>
+                  <span>{(activeLibrary?.feeTransactions && activeLibrary.feeTransactions.length > 0) ? `${activeLibrary.feeTransactions.length} Total Txs` : 'Live Ledger'}</span>
                   <span className="text-emerald-600 dark:text-emerald-400 font-semibold group-hover:translate-x-0.5 transition-transform flex items-center">
                     Ledger &rarr;
                   </span>
@@ -2942,7 +3098,7 @@ export default function MobileDashboard() {
                   </div>
                   {totalPendingDuesAmount > 0 ? (
                     <span className="text-[10px] font-extrabold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 px-1.5 py-0.5 rounded">
-                      {studentsWithDuesList.length} Due
+                      {studentsWithDuesCount} Due
                     </span>
                   ) : (
                     <span className="text-[10px] font-extrabold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded">
@@ -3076,7 +3232,7 @@ export default function MobileDashboard() {
                         Action Needed: Overdue & Expiring
                       </h4>
                     </div>
-                    {studentsWithDuesList.length > 0 && (
+                    {studentsWithDuesCount > 0 && (
                       <button
                         type="button"
                         onClick={() => {
@@ -3086,12 +3242,38 @@ export default function MobileDashboard() {
                         }}
                         className="text-[11px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer"
                       >
-                        View All ({studentsWithDuesList.length})
+                        View All ({studentsWithDuesCount})
                       </button>
                     )}
                   </div>
 
-                  {studentsWithDuesList.length === 0 ? (
+                  {students.length === 0 && studentsWithDuesCount > 0 ? (
+                    <div className="py-3 px-3 text-center space-y-2 bg-amber-50/50 dark:bg-amber-950/20 rounded-xl border border-amber-200/60 dark:border-amber-900/40">
+                      <div className="w-7 h-7 rounded-full bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
+                        <Clock className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-800 dark:text-neutral-200">
+                          {studentsWithDuesCount} Student{studentsWithDuesCount > 1 ? 's' : ''} have pending dues
+                        </p>
+                        <p className="text-[10px] text-slate-500 dark:text-neutral-400">
+                          Total ₹{totalPendingDuesAmount.toLocaleString('en-IN')} due
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStudentFilterTab('FEE_DUE');
+                          setStudentSubTab('directory');
+                          setActiveTab('students');
+                        }}
+                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-bold shadow-2xs transition-all cursor-pointer inline-flex items-center gap-1"
+                      >
+                        <span>Review Due Students</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : studentsWithDuesList.length === 0 ? (
                     <div className="py-4 text-center space-y-1">
                       <div className="w-8 h-8 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
                         <Check className="w-4 h-4" />
@@ -3452,42 +3634,46 @@ export default function MobileDashboard() {
                   </div>
                 </div>
 
-                <SeatGrid
-                  seats={currentRoomSeats}
-                  rooms={displayRooms}
-                  selectedRoomId={selectedRoomId}
-                  onStatusChange={handleStatusChange}
-                  onAssignStudent={(seatId, preselectedShift) => {
-                    const seat = activeLibrary?.seats.find((s) => s.id === seatId || s.seatNumber === seatId);
-                    if (seat) {
-                      setSelectedSeatForAssignment(seat);
-                      setPreselectedShiftForAssignment(preselectedShift);
-                    }
-                  }}
-                  onViewStudentProfile={(studentId, studentName) => {
-                    const std = activeLibrary?.students.find(
-                      (s) =>
-                        (studentId && s.id === studentId) ||
-                        (studentName && s.fullName.toLowerCase().trim() === studentName.toLowerCase().trim())
-                    );
-                    if (std) {
-                      setProfileInitialTab('profile');
-                      setSelectedStudentForProfile(std);
-                    }
-                  }}
-                  onAddRow={() => setIsAddRowModalOpen(true)}
-                  onAddRoom={() => setIsRoomModalOpen(true)}
-                  onAddSeatsToRow={(rowName, roomId) => {
-                    const targetRoom = roomId
-                      ? activeLibrary?.rooms.find((r) => r.id === roomId) || null
-                      : currentSelectedRoom || activeLibrary?.rooms?.[0] || null;
-                    setBatchSeatTargetRow(rowName);
-                    setBatchSeatTargetRoom(targetRoom);
-                    setIsBatchSeatModalOpen(true);
-                  }}
-                  onDeleteRow={handleDeleteRow}
-                  onDeleteSeat={handleDeleteSeat}
-                />
+                {isLoadingSeats && seats.length === 0 ? (
+                  <SeatGridSkeleton />
+                ) : (
+                  <SeatGrid
+                    seats={currentRoomSeats}
+                    rooms={displayRooms}
+                    selectedRoomId={selectedRoomId}
+                    onStatusChange={handleStatusChange}
+                    onAssignStudent={(seatId, preselectedShift) => {
+                      const seat = activeLibrary?.seats.find((s) => s.id === seatId || s.seatNumber === seatId);
+                      if (seat) {
+                        setSelectedSeatForAssignment(seat);
+                        setPreselectedShiftForAssignment(preselectedShift);
+                      }
+                    }}
+                    onViewStudentProfile={(studentId, studentName) => {
+                      const std = activeLibrary?.students.find(
+                        (s) =>
+                          (studentId && s.id === studentId) ||
+                          (studentName && s.fullName.toLowerCase().trim() === studentName.toLowerCase().trim())
+                      );
+                      if (std) {
+                        setProfileInitialTab('profile');
+                        setSelectedStudentForProfile(std);
+                      }
+                    }}
+                    onAddRow={() => setIsAddRowModalOpen(true)}
+                    onAddRoom={() => setIsRoomModalOpen(true)}
+                    onAddSeatsToRow={(rowName, roomId) => {
+                      const targetRoom = roomId
+                        ? activeLibrary?.rooms.find((r) => r.id === roomId) || null
+                        : currentSelectedRoom || activeLibrary?.rooms?.[0] || null;
+                      setBatchSeatTargetRow(rowName);
+                      setBatchSeatTargetRoom(targetRoom);
+                      setIsBatchSeatModalOpen(true);
+                    }}
+                    onDeleteRow={handleDeleteRow}
+                    onDeleteSeat={handleDeleteSeat}
+                  />
+                )}
               </section>
             )}
           </>
@@ -3594,47 +3780,51 @@ export default function MobileDashboard() {
               </div>
             )}
 
-            <SeatGrid
-              seats={currentSelectedRoom ? currentRoomSeats : seats}
-              rooms={displayRooms}
-              selectedRoomId={selectedRoomId}
-              onStatusChange={handleStatusChange}
-              onAssignStudent={(seatId, preselectedShift) => {
-                const seat = activeLibrary?.seats.find((s) => s.id === seatId || s.seatNumber === seatId);
-                if (seat) {
-                  setSelectedSeatForAssignment(seat);
-                  setPreselectedShiftForAssignment(preselectedShift);
-                }
-              }}
-              onViewStudentProfile={(studentId, studentName) => {
-                const std = activeLibrary?.students.find(
-                  (s) =>
-                    (studentId && s.id === studentId) ||
-                    (studentName && s.fullName.toLowerCase().trim() === studentName.toLowerCase().trim())
-                );
-                if (std) {
-                  setProfileInitialTab('profile');
-                  setSelectedStudentForProfile(std);
-                }
-              }}
-              onAddRow={() => {
-                if (!currentSelectedRoom && activeLibrary?.rooms?.[0]) {
-                  setSelectedRoomId(activeLibrary.rooms[0].id);
-                }
-                setIsAddRowModalOpen(true);
-              }}
-              onAddRoom={() => setIsRoomModalOpen(true)}
-              onAddSeatsToRow={(rowName, roomId) => {
-                const targetRoom = roomId
-                  ? activeLibrary?.rooms.find((r) => r.id === roomId) || null
-                  : currentSelectedRoom || activeLibrary?.rooms?.[0] || null;
-                setBatchSeatTargetRow(rowName);
-                setBatchSeatTargetRoom(targetRoom);
-                setIsBatchSeatModalOpen(true);
-              }}
-              onDeleteRow={handleDeleteRow}
-              onDeleteSeat={handleDeleteSeat}
-            />
+            {isLoadingSeats && seats.length === 0 ? (
+              <SeatGridSkeleton />
+            ) : (
+              <SeatGrid
+                seats={currentSelectedRoom ? currentRoomSeats : seats}
+                rooms={displayRooms}
+                selectedRoomId={selectedRoomId}
+                onStatusChange={handleStatusChange}
+                onAssignStudent={(seatId, preselectedShift) => {
+                  const seat = activeLibrary?.seats.find((s) => s.id === seatId || s.seatNumber === seatId);
+                  if (seat) {
+                    setSelectedSeatForAssignment(seat);
+                    setPreselectedShiftForAssignment(preselectedShift);
+                  }
+                }}
+                onViewStudentProfile={(studentId, studentName) => {
+                  const std = activeLibrary?.students.find(
+                    (s) =>
+                      (studentId && s.id === studentId) ||
+                      (studentName && s.fullName.toLowerCase().trim() === studentName.toLowerCase().trim())
+                  );
+                  if (std) {
+                    setProfileInitialTab('profile');
+                    setSelectedStudentForProfile(std);
+                  }
+                }}
+                onAddRow={() => {
+                  if (!currentSelectedRoom && activeLibrary?.rooms?.[0]) {
+                    setSelectedRoomId(activeLibrary.rooms[0].id);
+                  }
+                  setIsAddRowModalOpen(true);
+                }}
+                onAddRoom={() => setIsRoomModalOpen(true)}
+                onAddSeatsToRow={(rowName, roomId) => {
+                  const targetRoom = roomId
+                    ? activeLibrary?.rooms.find((r) => r.id === roomId) || null
+                    : currentSelectedRoom || activeLibrary?.rooms?.[0] || null;
+                  setBatchSeatTargetRow(rowName);
+                  setBatchSeatTargetRoom(targetRoom);
+                  setIsBatchSeatModalOpen(true);
+                }}
+                onDeleteRow={handleDeleteRow}
+                onDeleteSeat={handleDeleteSeat}
+              />
+            )}
           </section>
         )}
 
@@ -3690,38 +3880,42 @@ export default function MobileDashboard() {
             </div>
 
             {studentSubTab === 'directory' ? (
-              <StudentList
-                students={students}
-                initialFilterTab={studentFilterTab}
-                libraryName={activeLibrary?.name}
-                libraryPhone={activeLibrary?.contactPhone}
-                isRefreshing={isSyncingData}
-                onRefresh={async () => {
-                  if (activeLibrary?.id) {
-                    await fetchLibraryStudents(activeLibrary.id);
-                  }
-                }}
-                onAddStudent={() => {
-                  requireSubscription('Enroll Students', () => {
-                    setPreselectedSeatNumberForNewStudent(null);
-                    setIsStudentModalOpen(true);
-                  });
-                }}
-                onStudentClick={(student, tab) => {
-                  setProfileInitialTab(tab || 'profile');
-                  setSelectedStudentForProfile(student);
-                }}
-                onCollectFee={(student) => {
-                  requireSubscription('Collect Fees', () => {
-                    setStudentForFeeCollection(student);
-                    setIsCollectFeeModalOpen(true);
-                  });
-                }}
-                onAssignSeat={(student) => {
-                  setProfileInitialTab('profile');
-                  setSelectedStudentForProfile(student);
-                }}
-              />
+              isLoadingStudents && students.length === 0 ? (
+                <StudentListSkeleton />
+              ) : (
+                <StudentList
+                  students={students}
+                  initialFilterTab={studentFilterTab}
+                  libraryName={activeLibrary?.name}
+                  libraryPhone={activeLibrary?.contactPhone}
+                  isRefreshing={isLoadingStudents || isSyncingData}
+                  onRefresh={async () => {
+                    if (activeLibrary?.id) {
+                      await fetchLibraryStudents(activeLibrary.id);
+                    }
+                  }}
+                  onAddStudent={() => {
+                    requireSubscription('Enroll Students', () => {
+                      setPreselectedSeatNumberForNewStudent(null);
+                      setIsStudentModalOpen(true);
+                    });
+                  }}
+                  onStudentClick={(student, tab) => {
+                    setProfileInitialTab(tab || 'profile');
+                    setSelectedStudentForProfile(student);
+                  }}
+                  onCollectFee={(student) => {
+                    requireSubscription('Collect Fees', () => {
+                      setStudentForFeeCollection(student);
+                      setIsCollectFeeModalOpen(true);
+                    });
+                  }}
+                  onAssignSeat={(student) => {
+                    setProfileInitialTab('profile');
+                    setSelectedStudentForProfile(student);
+                  }}
+                />
+              )
             ) : (
               <KanbanBoard libraryId={activeLibrary?.id} />
             )}
@@ -3759,25 +3953,29 @@ export default function MobileDashboard() {
                 </div>
               </div>
             ) : (
-              <TransactionsView
-                transactions={activeLibrary.feeTransactions || []}
-                libraryName={activeLibrary.name}
-                libraryPhone={activeLibrary.contactPhone}
-                onViewReceipt={(tx) => setSelectedReceiptTx(tx)}
-                onOpenCollectFee={() => {
-                  requireSubscription('Collect Fees', () => {
-                    setStudentForFeeCollection(null);
-                    setIsCollectFeeModalOpen(true);
-                  });
-                }}
-                onStudentClick={(studentId) => {
-                  const std = activeLibrary.students.find((s) => s.id === studentId);
-                  if (std) {
-                    setProfileInitialTab('feeHistory');
-                    setSelectedStudentForProfile(std);
-                  }
-                }}
-              />
+              isLoadingTransactions && (!activeLibrary.feeTransactions || activeLibrary.feeTransactions.length === 0) ? (
+                <TransactionsSkeleton />
+              ) : (
+                <TransactionsView
+                  transactions={activeLibrary.feeTransactions || []}
+                  libraryName={activeLibrary.name}
+                  libraryPhone={activeLibrary.contactPhone}
+                  onViewReceipt={(tx) => setSelectedReceiptTx(tx)}
+                  onOpenCollectFee={() => {
+                    requireSubscription('Collect Fees', () => {
+                      setStudentForFeeCollection(null);
+                      setIsCollectFeeModalOpen(true);
+                    });
+                  }}
+                  onStudentClick={(studentId) => {
+                    const std = activeLibrary.students.find((s) => s.id === studentId);
+                    if (std) {
+                      setProfileInitialTab('feeHistory');
+                      setSelectedStudentForProfile(std);
+                    }
+                  }}
+                />
+              )
             )}
           </section>
         )}

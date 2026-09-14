@@ -115,12 +115,12 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           <button
             type="button"
             onClick={onOpenNotifications}
-            className="p-2 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-neutral-800 relative transition-colors cursor-pointer"
+            className="p-2 rounded-full text-slate-600 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-[#1c1c1e] hover:text-slate-900 dark:hover:text-white relative transition-colors cursor-pointer shrink-0 active:scale-95"
             title="Open Notification Center"
           >
-            <Bell className="w-4 h-4" />
+            <Bell className="w-5 h-5" />
             {unreadNotificationCount > 0 && (
-              <span className="absolute top-1 right-1 px-1.5 py-0.2 bg-rose-500 text-white text-[9px] font-black rounded-full shadow-xs">
+              <span className="absolute top-1 right-1 px-1 min-w-[16px] h-[16px] bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-xs">
                 {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
               </span>
             )}

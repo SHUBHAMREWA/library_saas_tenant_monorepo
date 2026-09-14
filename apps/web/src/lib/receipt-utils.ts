@@ -34,27 +34,46 @@ export interface FeeReminderData {
   paidForMonth?: string;
 }
 
+export type StudentWhatsAppCategory =
+  | 'INACTIVE'
+  | 'FEE_DUE'
+  | 'EXPIRING_SOON'
+  | 'ACTIVE_PAID'
+  | 'GENERAL';
+
+export interface StudentWhatsAppMessageData {
+  libraryName: string;
+  libraryPhone?: string;
+  studentName: string;
+  studentPhone: string;
+  seatNumber?: string | null;
+  shift?: string;
+  dueAmount?: number;
+  paidForMonth?: string;
+  category?: StudentWhatsAppCategory;
+}
+
 export function formatShiftSummary(shift?: string, stayDuration?: string): string {
   const normShift = shift ? shift.toUpperCase() : 'FULL_DAY';
   const normDuration = stayDuration ? stayDuration.toUpperCase() : undefined;
 
   if (normShift === 'MORNING') {
-    if (normDuration === 'FOUR_HOURS') return 'Morning Shift (4 Hours / Day)';
-    if (normDuration === 'HALF_DAY') return 'Morning Shift (Half Day, 6–8h)';
-    return 'Morning Shift';
+    if (normDuration === 'FOUR_HOURS') return 'Morning (4h)';
+    if (normDuration === 'HALF_DAY') return 'Morning (Half Day)';
+    return 'Morning';
   }
   if (normShift === 'EVENING') {
-    if (normDuration === 'FOUR_HOURS') return 'Evening Shift (4 Hours / Day)';
-    if (normDuration === 'HALF_DAY') return 'Evening Shift (Half Day, 6–8h)';
-    return 'Evening Shift';
+    if (normDuration === 'FOUR_HOURS') return 'Evening (4h)';
+    if (normDuration === 'HALF_DAY') return 'Evening (Half Day)';
+    return 'Evening';
   }
-  if (normShift === 'FOUR_HOURS') return '4 Hours / Day';
-  if (normShift === 'HALF_DAY') return 'Half Day (6–8h)';
-  return 'Full Day (24/7 Unlimited)';
+  if (normShift === 'FOUR_HOURS') return '4 Hours';
+  if (normShift === 'HALF_DAY') return 'Half Day';
+  return 'Full Day';
 }
 
 /**
- * Generates an automated WhatsApp message for a fee payment receipt
+ * Generates a clean, compact WhatsApp message for a fee payment receipt
  */
 export function generateWhatsAppReceiptText(data: FeeReceiptData): string {
   const formattedDate = new Date(data.paymentDate).toLocaleDateString('en-IN', {
@@ -65,75 +84,108 @@ export function generateWhatsAppReceiptText(data: FeeReceiptData): string {
 
   const dueText =
     data.remainingFee !== undefined && data.remainingFee > 0
-      ? `₹${data.remainingFee.toLocaleString('en-IN')} (Pending)`
-      : '₹0 (Fully Cleared ✅)';
+      ? `\n• *Remaining Due:* ₹${data.remainingFee.toLocaleString('en-IN')} (Pending)`
+      : '';
+
+  const seatInfo = data.seatNumber ? `\n• *Seat:* Seat ${data.seatNumber}` : '';
+  const shiftInfo = data.shift ? ` (${formatShiftSummary(data.shift, data.stayDuration)})` : '';
+  const receiptNo = data.receiptNumber ? `\n• *Receipt No:* #${data.receiptNumber}` : '';
 
   const lines = [
-    `*🧾 FEE PAYMENT RECEIPT*`,
-    `━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `🏛️ *Library:* ${data.libraryName}`,
-    `👤 *Student Name:* ${data.studentName}`,
-    `🪑 *Assigned Seat:* ${data.seatNumber ? `Seat ${data.seatNumber}` : 'Unassigned / General'}`,
-    data.shift ? `⏰ *Shift / Plan:* ${formatShiftSummary(data.shift, data.stayDuration)}` : '',
-    data.receiptNumber ? `🔢 *Receipt No:* #${data.receiptNumber}` : '',
-    `📅 *Payment Date:* ${formattedDate}`,
-    `💳 *Payment Mode:* ${data.paymentMode}`,
-    `━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `📋 *FEES BREAKDOWN:*`,
-    data.isSettlingDue
-      ? `• *Payment Type:* Settling Previous Remaining Balance 🎯`
-      : '',
+    `*🧾 Fee Payment Receipt • ${data.libraryName}*`,
+    ``,
+    `Namaste *${data.studentName}*, your fee payment has been received successfully. ✅`,
+    ``,
+    `• *Amount Paid:* ₹${Number(data.amount).toLocaleString('en-IN')}`,
     `• *Month:* ${data.paidForMonth}`,
-    data.validFrom && data.validTo ? `• *Validity Period:* ${data.validFrom} to ${data.validTo}` : '',
-    data.isSettlingDue
-      ? `• *Pending Balance Cleared:* ₹${Number(data.amount).toLocaleString('en-IN')}`
-      : data.totalFee !== undefined && data.totalFee > 0
-      ? `• *Total Monthly Fee:* ₹${data.totalFee.toLocaleString('en-IN')}`
-      : '',
-    `• *Amount Received:* ₹${Number(data.amount).toLocaleString('en-IN')}`,
-    `• *Remaining Balance Due:* ${dueText}`,
-    data.notes ? `• *Note:* ${data.notes}` : '',
-    `━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `🙏 *Thank You!*`,
-    `Thank you for your payment. We wish you great focus and success in your studies at *${data.libraryName}*! 📚✨`,
-    data.libraryPhone ? `\n📞 *Contact / Support:* ${data.libraryPhone}` : '',
+    `• *Date:* ${formattedDate} (${data.paymentMode})${seatInfo}${shiftInfo}${dueText}${receiptNo}`,
+    ``,
+    `Thank you for studying with us! 📚✨`,
+    data.libraryPhone ? `📞 ${data.libraryPhone}` : '',
   ].filter(Boolean);
 
   return lines.join('\n');
 }
 
 /**
- * Generates an automated WhatsApp reminder message for students whose seat is assigned/reserved but fee is pending
+ * Generates context-aware, compact WhatsApp messages for students based on their status or filter tab:
+ * - Inactive: Re-activation / re-join invitation
+ * - Fee Due: Compact pending dues reminder
+ * - Expiring Soon (5 Days): Advance renewal alert
+ * - Active / Paid: Positive study check-in
+ */
+export function generateStudentWhatsAppMessage(data: StudentWhatsAppMessageData): string {
+  const lib = data.libraryName || 'seeLibrary';
+  const name = data.studentName;
+  const phoneContact = data.libraryPhone ? `\n📞 *Contact:* ${data.libraryPhone}` : '';
+
+  switch (data.category) {
+    case 'INACTIVE': {
+      return [
+        `Namaste *${name}*! 👋`,
+        ``,
+        `Greetings from *${lib}*. We noticed your study seat is currently inactive.`,
+        ``,
+        `Are you planning to restart your study sessions or reserve your preferred seat again? Let us know so we can keep a spot ready for you! 📚✨`,
+        phoneContact,
+      ].filter(Boolean).join('\n');
+    }
+
+    case 'EXPIRING_SOON': {
+      const seat = data.seatNumber ? ` (Seat ${data.seatNumber})` : '';
+      return [
+        `*⏰ Renewal Reminder • ${lib}*`,
+        ``,
+        `Namaste *${name}*,`,
+        `Your library membership${seat} is expiring in the next few days.`,
+        ``,
+        `Please renew on time to continue your study sessions without interruption. Thank you! 📚`,
+        phoneContact,
+      ].filter(Boolean).join('\n');
+    }
+
+    case 'FEE_DUE': {
+      const dueStr =
+        data.dueAmount && data.dueAmount > 0
+          ? `₹${data.dueAmount.toLocaleString('en-IN')}`
+          : 'Pending Fee';
+      const seat = data.seatNumber ? `\n• *Seat:* Seat ${data.seatNumber}` : '';
+      const month = data.paidForMonth ? `\n• *Month:* ${data.paidForMonth}` : '';
+      return [
+        `*🔔 Fee Reminder • ${lib}*`,
+        ``,
+        `Namaste *${name}*,`,
+        `This is a gentle reminder regarding your library fee:${seat}${month}`,
+        `• *Due Amount:* ${dueStr}`,
+        ``,
+        `Please pay your pending fees to keep your seat reserved. Thank you! 🙏`,
+        phoneContact,
+      ].filter(Boolean).join('\n');
+    }
+
+    case 'ACTIVE_PAID':
+    case 'GENERAL':
+    default: {
+      const seat = data.seatNumber ? ` (Seat ${data.seatNumber})` : '';
+      return [
+        `Namaste *${name}*! 👋`,
+        ``,
+        `Greetings from *${lib}*${seat}.`,
+        `Wishing you great focus and success in your studies! Feel free to reach out if you need any assistance. 📚✨`,
+        phoneContact,
+      ].filter(Boolean).join('\n');
+    }
+  }
+}
+
+/**
+ * Backwards compatible helper for fee reminders
  */
 export function generateWhatsAppFeeReminderText(data: FeeReminderData): string {
-  const dueStr =
-    data.dueAmount && data.dueAmount > 0
-      ? `₹${data.dueAmount.toLocaleString('en-IN')}`
-      : 'Membership Fee';
-
-  const lines = [
-    `*🔔 FEE PAYMENT REMINDER*`,
-    `━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `Dear *${data.studentName}*,`,
-    ``,
-    `Greetings from *${data.libraryName}*! 🏛️`,
-    ``,
-    `This is a gentle reminder regarding your library membership & seat allotment:`,
-    `• *Seat Number:* ${data.seatNumber ? `Seat ${data.seatNumber}` : 'Enrolled'}`,
-    data.shift ? `• *Shift / Plan:* ${data.shift}` : '',
-    data.paidForMonth ? `• *Month:* ${data.paidForMonth}` : '',
-    `• *Pending Amount Due:* ${dueStr}`,
-    ``,
-    `⚠️ *Please pay your library fees as soon as possible* to ensure your seat reservation remains active and your study schedule continues without interruption.`,
-    ``,
-    `If you have already made the payment, please share your payment screenshot or ignore this reminder.`,
-    `━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `Thank you,`,
-    `*${data.libraryName} Management*`,
-    data.libraryPhone ? `📞 *Contact:* ${data.libraryPhone}` : '',
-  ].filter(Boolean);
-
-  return lines.join('\n');
+  return generateStudentWhatsAppMessage({
+    ...data,
+    category: 'FEE_DUE',
+  });
 }
 
 /**
