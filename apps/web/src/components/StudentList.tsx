@@ -35,6 +35,10 @@ export interface StudentItem {
   shift?: string;
   stayDuration?: string;
   seatNumber?: string | null;
+  seatId?: string | null;
+  roomId?: string | null;
+  roomName?: string | null;
+  rowName?: string | null;
   previousSeatNumber?: string | null;
   inactiveDays?: number;
   hasLocker?: boolean;

@@ -29,6 +29,7 @@ export interface SeatInfo {
   id: string;
   seatNumber: string;
   rowName?: string;
+  roomId?: string | null;
   studentName?: string | null;
   status?: string;
   hasLocker?: boolean;
@@ -42,7 +43,7 @@ interface AssignSeatModalProps {
   students: StudentItem[];
   isLoadingStudents?: boolean;
   initialShift?: string;
-  onAssign: (studentId: string, seatNumber: string, shift?: string, isReserved?: boolean) => Promise<void> | void;
+  onAssign: (studentId: string, seatNumber: string, shift?: string, isReserved?: boolean, seatId?: string, roomId?: string | null, rowName?: string) => Promise<void> | void;
   onEnrollNewStudent: (seatNumber: string) => void;
   onEnrollAndCollectFee?: (student: StudentItem, seatNumber: string, shift: string, duration?: string) => void;
 }
@@ -321,7 +322,7 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
     setAssigningId(student.id);
     const shiftToPass = selectedShift; // 'MORNING' | 'EVENING' | 'FULL_DAY'
     try {
-      await onAssign(student.id, seat.seatNumber, shiftToPass, isReserved);
+      await onAssign(student.id, seat.seatNumber, shiftToPass, isReserved, seat.id, seat.roomId, seat.rowName);
       onClose();
     } catch (e) {
       console.error('Failed to assign seat:', e);

@@ -336,7 +336,7 @@ export async function handleDeleteSeats(req: NextRequest, libraryId: string) {
 export async function handleAssignSeat(req: NextRequest, libraryId: string) {
   try {
     const body = await req.json();
-    const { studentId, seatId, seatNumber, shift, reserveSeat } = body;
+    const { studentId, seatId, seatNumber, roomId, rowName, shift, reserveSeat } = body;
 
     if (!studentId) {
       return NextResponse.json({ error: 'studentId is required' }, { status: 400 });
@@ -412,6 +412,16 @@ export async function handleAssignSeat(req: NextRequest, libraryId: string) {
       if (seatId) {
         targetSeat = await prisma.seat.findFirst({
           where: { id: seatId, libraryId },
+        });
+      }
+      if (!targetSeat && seatNumber && (roomId || rowName)) {
+        targetSeat = await prisma.seat.findFirst({
+          where: {
+            seatNumber,
+            libraryId,
+            ...(roomId ? { row: { roomId } } : {}),
+            ...(rowName ? { row: { name: rowName } } : {}),
+          },
         });
       }
       if (!targetSeat && seatNumber) {

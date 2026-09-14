@@ -29,7 +29,17 @@ export async function handleGetStudents(req: NextRequest, libraryId: string) {
         },
         seatAssignments: {
           where: { status: 'ACTIVE' },
-          include: { seat: true },
+          include: {
+            seat: {
+              include: {
+                row: {
+                  include: {
+                    room: true,
+                  },
+                },
+              },
+            },
+          },
           take: 1,
         },
         feeTransactions: {
@@ -103,7 +113,11 @@ export async function handleGetStudents(req: NextRequest, libraryId: string) {
         kycDocId: std.kycDocId || undefined,
         kycType: std.kycDocType || 'AADHAAR',
         shift: activeSeat?.shift || activeMembership?.shift || 'FULL_DAY',
+        seatId: activeSeat?.seat?.id || null,
         seatNumber: activeSeat?.seat?.seatNumber || null,
+        roomId: activeSeat?.seat?.row?.roomId || null,
+        roomName: activeSeat?.seat?.row?.room?.name || null,
+        rowName: activeSeat?.seat?.row?.name || null,
         status: studentStatus,
         membershipEndsInDays: daysRemaining,
         monthlyFee: activeMembership?.feeAmount ? Number(activeMembership.feeAmount) : 0,

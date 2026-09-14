@@ -911,9 +911,6 @@ export default function MobileDashboard() {
     if (!activeLibrary) return [];
     const stdMap = new Map((activeLibrary.students || []).map((s) => [s.id, s]));
     const stdNameMap = new Map((activeLibrary.students || []).map((s) => [s.fullName.toLowerCase().trim(), s]));
-    const stdSeatMap = new Map(
-      (activeLibrary.students || []).filter((s) => Boolean(s.seatNumber)).map((s) => [s.seatNumber!, s])
-    );
 
     // Deduplicate seats by unique key: (roomId, rowName, seatNumber)
     const seenSeatKeys = new Set<string>();
@@ -927,15 +924,13 @@ export default function MobileDashboard() {
     }
 
     return uniqueRawSeats.map((seat) => {
+      // If seat is AVAILABLE or has no student assigned, do not invent occupants!
       let primaryStd = (seat as any).studentId ? stdMap.get((seat as any).studentId) : null;
-      if (!primaryStd && seat.studentName) {
+      if (!primaryStd && seat.studentName && seat.status !== 'AVAILABLE') {
         primaryStd = stdNameMap.get(seat.studentName.toLowerCase().trim()) || null;
       }
-      if (!primaryStd && seat.seatNumber) {
-        primaryStd = stdSeatMap.get(seat.seatNumber) || null;
-      }
 
-      const rawOccs = seat.occupants || [];
+      const rawOccs = seat.status === 'AVAILABLE' ? [] : (seat.occupants || []);
       const enrichedOccupants = rawOccs.map((occ) => {
         let occStd = occ.studentId ? stdMap.get(occ.studentId) : null;
         if (!occStd && occ.studentName) {
@@ -949,7 +944,7 @@ export default function MobileDashboard() {
         };
       });
 
-      if (enrichedOccupants.length === 0 && primaryStd) {
+      if (enrichedOccupants.length === 0 && primaryStd && seat.status !== 'AVAILABLE') {
         enrichedOccupants.push({
           studentId: primaryStd.id,
           studentName: primaryStd.fullName,
@@ -972,7 +967,11 @@ export default function MobileDashboard() {
   }, [activeLibrary?.seats, activeLibrary?.students]);
 
   const students = rawStudents.map((std) => {
-    const seatObj = std.seatNumber ? rawSeats.find((s) => s.seatNumber === std.seatNumber) : null;
+    const seatObj = std.seatId
+      ? rawSeats.find((s) => s.id === std.seatId)
+      : (std.seatNumber
+        ? rawSeats.find((s) => s.seatNumber === std.seatNumber && (!std.roomId || s.roomId === std.roomId))
+        : null);
     return {
       ...std,
       hasLocker: Boolean(std.hasLocker || seatObj?.hasLocker),
@@ -1701,11 +1700,16 @@ export default function MobileDashboard() {
     studentId: string,
     seatNumber: string | null,
     shift?: string,
-    isReserved?: boolean
+    isReserved?: boolean,
+    seatId?: string,
+    roomId?: string | null,
+    rowName?: string
   ) => {
     if (!activeLibrary) return;
     const student = activeLibrary.students.find((s) => s.id === studentId);
+    const oldSeatId = student?.seatId;
     const oldSeatNumber = student?.seatNumber;
+    const oldRoomId = student?.roomId;
 
     // 1. Optimistic UI update
     updateActiveLibrary((lib) => {
@@ -1728,7 +1732,10 @@ export default function MobileDashboard() {
 
           return {
             ...std,
+            seatId: seatNumber ? (seatId || std.seatId || null) : null,
             seatNumber,
+            roomId: seatNumber ? (roomId || std.roomId || null) : null,
+            rowName: seatNumber ? (rowName || std.rowName || null) : null,
             previousSeatNumber: seatNumber ? null : (oldSeatNumber || std.previousSeatNumber || null),
             inactiveDays: seatNumber ? 0 : (std.inactiveDays || 0),
             shift: shift || std.shift,
@@ -1738,7 +1745,11 @@ export default function MobileDashboard() {
         }
 
         // If another student was on this target seat and is evicted due to shift conflict:
-        if (seatNumber && std.seatNumber === seatNumber && std.id !== studentId) {
+        const stdIsOnTargetSeat = seatId
+          ? std.seatId === seatId
+          : (Boolean(seatNumber) && std.seatNumber === seatNumber && (!roomId || std.roomId === roomId));
+
+        if (stdIsOnTargetSeat && std.id !== studentId) {
           const targetShift = (shift || student?.shift || 'FULL_DAY').toUpperCase();
           const stdShift = (std.shift || 'FULL_DAY').toUpperCase();
           const isTargetMorning = targetShift === 'MORNING' || targetShift === 'FOUR_HOURS' || targetShift === 'HALF_DAY';
@@ -1755,7 +1766,10 @@ export default function MobileDashboard() {
           if (isConflict) {
             return {
               ...std,
+              seatId: null,
               seatNumber: null,
+              roomId: null,
+              rowName: null,
               previousSeatNumber: seatNumber,
               status: 'INACTIVE' as const,
             };
@@ -1767,7 +1781,13 @@ export default function MobileDashboard() {
 
       const updatedSeats = lib.seats.map((seat) => {
         // Free old seat if previously occupied by this student
-        if (oldSeatNumber && seat.seatNumber === oldSeatNumber) {
+        const isOldSeat =
+          seat.occupants?.some((o) => o.studentId === studentId) ||
+          seat.studentId === studentId ||
+          (oldSeatId && seat.id === oldSeatId) ||
+          (oldSeatNumber && seat.seatNumber === oldSeatNumber && (!oldRoomId || seat.roomId === oldRoomId));
+
+        if (isOldSeat) {
           const remainingOccupants = (seat.occupants || []).filter((o) => o.studentId !== studentId);
           if (remainingOccupants.length === 0) {
             return {
@@ -1775,6 +1795,7 @@ export default function MobileDashboard() {
               status: 'AVAILABLE' as const,
               studentName: null,
               shift: undefined,
+              studentId: null,
               occupants: [],
             };
           } else {
@@ -1790,8 +1811,13 @@ export default function MobileDashboard() {
             };
           }
         }
+
         // Occupy or reserve new seat
-        if (seatNumber && seat.seatNumber === seatNumber) {
+        const isTargetSeat = seatId
+          ? seat.id === seatId
+          : (Boolean(seatNumber) && seat.seatNumber === seatNumber && (!roomId || seat.roomId === roomId) && (!rowName || seat.rowName === rowName));
+
+        if (isTargetSeat) {
           const targetShift = (shift || student?.shift || 'FULL_DAY').toUpperCase();
           const isTargetMorning = targetShift === 'MORNING' || targetShift === 'FOUR_HOURS' || targetShift === 'HALF_DAY';
           const isTargetEvening = targetShift === 'EVENING';
@@ -1870,7 +1896,10 @@ export default function MobileDashboard() {
 
       return {
         ...prev,
+        seatId: seatNumber ? (seatId || prev.seatId || null) : null,
         seatNumber,
+        roomId: seatNumber ? (roomId || prev.roomId || null) : null,
+        rowName: seatNumber ? (rowName || prev.rowName || null) : null,
         previousSeatNumber: seatNumber ? null : (oldSeatNumber || prev.previousSeatNumber || null),
         inactiveDays: seatNumber ? 0 : (prev.inactiveDays || 0),
         shift: shift || prev.shift,
@@ -1884,7 +1913,15 @@ export default function MobileDashboard() {
       const res = await fetch(`/api/libraries/${activeLibrary.id}/seats/assign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId, seatNumber, shift, reserveSeat: isReserved }),
+        body: JSON.stringify({
+          studentId,
+          seatId,
+          seatNumber,
+          roomId,
+          rowName,
+          shift,
+          reserveSeat: isReserved
+        }),
       });
       if (!res.ok) {
         const errText = await res.text();
@@ -1907,11 +1944,40 @@ export default function MobileDashboard() {
       // If name or shift changed, also update any seat assigned to this student
       const updatedSeats = lib.seats.map((seat) => {
         const student = lib.students.find((s) => s.id === studentId);
-        if (student && student.seatNumber && seat.seatNumber === student.seatNumber) {
+        const isStudentSeat =
+          seat.occupants?.some((o) => o.studentId === studentId) ||
+          seat.studentId === studentId ||
+          (student?.seatId && seat.id === student.seatId) ||
+          (student?.seatNumber && seat.seatNumber === student.seatNumber && (!student?.roomId || seat.roomId === student.roomId));
+
+        if (student && isStudentSeat) {
+          const updatedOccupants = (seat.occupants || []).map((o) =>
+            o.studentId === studentId
+              ? {
+                  ...o,
+                  studentName: data.fullName ?? o.studentName,
+                  shift: data.shift ?? o.shift,
+                  phone: data.phone ?? o.phone,
+                }
+              : o
+          );
+          const mainName =
+            updatedOccupants.length === 1
+              ? updatedOccupants[0].studentName
+              : updatedOccupants.length > 1
+              ? updatedOccupants.map((o) => `${o.studentName} (${(o.shift || 'F').charAt(0)})`).join(' • ')
+              : (data.fullName ?? seat.studentName);
+          const mainShift =
+            updatedOccupants.length === 1
+              ? updatedOccupants[0].shift
+              : updatedOccupants.length > 1
+              ? 'SHARED'
+              : (data.shift ?? seat.shift);
           return {
             ...seat,
-            studentName: data.fullName ?? seat.studentName,
-            shift: data.shift ?? seat.shift,
+            studentName: mainName,
+            shift: mainShift,
+            occupants: updatedOccupants,
           };
         }
         return seat;
@@ -1946,13 +2012,35 @@ export default function MobileDashboard() {
     updateActiveLibrary((lib) => {
       const remainingStudents = lib.students.filter((s) => s.id !== studentId);
       const updatedSeats = lib.seats.map((seat) => {
-        if (assignedSeat && seat.seatNumber === assignedSeat) {
-          return {
-            ...seat,
-            status: 'AVAILABLE' as const,
-            studentName: null,
-            shift: undefined,
-          };
+        const isStudentSeat =
+          seat.occupants?.some((o) => o.studentId === studentId) ||
+          seat.studentId === studentId ||
+          (student?.seatId && seat.id === student.seatId) ||
+          (assignedSeat && seat.seatNumber === assignedSeat && (!student?.roomId || seat.roomId === student.roomId));
+
+        if (isStudentSeat) {
+          const remainingOccupants = (seat.occupants || []).filter((o) => o.studentId !== studentId);
+          if (remainingOccupants.length === 0) {
+            return {
+              ...seat,
+              status: 'AVAILABLE' as const,
+              studentName: null,
+              shift: undefined,
+              studentId: null,
+              occupants: [],
+            };
+          } else {
+            const mainName =
+              remainingOccupants.length === 1
+                ? remainingOccupants[0].studentName
+                : remainingOccupants.map((o) => `${o.studentName} (${(o.shift || 'F').charAt(0)})`).join(' • ');
+            return {
+              ...seat,
+              studentName: mainName,
+              shift: remainingOccupants.length === 1 ? remainingOccupants[0].shift : 'SHARED',
+              occupants: remainingOccupants,
+            };
+          }
         }
         return seat;
       });
@@ -2077,20 +2165,55 @@ export default function MobileDashboard() {
 
       // Update seat's status and shift if assignedSeatNumber was provided or student has seat
       const targetSeatNumber = paymentData.assignedSeatNumber || student?.seatNumber;
+      const oldSeatId = student?.seatId;
       const oldSeatNumber = student?.seatNumber;
+      const oldRoomId = student?.roomId;
 
       const updatedSeats = lib.seats.map((seat) => {
         // If old seat changed, free it
-        if (oldSeatNumber && paymentData.assignedSeatNumber && oldSeatNumber !== paymentData.assignedSeatNumber && seat.seatNumber === oldSeatNumber) {
-          return {
-            ...seat,
-            status: 'AVAILABLE' as const,
-            studentName: null,
-            shift: undefined,
-          };
+        const isOldSeat =
+          paymentData.assignedSeatNumber &&
+          oldSeatNumber &&
+          oldSeatNumber !== paymentData.assignedSeatNumber &&
+          ((oldSeatId && seat.id === oldSeatId) ||
+            (seat.seatNumber === oldSeatNumber && (!oldRoomId || seat.roomId === oldRoomId)) ||
+            seat.occupants?.some((o) => o.studentId === paymentData.studentId));
+
+        if (isOldSeat) {
+          const remainingOccupants = (seat.occupants || []).filter((o) => o.studentId !== paymentData.studentId);
+          if (remainingOccupants.length === 0) {
+            return {
+              ...seat,
+              status: 'AVAILABLE' as const,
+              studentName: null,
+              shift: undefined,
+              studentId: null,
+              occupants: [],
+            };
+          } else {
+            const mainName =
+              remainingOccupants.length === 1
+                ? remainingOccupants[0].studentName
+                : remainingOccupants.map((o) => `${o.studentName} (${(o.shift || 'F').charAt(0)})`).join(' • ');
+            return {
+              ...seat,
+              studentName: mainName,
+              shift: remainingOccupants.length === 1 ? remainingOccupants[0].shift : 'SHARED',
+              occupants: remainingOccupants,
+            };
+          }
         }
+
         // If seat assigned or updated, occupy it
-        if (targetSeatNumber && seat.seatNumber === targetSeatNumber) {
+        const isTargetSeat =
+          (paymentData.assignedSeatNumber &&
+            (student?.roomId ? seat.roomId === student.roomId : true) &&
+            seat.seatNumber === paymentData.assignedSeatNumber) ||
+          (!paymentData.assignedSeatNumber &&
+            ((student?.seatId && seat.id === student.seatId) ||
+              (seat.seatNumber === targetSeatNumber && (!student?.roomId || seat.roomId === student.roomId))));
+
+        if (targetSeatNumber && isTargetSeat) {
           return {
             ...seat,
             status: 'OCCUPIED' as const,
@@ -3668,7 +3791,7 @@ export default function MobileDashboard() {
                     selectedRoomId={selectedRoomId}
                     onStatusChange={handleStatusChange}
                     onAssignStudent={(seatId, preselectedShift) => {
-                      const seat = activeLibrary?.seats.find((s) => s.id === seatId || s.seatNumber === seatId);
+                      const seat = seats.find((s) => s.id === seatId) || activeLibrary?.seats.find((s) => s.id === seatId) || seats.find((s) => s.seatNumber === seatId);
                       if (seat) {
                         setSelectedSeatForAssignment(seat);
                         setPreselectedShiftForAssignment(preselectedShift);
@@ -3814,7 +3937,7 @@ export default function MobileDashboard() {
                 selectedRoomId={selectedRoomId}
                 onStatusChange={handleStatusChange}
                 onAssignStudent={(seatId, preselectedShift) => {
-                  const seat = activeLibrary?.seats.find((s) => s.id === seatId || s.seatNumber === seatId);
+                  const seat = seats.find((s) => s.id === seatId) || activeLibrary?.seats.find((s) => s.id === seatId) || seats.find((s) => s.seatNumber === seatId);
                   if (seat) {
                     setSelectedSeatForAssignment(seat);
                     setPreselectedShiftForAssignment(preselectedShift);
@@ -4296,8 +4419,16 @@ export default function MobileDashboard() {
           students={students}
           isLoadingStudents={isLoadingStudents}
           initialShift={preselectedShiftForAssignment}
-          onAssign={async (studentId, seatNumber, shift, isReserved) => {
-            await handleAssignSeat(studentId, seatNumber, shift, isReserved);
+          onAssign={async (studentId, seatNumber, shift, isReserved, seatId, roomId, rowName) => {
+            await handleAssignSeat(
+              studentId,
+              seatNumber,
+              shift,
+              isReserved,
+              seatId || selectedSeatForAssignment?.id,
+              roomId ?? selectedSeatForAssignment?.roomId,
+              rowName || selectedSeatForAssignment?.rowName
+            );
           }}
           onEnrollNewStudent={(seatNumber) => {
             requireSubscription('Enroll Students', () => {
