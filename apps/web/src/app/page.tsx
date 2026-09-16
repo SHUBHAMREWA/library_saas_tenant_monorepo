@@ -1363,6 +1363,7 @@ export default function MobileDashboard() {
           });
 
           setSelectedRoomId(createdRoom.id);
+          fetchLibrarySeats(activeLibrary.id);
           return;
         }
       } catch (e) {

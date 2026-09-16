@@ -75,32 +75,16 @@ export async function handleGetLibraries(req: NextRequest) {
         );
 
         if (candidateLibs.length > 0) {
-          const cloudLibIds = candidateLibs.map((l: any) => l.id);
-
-          // Mark local libraries as inactive if deleted from Render
-          await prisma.library.updateMany({
-            where: {
-              OR: [
-                { ownerId: user.id },
-                { owner: { email: { equals: cleanEmail, mode: 'insensitive' } } },
-                { contactEmail: { equals: cleanEmail, mode: 'insensitive' } },
-              ],
-              id: { notIn: cloudLibIds },
-              isActive: true,
-            },
-            data: { isActive: false },
-          });
-
           for (const rLib of candidateLibs) {
             try {
-              // Upsert library
+              // Upsert library from Render cloud
               await prisma.library.upsert({
                 where: { id: rLib.id },
                 update: {
                   name: rLib.name,
                   contactPhone: rLib.contactPhone || '7898522932',
                   address: rLib.address || null,
-                  isActive: rLib.isActive ?? true,
+                  isActive: true,
                 },
                 create: {
                   id: rLib.id,
@@ -109,7 +93,7 @@ export async function handleGetLibraries(req: NextRequest) {
                   slug: rLib.slug || `${rLib.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36)}`,
                   contactPhone: rLib.contactPhone || '7898522932',
                   address: rLib.address || null,
-                  isActive: rLib.isActive ?? true,
+                  isActive: true,
                 },
               });
 
@@ -143,7 +127,7 @@ export async function handleGetLibraries(req: NextRequest) {
                 }
               }
 
-              // Mirror real rooms from Render (source of truth)
+              // Mirror real rooms from Render (pure additive upsert, never delete local rooms)
               try {
                 const roomsRes = await fetch(`${renderOrigin}/api/v1/libraries/${rLib.id}/spaces/rooms`, {
                   headers: { 'x-admin-email': 'shubhamrewamp17@gmail.com' },
@@ -153,34 +137,8 @@ export async function handleGetLibraries(req: NextRequest) {
                 if (roomsRes.ok) {
                   const roomsData = await roomsRes.json();
                   const cloudRooms = roomsData.data || roomsData.rooms || [];
-                  const cloudRoomIds = cloudRooms.map((cr: any) => cr.id);
 
-                  // Delete local rooms not present in Render (e.g. rooms deleted by user)
-                  const localRoomsToDelete = await prisma.room.findMany({
-                    where: {
-                      libraryId: rLib.id,
-                      ...(cloudRoomIds.length > 0 ? { id: { notIn: cloudRoomIds } } : {}),
-                    },
-                    select: { id: true },
-                  });
-
-                  if (localRoomsToDelete.length > 0) {
-                    const toDeleteIds = localRoomsToDelete.map((r) => r.id);
-                    await prisma.seatAssignment.deleteMany({
-                      where: { libraryId: rLib.id, seat: { row: { roomId: { in: toDeleteIds } } } },
-                    });
-                    await prisma.seat.deleteMany({
-                      where: { libraryId: rLib.id, row: { roomId: { in: toDeleteIds } } },
-                    });
-                    await prisma.row.deleteMany({
-                      where: { libraryId: rLib.id, roomId: { in: toDeleteIds } },
-                    });
-                    await prisma.room.deleteMany({
-                      where: { id: { in: toDeleteIds } },
-                    });
-                  }
-
-                  // Upsert real rooms and rows from Render cloud
+                  // Upsert real rooms and rows from Render cloud without deleting local rooms
                   for (const cr of cloudRooms) {
                     const roomObj = await prisma.room.upsert({
                       where: { id: cr.id },
@@ -217,6 +175,61 @@ export async function handleGetLibraries(req: NextRequest) {
     } catch (renderSyncErr) {
       console.warn('[handleGetLibraries] Render sync warning:', renderSyncErr);
     }
+
+    // Reactivate any user libraries, rooms, rows, seats that were accidentally marked inactive
+    await prisma.library.updateMany({
+      where: {
+        OR: [
+          { ownerId: user.id },
+          { owner: { email: { equals: cleanEmail, mode: 'insensitive' } } },
+          { contactEmail: { equals: cleanEmail, mode: 'insensitive' } },
+        ],
+        isActive: false,
+      },
+      data: { isActive: true },
+    }).catch(() => {});
+
+    await prisma.room.updateMany({
+      where: {
+        library: {
+          OR: [
+            { ownerId: user.id },
+            { owner: { email: { equals: cleanEmail, mode: 'insensitive' } } },
+            { contactEmail: { equals: cleanEmail, mode: 'insensitive' } },
+          ],
+        },
+        isActive: false,
+      },
+      data: { isActive: true },
+    }).catch(() => {});
+
+    await prisma.row.updateMany({
+      where: {
+        library: {
+          OR: [
+            { ownerId: user.id },
+            { owner: { email: { equals: cleanEmail, mode: 'insensitive' } } },
+            { contactEmail: { equals: cleanEmail, mode: 'insensitive' } },
+          ],
+        },
+        isActive: false,
+      },
+      data: { isActive: true },
+    }).catch(() => {});
+
+    await prisma.seat.updateMany({
+      where: {
+        library: {
+          OR: [
+            { ownerId: user.id },
+            { owner: { email: { equals: cleanEmail, mode: 'insensitive' } } },
+            { contactEmail: { equals: cleanEmail, mode: 'insensitive' } },
+          ],
+        },
+        isActive: false,
+      },
+      data: { isActive: true },
+    }).catch(() => {});
 
     const libraries = await prisma.library.findMany({
       where: {

@@ -127,7 +127,7 @@ export async function handleGetSeats(_req: NextRequest, libraryId: string) {
 export async function handleCreateSeats(req: NextRequest, libraryId: string) {
   try {
     const body = await req.json();
-    const { prefix, startNumber, count, roomId, rowName } = body;
+    const { prefix, startNumber, count, roomId, rowName, hasLocker } = body;
 
     const rowNameSearch = (rowName || 'Row A').trim();
 
@@ -169,6 +169,7 @@ export async function handleCreateSeats(req: NextRequest, libraryId: string) {
           libraryId,
           roomId: targetRoom.id,
           name: rowNameSearch,
+          hasLocker: Boolean(hasLocker),
         },
       });
     }
@@ -188,6 +189,7 @@ export async function handleCreateSeats(req: NextRequest, libraryId: string) {
     const seatPrefix = prefix !== undefined ? prefix : '';
     const start = Math.max(1, startNumber || 1);
     const total = Math.max(1, count || 10);
+    const seatHasLocker = Boolean(hasLocker || targetRow.hasLocker);
 
     for (let i = 0; i < total; i++) {
       const num = start + i;
@@ -207,6 +209,7 @@ export async function handleCreateSeats(req: NextRequest, libraryId: string) {
           rowId: targetRow.id,
           seatNumber,
           status: 'AVAILABLE',
+          hasLocker: seatHasLocker,
         },
       });
 
@@ -219,6 +222,7 @@ export async function handleCreateSeats(req: NextRequest, libraryId: string) {
         status: created.status,
         studentName: null,
         roomId: targetRow.roomId,
+        hasLocker: seatHasLocker,
       });
     }
 
