@@ -442,7 +442,7 @@ export async function POST(
           title,
           body: messageBody,
           icon: '/icons/icon-192x192.png',
-          badge: '/icons/icon-192x192.png',
+          badge: '/icons/badge-96x96.png',
           url: '/',
           vibrate: [200, 100, 200],
         })

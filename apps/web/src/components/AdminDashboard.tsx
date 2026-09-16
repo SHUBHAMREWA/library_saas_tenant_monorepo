@@ -278,7 +278,10 @@ async function adminApiFetch(path: string, options: RequestInit = {}, userEmail?
   options.headers = headers;
 
   let directUrl: string;
-  if (path.startsWith('/api/admin')) {
+  if (path.includes('/notifications/broadcast')) {
+    // Push notification broadcast MUST hit Next.js Web Push API endpoint directly
+    return fetch(path, options);
+  } else if (path.startsWith('/api/admin')) {
     const subpath = path.slice('/api/admin'.length).replace(/^\/+/, '');
     directUrl = `${RENDER_BACKEND_ORIGIN}/api/v1/admin/${subpath}`;
   } else if (path.startsWith('/api/v1/admin')) {

@@ -41,10 +41,26 @@ export async function POST(req: NextRequest) {
     // 2. Fetch target push subscriptions
     let targetSubscriptions = [];
     if (target === 'LIBRARY' && targetLibraryId) {
+      // Find the library's owner to ensure all devices linked to this branch or owner receive the push
+      const library = await prisma.library.findUnique({
+        where: { id: targetLibraryId },
+        select: { id: true, ownerId: true },
+      });
+
+      const userIdsToTarget: string[] = [];
+      if (library?.ownerId) userIdsToTarget.push(library.ownerId);
+
       targetSubscriptions = await prisma.pushSubscriptionRecord.findMany({
-        where: { libraryId: targetLibraryId, isActive: true },
+        where: {
+          isActive: true,
+          OR: [
+            { libraryId: targetLibraryId },
+            ...(userIdsToTarget.length > 0 ? [{ userId: { in: userIdsToTarget } }] : []),
+          ],
+        },
       });
     } else {
+      // Global broadcast to all active push subscriptions
       targetSubscriptions = await prisma.pushSubscriptionRecord.findMany({
         where: { isActive: true },
       });
@@ -56,7 +72,7 @@ export async function POST(req: NextRequest) {
       title: cleanTitle,
       body: cleanBody,
       icon: '/icons/icon-192x192.png',
-      badge: '/icons/badge-72x72.png',
+      badge: '/icons/badge-96x96.png',
       url: cleanUrl,
       vibrate: [200, 100, 200],
       tag: 'broadcast-' + notification.id,
