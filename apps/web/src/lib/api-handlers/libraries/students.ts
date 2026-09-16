@@ -35,6 +35,7 @@ export async function handleGetStudents(req: NextRequest, libraryId: string) {
         },
         seatAssignments: {
           where: { status: 'ACTIVE' },
+          orderBy: { createdAt: 'desc' },
           include: {
             seat: {
               include: {

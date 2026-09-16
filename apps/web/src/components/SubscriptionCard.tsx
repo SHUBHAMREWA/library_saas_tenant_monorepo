@@ -110,6 +110,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [paymentsHistory, setPaymentsHistory] = useState<SubscriptionPaymentRecord[]>([]);
   const [availablePlans, setAvailablePlans] = useState<AvailablePlanItem[]>([]);
+  const [isLoadingPlans, setIsLoadingPlans] = useState(true);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<'ALL' | 'SUCCESS' | 'PENDING' | 'FAILED'>('ALL');
 
@@ -134,8 +135,8 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
       id: 'plan-basic',
       code: 'BASIC',
       name: 'Basic Plan',
-      price: 799,
-      originalPrice: 999,
+      price: 101,
+      originalPrice: 399,
       durationMonths: 1,
       badge: 'Starter (1 Month)',
       description: '1 month full access to all features',
@@ -144,8 +145,8 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
       id: 'plan-advance',
       code: 'ADVANCE',
       name: 'Advance Plan',
-      price: 1999,
-      originalPrice: 2499,
+      price: 301,
+      originalPrice: 1299,
       durationMonths: 3,
       badge: 'Popular (3 Months)',
       description: '3 months full access with fees & receipts',
@@ -154,8 +155,8 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
       id: 'plan-pro',
       code: 'PRO',
       name: 'Pro Plan',
-      price: 6999,
-      originalPrice: 9999,
+      price: 1051,
+      originalPrice: 4799,
       durationMonths: 12,
       badge: 'Best Value (1 Year)',
       description: '1 full year access with priority support',
@@ -163,62 +164,79 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
   ];
 
   const fetchSubscriptionData = async () => {
-    if (!libraryId) return;
     setIsLoadingHistory(true);
-    try {
-      const res = await fetch(`/api/libraries/${libraryId}/subscription`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.payments) {
-          setPaymentsHistory(data.payments);
-        }
-        if (data.availablePlans && Array.isArray(data.availablePlans) && data.availablePlans.length > 0) {
-          setAvailablePlans(data.availablePlans);
-          if (!data.availablePlans.some((p: any) => p.code === selectedPlanCode)) {
-            setSelectedPlanCode(data.availablePlans[0].code);
-          }
-        }
-        if (data.subscription) {
-          setSubAutoRenew(Boolean(data.subscription.autoRenew));
-          setSubAutoRenewCancelledAt(data.subscription.autoRenewCancelledAt || null);
-        } else {
-          setSubAutoRenew(false);
-          setSubAutoRenewCancelledAt(null);
-        }
-        if (data.hasActiveSubscription && status !== 'ACTIVE' && onSubscriptionUpdated) {
-          onSubscriptionUpdated();
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load subscription data:', err);
-    } finally {
-      setIsLoadingHistory(false);
+    if (availablePlans.length === 0) {
+      setIsLoadingPlans(true);
     }
 
-    // Always fetch latest live plans from /api/plans
     try {
-      const pRes = await fetch('/api/plans');
-      if (pRes.ok) {
-        const pData = await pRes.json();
-        const livePlans = pData.plans || pData.data;
-        if (Array.isArray(livePlans) && livePlans.length > 0) {
-          const mapped: AvailablePlanItem[] = livePlans.map((p: any) => ({
-            id: p.id,
-            code: p.code,
-            name: p.name,
-            price: Number(p.price ?? p.priceMonthly),
-            originalPrice: Number(p.originalPrice ?? p.priceYearly),
-            durationMonths: Number(p.durationMonths || 1),
-            badge: p.badge || '',
-            description: p.description || '',
-          }));
-          setAvailablePlans(mapped);
-          if (!mapped.some((p) => p.code === selectedPlanCode)) {
-            setSelectedPlanCode(mapped[0].code);
+      await Promise.allSettled([
+        // 1. Fetch live plans from /api/plans
+        (async () => {
+          try {
+            const pRes = await fetch('/api/plans');
+            if (pRes.ok) {
+              const pData = await pRes.json();
+              const livePlans = pData.plans || pData.data;
+              if (Array.isArray(livePlans) && livePlans.length > 0) {
+                const mapped: AvailablePlanItem[] = livePlans.map((p: any) => ({
+                  id: p.id,
+                  code: p.code,
+                  name: p.name,
+                  price: Number(p.price ?? p.priceMonthly),
+                  originalPrice: Number(p.originalPrice ?? p.priceYearly),
+                  durationMonths: Number(p.durationMonths || 1),
+                  badge: p.badge || '',
+                  description: p.description || '',
+                }));
+                setAvailablePlans(mapped);
+                setSelectedPlanCode((prev) => {
+                  if (mapped.some((p) => p.code === prev)) return prev;
+                  return mapped[0].code;
+                });
+              }
+            }
+          } catch (err) {
+            console.error('Failed to fetch /api/plans:', err);
           }
-        }
-      }
-    } catch {}
+        })(),
+        // 2. Fetch library subscription status & history
+        (async () => {
+          if (!libraryId) return;
+          try {
+            const res = await fetch(`/api/libraries/${libraryId}/subscription`);
+            if (res.ok) {
+              const data = await res.json();
+              if (data.payments) {
+                setPaymentsHistory(data.payments);
+              }
+              if (data.availablePlans && Array.isArray(data.availablePlans) && data.availablePlans.length > 0) {
+                setAvailablePlans((current) => (current.length > 0 ? current : data.availablePlans));
+                setSelectedPlanCode((prev) => {
+                  if (data.availablePlans.some((p: any) => p.code === prev)) return prev;
+                  return data.availablePlans[0].code;
+                });
+              }
+              if (data.subscription) {
+                setSubAutoRenew(Boolean(data.subscription.autoRenew));
+                setSubAutoRenewCancelledAt(data.subscription.autoRenewCancelledAt || null);
+              } else {
+                setSubAutoRenew(false);
+                setSubAutoRenewCancelledAt(null);
+              }
+              if (data.hasActiveSubscription && status !== 'ACTIVE' && onSubscriptionUpdated) {
+                onSubscriptionUpdated();
+              }
+            }
+          } catch (err) {
+            console.error('Failed to load subscription data:', err);
+          }
+        })(),
+      ]);
+    } finally {
+      setIsLoadingHistory(false);
+      setIsLoadingPlans(false);
+    }
   };
 
   const handleCancelAutopay = async () => {
@@ -266,9 +284,10 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
     }
   }, [openUpgradeModalImmediately]);
 
-  const currentPlanList = availablePlans.length > 0 ? availablePlans : defaultPlans;
-  const activeSelectedPlan = currentPlanList.find((x) => x.code === selectedPlanCode) || currentPlanList[0];
-  const baseTotal = activeSelectedPlan ? activeSelectedPlan.price : 799;
+  const isPlansLoading = isLoadingPlans && availablePlans.length === 0;
+  const currentPlanList = availablePlans.length > 0 ? availablePlans : (isPlansLoading ? [] : defaultPlans);
+  const activeSelectedPlan = currentPlanList.find((x) => x.code === selectedPlanCode) || currentPlanList[0] || null;
+  const baseTotal = activeSelectedPlan ? activeSelectedPlan.price : 0;
 
   // Dynamically compute discount from appliedCoupon and active plan price
   let discount: number | null = null;
@@ -355,6 +374,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
   };
 
   const handleProceedPayment = async () => {
+    if (!activeSelectedPlan) return;
     setIsSubmitting(true);
     try {
       const shouldEnableAutopay = isAutopaySelected && activeSelectedPlan.code === 'BASIC';
@@ -877,47 +897,78 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-[#737373]">
                 Choose Duration Plan
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {currentPlanList.map((p) => {
-                  const isSelected = selectedPlanCode === p.code;
-                  return (
+
+              {isPlansLoading ? (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[1, 2, 3].map((idx) => (
                     <div
-                      key={p.code}
-                      onClick={() => {
-                        setSelectedPlanCode(p.code);
-                      }}
-                      className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all flex flex-col justify-between relative ${
-                        isSelected
-                          ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 shadow-sm ring-2 ring-indigo-600/20'
-                          : 'border-slate-200 dark:border-[#262626] hover:border-slate-300 dark:hover:border-[#363636] hover:bg-slate-50 dark:hover:bg-[#181818] bg-white dark:bg-[#181818]'
-                      }`}
+                      key={idx}
+                      className="p-3.5 rounded-2xl border-2 border-slate-200/70 dark:border-[#262626] bg-slate-50/70 dark:bg-[#181818] animate-pulse relative overflow-hidden flex flex-col justify-between min-h-[155px]"
                     >
-                      {p.badge && (
-                        <span className="absolute -top-2.5 right-2 text-[9px] font-extrabold bg-indigo-600 text-white px-2 py-0.5 rounded-full shadow-xs">
-                          {p.badge}
-                        </span>
-                      )}
-
-                      <div>
-                        <div className="font-black text-slate-900 dark:text-white text-sm">{p.name}</div>
-                        <div className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 mt-0.5">
-                          {p.durationMonths === 12 ? '1 Year' : `${p.durationMonths} ${p.durationMonths === 1 ? 'Month' : 'Months'}`}
+                      <div className="space-y-2">
+                        {/* Shimmer Badge */}
+                        <div className="h-3 w-20 bg-slate-200 dark:bg-[#2c2c2c] rounded-full"></div>
+                        {/* Shimmer Plan Name */}
+                        <div className="h-4 w-28 bg-slate-300 dark:bg-[#383838] rounded-md mt-1"></div>
+                        {/* Shimmer Duration */}
+                        <div className="h-3 w-16 bg-indigo-200 dark:bg-indigo-950/80 rounded-md"></div>
+                        {/* Shimmer Description */}
+                        <div className="space-y-1 pt-1">
+                          <div className="h-2.5 w-full bg-slate-200 dark:bg-[#282828] rounded"></div>
+                          <div className="h-2.5 w-4/5 bg-slate-200 dark:bg-[#282828] rounded"></div>
                         </div>
-                        <p className="text-[10px] text-slate-500 dark:text-[#a8a8a8] mt-1 leading-tight">
-                          {p.description || 'Full features included'}
-                        </p>
                       </div>
-
-                      <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-[#262626] flex items-baseline gap-1.5">
-                        <span className="text-base font-black text-slate-900 dark:text-white">₹{p.price}</span>
-                        {p.originalPrice && p.originalPrice > p.price && (
-                          <span className="text-[11px] text-slate-400 dark:text-[#737373] line-through">₹{p.originalPrice}</span>
-                        )}
+                      {/* Shimmer Price */}
+                      <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-[#262626] flex items-baseline gap-2">
+                        <div className="h-5 w-16 bg-slate-300 dark:bg-[#383838] rounded-md"></div>
+                        <div className="h-3.5 w-12 bg-slate-200 dark:bg-[#282828] rounded-md"></div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {currentPlanList.map((p) => {
+                    const isSelected = selectedPlanCode === p.code;
+                    return (
+                      <div
+                        key={p.code}
+                        onClick={() => {
+                          setSelectedPlanCode(p.code);
+                        }}
+                        className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all flex flex-col justify-between relative ${
+                          isSelected
+                            ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 shadow-sm ring-2 ring-indigo-600/20'
+                            : 'border-slate-200 dark:border-[#262626] hover:border-slate-300 dark:hover:border-[#363636] hover:bg-slate-50 dark:hover:bg-[#181818] bg-white dark:bg-[#181818]'
+                        }`}
+                      >
+                        {p.badge && (
+                          <span className="absolute -top-2.5 right-2 text-[9px] font-extrabold bg-indigo-600 text-white px-2 py-0.5 rounded-full shadow-xs">
+                            {p.badge}
+                          </span>
+                        )}
+
+                        <div>
+                          <div className="font-black text-slate-900 dark:text-white text-sm">{p.name}</div>
+                          <div className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 mt-0.5">
+                            {p.durationMonths === 12 ? '1 Year' : `${p.durationMonths} ${p.durationMonths === 1 ? 'Month' : 'Months'}`}
+                          </div>
+                          <p className="text-[10px] text-slate-500 dark:text-[#a8a8a8] mt-1 leading-tight">
+                            {p.description || 'Full features included'}
+                          </p>
+                        </div>
+
+                        <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-[#262626] flex items-baseline gap-1.5">
+                          <span className="text-base font-black text-slate-900 dark:text-white">₹{p.price}</span>
+                          {p.originalPrice && p.originalPrice > p.price && (
+                            <span className="text-[11px] text-slate-400 dark:text-[#737373] line-through">₹{p.originalPrice}</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Feature Guarantee Callout */}
@@ -932,19 +983,29 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
             </div>
 
             {/* Stacking Notice Banner */}
-            <div className="p-3 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-800/60 rounded-2xl flex items-start gap-2.5 text-xs text-indigo-900 dark:text-indigo-200">
-              <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
-              <div>
-                <strong className="font-bold">Validity Extension Guarantee:</strong>
-                <p className="text-[11px] text-indigo-700 dark:text-indigo-300 mt-0.5">
-                  Paying for {activeSelectedPlan.name} will automatically add{' '}
-                  <strong>+{activeSelectedPlan.durationMonths} month(s)</strong> onto your existing expiry date!
-                </p>
+            {isPlansLoading ? (
+              <div className="p-3 bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 rounded-2xl animate-pulse flex items-start gap-2.5">
+                <div className="w-4 h-4 bg-indigo-200 dark:bg-indigo-800 rounded-full shrink-0 mt-0.5" />
+                <div className="space-y-1.5 flex-1">
+                  <div className="h-3 bg-indigo-200 dark:bg-indigo-800 rounded w-1/3"></div>
+                  <div className="h-2.5 bg-indigo-100 dark:bg-indigo-900/50 rounded w-2/3"></div>
+                </div>
               </div>
-            </div>
+            ) : activeSelectedPlan ? (
+              <div className="p-3 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-800/60 rounded-2xl flex items-start gap-2.5 text-xs text-indigo-900 dark:text-indigo-200">
+                <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="font-bold">Validity Extension Guarantee:</strong>
+                  <p className="text-[11px] text-indigo-700 dark:text-indigo-300 mt-0.5">
+                    Paying for {activeSelectedPlan.name} will automatically add{' '}
+                    <strong>+{activeSelectedPlan.durationMonths} month(s)</strong> onto your existing expiry date!
+                  </p>
+                </div>
+              </div>
+            ) : null}
 
             {/* Autopay Option for Basic Plan (₹100/mo) */}
-            {activeSelectedPlan.code === 'BASIC' && (
+            {!isPlansLoading && activeSelectedPlan && activeSelectedPlan.code === 'BASIC' && (
               <div className="p-3.5 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl flex items-center justify-between gap-3">
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-1.5 font-bold text-xs text-emerald-900 dark:text-emerald-200">
@@ -978,7 +1039,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                   <input
                     type="text"
                     value={coupon}
-                    disabled={!!appliedCoupon || isValidatingCoupon}
+                    disabled={!!appliedCoupon || isValidatingCoupon || isPlansLoading}
                     onChange={(e) => setCoupon(e.target.value.toUpperCase())}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
@@ -1009,7 +1070,7 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                 ) : (
                   <button
                     type="button"
-                    disabled={isValidatingCoupon || !coupon.trim()}
+                    disabled={isValidatingCoupon || !coupon.trim() || isPlansLoading}
                     onClick={() => handleApplyCoupon()}
                     className="bg-slate-900 dark:bg-white text-white dark:text-black hover:bg-slate-800 dark:hover:bg-slate-200 disabled:opacity-50 px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-colors"
                   >
@@ -1026,32 +1087,65 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
             </div>
 
             {/* Price Summary */}
-            <div className="bg-slate-50 dark:bg-[#1a1a1a] p-4 rounded-2xl border border-slate-200 dark:border-[#262626] text-xs space-y-2">
-              <div className="flex justify-between text-slate-600 dark:text-[#a8a8a8]">
-                <span>Selected Plan</span>
-                <span className="font-semibold text-slate-900 dark:text-white">{activeSelectedPlan.name} ({activeSelectedPlan.durationMonths} Mo)</span>
+            {isPlansLoading ? (
+              <div className="bg-slate-50 dark:bg-[#1a1a1a] p-4 rounded-2xl border border-slate-200 dark:border-[#262626] space-y-3 animate-pulse">
+                <div className="flex justify-between items-center">
+                  <div className="h-3 bg-slate-200 dark:bg-[#2c2c2c] rounded w-24"></div>
+                  <div className="h-3 bg-slate-200 dark:bg-[#2c2c2c] rounded w-32"></div>
+                </div>
+                <div className="flex justify-between items-center">
+                  <div className="h-3 bg-slate-200 dark:bg-[#2c2c2c] rounded w-28"></div>
+                  <div className="h-3 bg-slate-200 dark:bg-[#2c2c2c] rounded w-16"></div>
+                </div>
+                <div className="flex justify-between items-center border-t border-slate-200 dark:border-[#262626] pt-2.5">
+                  <div className="h-4 bg-slate-300 dark:bg-[#383838] rounded w-36"></div>
+                  <div className="h-5 bg-indigo-200 dark:bg-indigo-900/60 rounded w-20"></div>
+                </div>
               </div>
-              <div className="flex justify-between text-slate-600 dark:text-[#a8a8a8]">
-                <span>Plan Original Price</span>
-                <span className={`font-semibold ${discount !== null && discount > 0 ? 'line-through text-slate-400 dark:text-[#737373]' : 'text-slate-900 dark:text-white'}`}>
-                  ₹{baseTotal.toLocaleString('en-IN')}
-                </span>
-              </div>
-              {appliedCoupon && discount !== null && discount > 0 ? (
-                <div className="flex justify-between items-center bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300">
-                  <div className="flex items-center gap-1.5 font-bold">
-                    <Tag className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    <span>
-                      Coupon Offer Applied: <span className="font-mono font-black">{appliedCoupon.code}</span>
-                      <span className="ml-1 text-[11px] font-semibold opacity-90">
-                        ({appliedCoupon.discountType === 'PERCENTAGE' ? `${appliedCoupon.discountValue}% OFF` : `₹${appliedCoupon.discountValue} FLAT OFF`})
+            ) : activeSelectedPlan ? (
+              <div className="bg-slate-50 dark:bg-[#1a1a1a] p-4 rounded-2xl border border-slate-200 dark:border-[#262626] text-xs space-y-2">
+                <div className="flex justify-between text-slate-600 dark:text-[#a8a8a8]">
+                  <span>Selected Plan</span>
+                  <span className="font-semibold text-slate-900 dark:text-white">{activeSelectedPlan.name} ({activeSelectedPlan.durationMonths} Mo)</span>
+                </div>
+                <div className="flex justify-between text-slate-600 dark:text-[#a8a8a8]">
+                  <span>Plan Original Price</span>
+                  <span className={`font-semibold ${discount !== null && discount > 0 ? 'line-through text-slate-400 dark:text-[#737373]' : 'text-slate-900 dark:text-white'}`}>
+                    ₹{baseTotal.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                {appliedCoupon && discount !== null && discount > 0 ? (
+                  <div className="flex justify-between items-center bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300">
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <Tag className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span>
+                        Coupon Offer Applied: <span className="font-mono font-black">{appliedCoupon.code}</span>
+                        <span className="ml-1 text-[11px] font-semibold opacity-90">
+                          ({appliedCoupon.discountType === 'PERCENTAGE' ? `${appliedCoupon.discountValue}% OFF` : `₹${appliedCoupon.discountValue} FLAT OFF`})
+                        </span>
                       </span>
-                    </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-extrabold text-xs text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
+                        -₹{discount.toLocaleString('en-IN')} Saved
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAppliedCoupon(null);
+                          setCoupon('');
+                          setCouponFeedback(null);
+                        }}
+                        className="text-[10px] text-rose-600 hover:text-rose-700 dark:text-rose-400 underline font-bold cursor-pointer"
+                        title="Remove coupon"
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-extrabold text-xs text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
-                      -₹{discount.toLocaleString('en-IN')} Saved
-                    </span>
+                ) : appliedCoupon && appliedCoupon.minOrderAmount && baseTotal < appliedCoupon.minOrderAmount ? (
+                  <div className="bg-amber-50 dark:bg-amber-950/40 p-2.5 rounded-xl border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-[11px] flex items-center justify-between">
+                    <span>Coupon {appliedCoupon.code} requires minimum plan of ₹{appliedCoupon.minOrderAmount}</span>
                     <button
                       type="button"
                       onClick={() => {
@@ -1059,50 +1153,40 @@ export const SubscriptionCard: React.FC<SubscriptionCardProps> = ({
                         setCoupon('');
                         setCouponFeedback(null);
                       }}
-                      className="text-[10px] text-rose-600 hover:text-rose-700 dark:text-rose-400 underline font-bold cursor-pointer"
-                      title="Remove coupon"
+                      className="text-rose-600 dark:text-rose-400 font-bold underline ml-2 cursor-pointer"
                     >
                       Remove
                     </button>
                   </div>
-                </div>
-              ) : appliedCoupon && appliedCoupon.minOrderAmount && baseTotal < appliedCoupon.minOrderAmount ? (
-                <div className="bg-amber-50 dark:bg-amber-950/40 p-2.5 rounded-xl border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-[11px] flex items-center justify-between">
-                  <span>Coupon {appliedCoupon.code} requires minimum plan of ₹{appliedCoupon.minOrderAmount}</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAppliedCoupon(null);
-                      setCoupon('');
-                      setCouponFeedback(null);
-                    }}
-                    className="text-rose-600 dark:text-rose-400 font-bold underline ml-2 cursor-pointer"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ) : null}
-              <div className="flex justify-between items-baseline text-slate-900 dark:text-white font-black border-t border-slate-200 dark:border-[#262626] pt-2 text-sm">
-                <span>Total Payable Amount</span>
-                <div className="text-right">
-                  <span className="text-base text-indigo-700 dark:text-indigo-400">₹{finalPrice.toLocaleString('en-IN')}</span>
-                  {discount !== null && discount > 0 && (
-                    <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5">
-                      You are saving ₹{discount.toLocaleString('en-IN')} on this order!
-                    </div>
-                  )}
+                ) : null}
+                <div className="flex justify-between items-baseline text-slate-900 dark:text-white font-black border-t border-slate-200 dark:border-[#262626] pt-2 text-sm">
+                  <span>Total Payable Amount</span>
+                  <div className="text-right">
+                    <span className="text-base text-indigo-700 dark:text-indigo-400">₹{finalPrice.toLocaleString('en-IN')}</span>
+                    {discount !== null && discount > 0 && (
+                      <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5">
+                        You are saving ₹{discount.toLocaleString('en-IN')} on this order!
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : null}
 
             <button
               type="button"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isPlansLoading || !activeSelectedPlan}
               onClick={handleProceedPayment}
               className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-3.5 rounded-2xl text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition-all cursor-pointer disabled:opacity-50"
             >
               <CreditCard className="w-4 h-4" />
-              <span>{isSubmitting ? 'Opening Razorpay Gateway...' : `Pay ₹${finalPrice.toLocaleString('en-IN')} & Activate Plan`}</span>
+              <span>
+                {isSubmitting
+                  ? 'Opening Razorpay Gateway...'
+                  : isPlansLoading
+                  ? 'Loading Plan Details...'
+                  : `Pay ₹${finalPrice.toLocaleString('en-IN')} & Activate Plan`}
+              </span>
             </button>
 
             <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 dark:text-[#737373] font-medium pt-1">
