@@ -2000,7 +2000,10 @@ export default function MobileDashboard() {
           unassign: isUnassign,
         }),
       });
-      if (!res.ok) {
+      if (res.ok) {
+        fetchLibrarySeats(activeLibrary.id);
+        fetchLibraryStudents(activeLibrary.id);
+      } else {
         const errText = await res.text();
         console.error('Failed to sync seat assignment with DB:', errText);
       }
@@ -3908,15 +3911,34 @@ export default function MobileDashboard() {
         {activeTab === 'seats' && (
           <section className="bg-white dark:bg-[#121212] rounded-xl border border-slate-200 dark:border-[#262626] p-4 shadow-xs space-y-3 transition-colors">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-[#f5f5f5]">Seat Inventory</h3>
-                <p className="text-xs text-slate-500 dark:text-neutral-400">
-                  {currentSelectedRoom ? (
-                    <>Showing <b>{currentSelectedRoom.name}</b> ({currentRoomSeats.length} seats)</>
-                  ) : (
-                    <>{availableCount} available out of {totalSeats} total seats</>
-                  )}
-                </p>
+              <div className="flex items-center justify-between sm:justify-start gap-3">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-[#f5f5f5]">Seat Inventory</h3>
+                  <p className="text-xs text-slate-500 dark:text-neutral-400">
+                    {currentSelectedRoom ? (
+                      <>Showing <b>{currentSelectedRoom.name}</b> ({currentRoomSeats.length} seats)</>
+                    ) : (
+                      <>{availableCount} available out of {totalSeats} total seats</>
+                    )}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (activeLibrary?.id) {
+                      fetchLibrarySeats(activeLibrary.id);
+                      fetchLibraryStudents(activeLibrary.id);
+                    }
+                  }}
+                  disabled={isLoadingSeats}
+                  className={`p-1.5 px-2.5 rounded-lg border border-slate-200 dark:border-[#262626] bg-slate-50 dark:bg-[#1c1c1e] hover:bg-slate-100 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 hover:text-indigo-600 dark:hover:text-indigo-400 shadow-2xs transition-all cursor-pointer flex items-center gap-1.5 text-xs font-semibold active:scale-95 ${
+                    isLoadingSeats ? 'opacity-70 cursor-not-allowed' : ''
+                  }`}
+                  title="Refresh Rooms & Seats"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 ${isLoadingSeats ? 'animate-spin' : ''}`} />
+                  <span>Refresh</span>
+                </button>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button

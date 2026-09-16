@@ -381,12 +381,14 @@ export async function handleAssignSeat(req: NextRequest, libraryId: string) {
       return NextResponse.json({ error: 'studentId is required' }, { status: 400 });
     }
 
-    const student = await prisma.student.findFirst({
+    const student = (await prisma.student.findFirst({
       where: { id: studentId, libraryId },
-    });
+    })) || (await prisma.student.findUnique({
+      where: { id: studentId },
+    }));
 
     if (!student) {
-      return NextResponse.json({ error: 'Student not found in this library' }, { status: 404 });
+      return NextResponse.json({ error: 'Student not found' }, { status: 404 });
     }
 
     let membership = await prisma.membership.findFirst({
@@ -433,7 +435,7 @@ export async function handleAssignSeat(req: NextRequest, libraryId: string) {
     }
 
     const existingAssignments = await prisma.seatAssignment.findMany({
-      where: { studentId: student.id, libraryId, status: 'ACTIVE' },
+      where: { studentId: student.id, status: 'ACTIVE' },
       include: { seat: true },
     });
 
@@ -443,17 +445,24 @@ export async function handleAssignSeat(req: NextRequest, libraryId: string) {
         data: { status: 'RELEASED', endDate: new Date() },
       });
 
-      const remainingCount = await prisma.seatAssignment.count({
-        where: { seatId: assignment.seatId, libraryId, status: 'ACTIVE' },
-      });
-
-      if (remainingCount === 0) {
-        await prisma.seat.update({
-          where: { id: assignment.seatId },
-          data: { status: 'AVAILABLE' },
+      if (assignment.seatId) {
+        const remainingCount = await prisma.seatAssignment.count({
+          where: { seatId: assignment.seatId, status: 'ACTIVE' },
         });
+
+        if (remainingCount === 0) {
+          await prisma.seat.update({
+            where: { id: assignment.seatId },
+            data: { status: 'AVAILABLE' },
+          });
+        }
       }
     }
+
+    await prisma.seatAssignment.updateMany({
+      where: { studentId: student.id, status: 'ACTIVE' },
+      data: { status: 'RELEASED', endDate: new Date() },
+    });
 
     if (!isUnassign && (seatId || seatNumber)) {
       let targetSeat = null;
