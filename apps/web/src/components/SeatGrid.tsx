@@ -815,8 +815,42 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    if (
+                      selectedSeat.status === 'AVAILABLE' &&
+                      (!selectedSeat.occupants || selectedSeat.occupants.length === 0) &&
+                      !selectedSeat.studentName
+                    ) {
+                      return;
+                    }
+
+                    const occupants = selectedSeat.occupants || [];
+                    const hasOccupants = occupants.length > 0 || Boolean(selectedSeat.studentName);
+                    const cleanNum = selectedSeat.seatNumber.replace(/^[A-Za-z0-9]+-/, '');
+
+                    if (hasOccupants) {
+                      const studentNames =
+                        occupants.length > 0
+                          ? occupants.map((o) => o.studentName).join(', ')
+                          : selectedSeat.studentName;
+                      const confirmed = window.confirm(
+                        `⚠️ Warning: Seat "${cleanNum}" is currently assigned to ${studentNames}.\n\nMarking this seat as "Available (Free)" will remove the student(s) from this seat in the database.\n\nDo you want to proceed?`
+                      );
+                      if (!confirmed) return;
+                    }
+
                     onStatusChange?.(selectedSeat.id, 'AVAILABLE');
-                    setSelectedSeat((prev) => (prev ? { ...prev, status: 'AVAILABLE', studentName: null, occupants: [] } : null));
+                    setSelectedSeat((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            status: 'AVAILABLE',
+                            studentName: null,
+                            shift: undefined,
+                            studentId: null,
+                            occupants: [],
+                          }
+                        : null
+                    );
                   }}
                   className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
                     selectedSeat.status === 'AVAILABLE'
@@ -830,8 +864,42 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    if (
+                      selectedSeat.status === 'MAINTENANCE' &&
+                      (!selectedSeat.occupants || selectedSeat.occupants.length === 0) &&
+                      !selectedSeat.studentName
+                    ) {
+                      return;
+                    }
+
+                    const occupants = selectedSeat.occupants || [];
+                    const hasOccupants = occupants.length > 0 || Boolean(selectedSeat.studentName);
+                    const cleanNum = selectedSeat.seatNumber.replace(/^[A-Za-z0-9]+-/, '');
+
+                    if (hasOccupants) {
+                      const studentNames =
+                        occupants.length > 0
+                          ? occupants.map((o) => o.studentName).join(', ')
+                          : selectedSeat.studentName;
+                      const confirmed = window.confirm(
+                        `⚠️ Warning: Seat "${cleanNum}" is currently assigned to ${studentNames}.\n\nMarking this seat as "Maintenance" will remove the student(s) from this seat in the database.\n\nDo you want to proceed?`
+                      );
+                      if (!confirmed) return;
+                    }
+
                     onStatusChange?.(selectedSeat.id, 'MAINTENANCE');
-                    setSelectedSeat((prev) => (prev ? { ...prev, status: 'MAINTENANCE' } : null));
+                    setSelectedSeat((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            status: 'MAINTENANCE',
+                            studentName: null,
+                            shift: undefined,
+                            studentId: null,
+                            occupants: [],
+                          }
+                        : null
+                    );
                   }}
                   className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
                     selectedSeat.status === 'MAINTENANCE'

@@ -3,6 +3,12 @@ import { prisma } from '@library/database';
 import { deleteFromCloudinary } from '@/lib/cloudinary';
 import crypto from 'crypto';
 
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
+
 export async function handleGetStudents(req: NextRequest, libraryId: string) {
   try {
     if (!libraryId) {
@@ -81,13 +87,24 @@ export async function handleGetStudents(req: NextRequest, libraryId: string) {
       let daysRemaining = 0;
       let isExpired = false;
 
-      if ((hasPaidTx || activeSeat) && activeMembership?.expectedEndDate) {
-        const end = new Date(activeMembership.expectedEndDate);
-        daysRemaining = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-        isExpired = daysRemaining <= 0;
-      } else if (hasPaidTx && studentTxList[0]?.validTo) {
-        const end = new Date(studentTxList[0].validTo);
-        daysRemaining = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+      let latestValidEndDate: Date | null = null;
+      for (const tx of studentTxList) {
+        if (tx.validTo) {
+          const d = new Date(tx.validTo);
+          if (!isNaN(d.getTime()) && (!latestValidEndDate || d > latestValidEndDate)) {
+            latestValidEndDate = d;
+          }
+        }
+      }
+      if (activeMembership?.expectedEndDate && (activeMembership.status === 'ACTIVE' || activeSeat)) {
+        const d = new Date(activeMembership.expectedEndDate);
+        if (!isNaN(d.getTime()) && (!latestValidEndDate || d > latestValidEndDate)) {
+          latestValidEndDate = d;
+        }
+      }
+
+      if (latestValidEndDate) {
+        daysRemaining = Math.max(0, Math.ceil((latestValidEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
         isExpired = daysRemaining <= 0;
       } else if (activeSeat) {
         daysRemaining = 30;
@@ -97,9 +114,13 @@ export async function handleGetStudents(req: NextRequest, libraryId: string) {
       let studentStatus: 'ACTIVE' | 'INACTIVE' | 'EXPIRED' = 'INACTIVE';
       if (activeSeat) {
         studentStatus = isExpired ? 'EXPIRED' : 'ACTIVE';
+      } else if (hasPaidTx && !isExpired && daysRemaining > 0) {
+        studentStatus = 'ACTIVE';
       } else {
-        studentStatus = 'INACTIVE';
+        studentStatus = isExpired && hasPaidTx ? 'EXPIRED' : 'INACTIVE';
       }
+
+      const assignedShift = activeSeat?.shift || (activeMembership?.status === 'ACTIVE' && activeSeat ? activeMembership?.shift : undefined) || undefined;
 
       return {
         id: std.id,
@@ -110,7 +131,7 @@ export async function handleGetStudents(req: NextRequest, libraryId: string) {
         kycPhotoUrl: std.kycPhotoUrl || undefined,
         kycDocId: std.kycDocId || undefined,
         kycType: std.kycDocType || 'AADHAAR',
-        shift: activeSeat?.shift || activeMembership?.shift || 'FULL_DAY',
+        shift: assignedShift,
         seatId: activeSeat?.seat?.id || null,
         seatNumber: activeSeat?.seat?.seatNumber || null,
         roomId: activeSeat?.seat?.row?.roomId || null,
@@ -120,16 +141,19 @@ export async function handleGetStudents(req: NextRequest, libraryId: string) {
         membershipEndsInDays: daysRemaining,
         monthlyFee: activeMembership?.feeAmount ? Number(activeMembership.feeAmount) : 0,
         totalFee: studentTxList[0]?.totalFee,
-        remainingFee: studentTxList[0]?.remainingFee ?? (activeMembership?.feeAmount ? Number(activeMembership.feeAmount) : 0),
+        remainingFee: hasPaidTx ? (studentTxList[0]?.remainingFee ?? 0) : 0,
         transactions: studentTxList,
         hasLocker: Boolean(activeSeat?.seat?.hasLocker),
       };
     });
 
-    return NextResponse.json({
-      success: true,
-      students: formattedStudents,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        students: formattedStudents,
+      },
+      { headers: NO_CACHE_HEADERS }
+    );
   } catch (error: any) {
     console.error('API GET /api/libraries/[id]/students error:', error);
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });

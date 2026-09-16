@@ -47,7 +47,178 @@ export async function handleGetLibraries(req: NextRequest) {
       },
     };
 
-    let libraries = await prisma.library.findMany({
+    const NO_CACHE_HEADERS = {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    };
+
+    // 2. Cloud Synchronization: Sync libraries and room state from Render backend
+    try {
+      const rawBackend =
+        (process.env.API_URL && process.env.API_URL.startsWith('http') ? process.env.API_URL : null) ||
+        (process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.startsWith('http') ? process.env.NEXT_PUBLIC_API_URL : null) ||
+        'https://seelibrarybackend.onrender.com';
+      const renderOrigin = rawBackend.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
+
+      const renderRes = await fetch(`${renderOrigin}/api/v1/admin/libraries`, {
+        headers: { 'x-admin-email': 'shubhamrewamp17@gmail.com' },
+        signal: AbortSignal.timeout(3500),
+      });
+
+      if (renderRes.ok) {
+        const renderData = await renderRes.json();
+        const candidateLibs = (renderData.libraries || []).filter(
+          (l: any) =>
+            l.owner?.email?.toLowerCase().trim() === cleanEmail ||
+            l.contactEmail?.toLowerCase().trim() === cleanEmail
+        );
+
+        if (candidateLibs.length > 0) {
+          const cloudLibIds = candidateLibs.map((l: any) => l.id);
+
+          // Mark local libraries as inactive if deleted from Render
+          await prisma.library.updateMany({
+            where: {
+              OR: [
+                { ownerId: user.id },
+                { owner: { email: { equals: cleanEmail, mode: 'insensitive' } } },
+                { contactEmail: { equals: cleanEmail, mode: 'insensitive' } },
+              ],
+              id: { notIn: cloudLibIds },
+              isActive: true,
+            },
+            data: { isActive: false },
+          });
+
+          for (const rLib of candidateLibs) {
+            try {
+              // Upsert library
+              await prisma.library.upsert({
+                where: { id: rLib.id },
+                update: {
+                  name: rLib.name,
+                  contactPhone: rLib.contactPhone || '7898522932',
+                  address: rLib.address || null,
+                  isActive: rLib.isActive ?? true,
+                },
+                create: {
+                  id: rLib.id,
+                  ownerId: user.id,
+                  name: rLib.name,
+                  slug: rLib.slug || `${rLib.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36)}`,
+                  contactPhone: rLib.contactPhone || '7898522932',
+                  address: rLib.address || null,
+                  isActive: rLib.isActive ?? true,
+                },
+              });
+
+              // Mirror active subscription if present on cloud
+              if (rLib.activeSubscription) {
+                try {
+                  const planCode = rLib.activeSubscription.plan?.code || 'BASIC';
+                  const plan = await prisma.subscriptionPlan.findFirst({
+                    where: { code: planCode },
+                  });
+                  if (plan) {
+                    await prisma.subscription.upsert({
+                      where: { id: rLib.activeSubscription.id },
+                      update: {
+                        status: rLib.activeSubscription.status || 'ACTIVE',
+                        endDate: new Date(rLib.activeSubscription.endDate),
+                      },
+                      create: {
+                        id: rLib.activeSubscription.id,
+                        userId: user.id,
+                        libraryId: rLib.id,
+                        planId: plan.id,
+                        status: rLib.activeSubscription.status || 'ACTIVE',
+                        startDate: new Date(rLib.createdAt || Date.now()),
+                        endDate: new Date(rLib.activeSubscription.endDate),
+                      },
+                    });
+                  }
+                } catch (subErr) {
+                  console.warn('[handleGetLibraries] Subscription mirror warning:', subErr);
+                }
+              }
+
+              // Mirror real rooms from Render (source of truth)
+              try {
+                const roomsRes = await fetch(`${renderOrigin}/api/v1/libraries/${rLib.id}/spaces/rooms`, {
+                  headers: { 'x-admin-email': 'shubhamrewamp17@gmail.com' },
+                  signal: AbortSignal.timeout(2500),
+                });
+
+                if (roomsRes.ok) {
+                  const roomsData = await roomsRes.json();
+                  const cloudRooms = roomsData.data || roomsData.rooms || [];
+                  const cloudRoomIds = cloudRooms.map((cr: any) => cr.id);
+
+                  // Delete local rooms not present in Render (e.g. rooms deleted by user)
+                  const localRoomsToDelete = await prisma.room.findMany({
+                    where: {
+                      libraryId: rLib.id,
+                      ...(cloudRoomIds.length > 0 ? { id: { notIn: cloudRoomIds } } : {}),
+                    },
+                    select: { id: true },
+                  });
+
+                  if (localRoomsToDelete.length > 0) {
+                    const toDeleteIds = localRoomsToDelete.map((r) => r.id);
+                    await prisma.seatAssignment.deleteMany({
+                      where: { libraryId: rLib.id, seat: { row: { roomId: { in: toDeleteIds } } } },
+                    });
+                    await prisma.seat.deleteMany({
+                      where: { libraryId: rLib.id, row: { roomId: { in: toDeleteIds } } },
+                    });
+                    await prisma.row.deleteMany({
+                      where: { libraryId: rLib.id, roomId: { in: toDeleteIds } },
+                    });
+                    await prisma.room.deleteMany({
+                      where: { id: { in: toDeleteIds } },
+                    });
+                  }
+
+                  // Upsert real rooms and rows from Render cloud
+                  for (const cr of cloudRooms) {
+                    const roomObj = await prisma.room.upsert({
+                      where: { id: cr.id },
+                      update: { name: cr.name, isActive: true },
+                      create: { id: cr.id, libraryId: rLib.id, name: cr.name, isActive: true },
+                    });
+                    if (Array.isArray(cr.rows)) {
+                      for (const rw of cr.rows) {
+                        await prisma.row.upsert({
+                          where: { id: rw.id },
+                          update: { name: rw.name, hasLocker: Boolean(rw.hasLocker), isActive: true },
+                          create: {
+                            id: rw.id,
+                            libraryId: rLib.id,
+                            roomId: roomObj.id,
+                            name: rw.name,
+                            hasLocker: Boolean(rw.hasLocker),
+                            isActive: true,
+                          },
+                        });
+                      }
+                    }
+                  }
+                }
+              } catch (roomSyncErr) {
+                console.warn(`[handleGetLibraries] Room sync error for ${rLib.id}:`, roomSyncErr);
+              }
+            } catch (mirrorErr) {
+              console.warn('[handleGetLibraries] Mirror error:', mirrorErr);
+            }
+          }
+        }
+      }
+    } catch (renderSyncErr) {
+      console.warn('[handleGetLibraries] Render sync warning:', renderSyncErr);
+    }
+
+    const libraries = await prisma.library.findMany({
       where: {
         OR: [
           { ownerId: user.id },
@@ -59,84 +230,6 @@ export async function handleGetLibraries(req: NextRequest) {
       include: libraryIncludeOptions,
       orderBy: { createdAt: 'desc' },
     });
-
-    // 2. Cloud Fallback: If DB returns 0 libraries, check Render backend
-    if (libraries.length === 0) {
-      try {
-        const rawBackend =
-          (process.env.API_URL && process.env.API_URL.startsWith('http') ? process.env.API_URL : null) ||
-          (process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.startsWith('http') ? process.env.NEXT_PUBLIC_API_URL : null) ||
-          'https://seelibrarybackend.onrender.com';
-        const renderOrigin = rawBackend.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
-
-        const renderRes = await fetch(`${renderOrigin}/api/v1/admin/libraries`, {
-          headers: { 'x-admin-email': 'shubhamrewamp17@gmail.com' },
-          signal: AbortSignal.timeout(4000),
-        });
-
-        if (renderRes.ok) {
-          const renderData = await renderRes.json();
-          const candidateLibs = (renderData.libraries || []).filter(
-            (l: any) =>
-              l.owner?.email?.toLowerCase().trim() === cleanEmail ||
-              l.contactEmail?.toLowerCase().trim() === cleanEmail
-          );
-
-          if (candidateLibs.length > 0) {
-            for (const rLib of candidateLibs) {
-              try {
-                const existing = await prisma.library.findUnique({ where: { id: rLib.id } });
-                if (!existing) {
-                  const created = await prisma.library.create({
-                    data: {
-                      id: rLib.id,
-                      ownerId: user.id,
-                      name: rLib.name,
-                      slug: rLib.slug || `${rLib.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36)}`,
-                      contactPhone: rLib.contactPhone || '7898522932',
-                      address: rLib.address || null,
-                      isActive: true,
-                    },
-                  });
-
-                  const defaultRoomId = crypto.randomUUID();
-                  await prisma.room.create({
-                    data: {
-                      id: defaultRoomId,
-                      libraryId: created.id,
-                      name: 'Main Hall',
-                    },
-                  });
-                  await prisma.row.createMany({
-                    data: [
-                      { id: crypto.randomUUID(), libraryId: created.id, roomId: defaultRoomId, name: 'Row A' },
-                      { id: crypto.randomUUID(), libraryId: created.id, roomId: defaultRoomId, name: 'Row B' },
-                    ],
-                  });
-                }
-              } catch (mirrorErr) {
-                console.warn('[handleGetLibraries] Mirror error:', mirrorErr);
-              }
-            }
-
-            libraries = await prisma.library.findMany({
-              where: {
-                OR: [
-                  { ownerId: user.id },
-                  { owner: { email: { equals: cleanEmail, mode: 'insensitive' } } },
-                  { contactEmail: { equals: cleanEmail, mode: 'insensitive' } },
-                ],
-                isActive: true,
-              },
-              include: libraryIncludeOptions,
-              orderBy: { createdAt: 'desc' },
-            });
-          }
-        }
-      } catch (renderFallbackErr) {
-        console.warn('[handleGetLibraries] Render fallback warning:', renderFallbackErr);
-      }
-    }
 
     const userSubscriptions = await prisma.subscription.findMany({
       where: {
@@ -271,7 +364,16 @@ export async function handleGetLibraries(req: NextRequest) {
       })
     );
 
-    return NextResponse.json({ libraries: formattedLibraries });
+    return NextResponse.json(
+      { libraries: formattedLibraries },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+      }
+    );
   } catch (error: any) {
     console.error('API GET /api/libraries error:', error);
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
@@ -312,35 +414,28 @@ export async function handleCreateLibrary(req: NextRequest) {
       },
     });
 
-    const defaultRoomId = crypto.randomUUID();
-    const defaultRoom = await prisma.room.create({
-      data: {
-        id: defaultRoomId,
-        libraryId: newLib.id,
-        name: 'Main Hall',
+    return NextResponse.json(
+      {
+        success: true,
+        library: {
+          id: newLib.id,
+          name: newLib.name,
+          contactPhone: newLib.contactPhone,
+          address: newLib.address || undefined,
+          rooms: [],
+          seats: [],
+          students: [],
+          createdAt: newLib.createdAt.toISOString(),
+        },
       },
-    });
-
-    await prisma.row.createMany({
-      data: [
-        { id: crypto.randomUUID(), libraryId: newLib.id, roomId: defaultRoomId, name: 'Row A' },
-        { id: crypto.randomUUID(), libraryId: newLib.id, roomId: defaultRoomId, name: 'Row B' },
-      ],
-    });
-
-    return NextResponse.json({
-      success: true,
-      library: {
-        id: newLib.id,
-        name: newLib.name,
-        contactPhone: newLib.contactPhone,
-        address: newLib.address || undefined,
-        rooms: [{ id: defaultRoom.id, name: defaultRoom.name, rows: ['Row A', 'Row B'] }],
-        seats: [],
-        students: [],
-        createdAt: newLib.createdAt.toISOString(),
-      },
-    });
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+      }
+    );
   } catch (error: any) {
     console.error('API POST /api/libraries error:', error);
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });

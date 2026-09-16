@@ -238,13 +238,24 @@ export async function handleSyncAll(req: NextRequest) {
         let daysRemaining = 0;
         let isExpired = false;
 
-        if ((hasPaidTx || activeSeat) && activeMembership?.expectedEndDate) {
-          const end = new Date(activeMembership.expectedEndDate);
-          daysRemaining = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-          isExpired = daysRemaining <= 0;
-        } else if (hasPaidTx && studentTxList[0]?.validTo) {
-          const end = new Date(studentTxList[0].validTo);
-          daysRemaining = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+        let latestValidEndDate: Date | null = null;
+        for (const tx of studentTxList) {
+          if (tx.validTo) {
+            const d = new Date(tx.validTo);
+            if (!isNaN(d.getTime()) && (!latestValidEndDate || d > latestValidEndDate)) {
+              latestValidEndDate = d;
+            }
+          }
+        }
+        if (activeMembership?.expectedEndDate && (activeMembership.status === 'ACTIVE' || activeSeat)) {
+          const d = new Date(activeMembership.expectedEndDate);
+          if (!isNaN(d.getTime()) && (!latestValidEndDate || d > latestValidEndDate)) {
+            latestValidEndDate = d;
+          }
+        }
+
+        if (latestValidEndDate) {
+          daysRemaining = Math.max(0, Math.ceil((latestValidEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
           isExpired = daysRemaining <= 0;
         } else if (activeSeat) {
           daysRemaining = 30;
@@ -381,7 +392,7 @@ export async function handleSyncAll(req: NextRequest) {
         let normalizedShift: string = '';
 
         if (hasPaidTx || assignedSeatNumber) {
-          const rawShift = activeMembership?.shift;
+          const rawShift = activeSeat?.shift || (activeMembership?.status === 'ACTIVE' ? activeMembership?.shift : undefined);
           if (rawShift === 'FOUR_HOURS') {
             stayDuration = 'FOUR_HOURS';
           } else if (rawShift === 'HALF_DAY') {
@@ -427,7 +438,7 @@ export async function handleSyncAll(req: NextRequest) {
           previousSeatNumber,
           inactiveDays,
           stayDuration,
-          status: (!assignedSeatNumber ? 'INACTIVE' : (isExpired ? 'EXPIRED' : (activeMembership?.status || 'ACTIVE'))) as 'ACTIVE' | 'EXPIRED' | 'PAUSED' | 'INACTIVE',
+          status: (!assignedSeatNumber && (!hasPaidTx || isExpired || daysRemaining <= 0) ? 'INACTIVE' : (isExpired ? 'EXPIRED' : (activeMembership?.status || 'ACTIVE'))) as 'ACTIVE' | 'EXPIRED' | 'PAUSED' | 'INACTIVE',
           membershipEndsInDays: daysRemaining,
           shift: normalizedShift,
           studyPurpose: std.studyPurpose || undefined,

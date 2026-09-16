@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@library/database';
 import crypto from 'crypto';
 
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
+
 export async function handleGetTransactions(req: NextRequest, libraryId: string) {
   try {
     const callerEmail = (req.headers.get('x-user-email') || req.headers.get('x-admin-email'))?.toLowerCase().trim();
@@ -82,7 +88,7 @@ export async function handleGetTransactions(req: NextRequest, libraryId: string)
       notes: t.notes || undefined,
     }));
 
-    return NextResponse.json({ success: true, transactions: formatted });
+    return NextResponse.json({ success: true, transactions: formatted }, { headers: NO_CACHE_HEADERS });
   } catch (error: any) {
     console.error('API GET /api/libraries/[id]/transactions error:', error);
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
