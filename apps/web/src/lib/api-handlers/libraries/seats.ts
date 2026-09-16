@@ -3,6 +3,12 @@ import { prisma } from '@library/database';
 import { serverCache } from '@/lib/server-cache';
 import crypto from 'crypto';
 
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
+
 export async function handleGetSeats(_req: NextRequest, libraryId: string) {
   try {
     if (!libraryId) {
@@ -12,7 +18,7 @@ export async function handleGetSeats(_req: NextRequest, libraryId: string) {
     const cacheKey = `seats:${libraryId}`;
     const cached = serverCache.get<any>(cacheKey);
     if (cached) {
-      return NextResponse.json(cached);
+      return NextResponse.json(cached, { headers: NO_CACHE_HEADERS });
     }
 
     const rooms = await prisma.room.findMany({
@@ -111,7 +117,7 @@ export async function handleGetSeats(_req: NextRequest, libraryId: string) {
     };
     serverCache.set(cacheKey, payload, 30);
 
-    return NextResponse.json(payload);
+    return NextResponse.json(payload, { headers: NO_CACHE_HEADERS });
   } catch (error: any) {
     console.error('API GET /api/libraries/[id]/seats error:', error);
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
@@ -152,7 +158,7 @@ export async function handleCreateSeats(req: NextRequest, libraryId: string) {
           data: {
             id: crypto.randomUUID(),
             libraryId,
-            name: 'Main Hall',
+            name: 'Ground Floor',
           },
         });
       }
@@ -243,28 +249,57 @@ export async function handleUpdateSeat(req: NextRequest, libraryId: string) {
       return NextResponse.json({ error: 'seatId or seatNumber, and status are required' }, { status: 400 });
     }
 
+    // Find all matching seats in this library
+    let matchingSeats: { id: string; seatNumber: string }[] = [];
     if (seatId) {
-      const existingSeat = await prisma.seat.findFirst({
+      matchingSeats = await prisma.seat.findMany({
         where: { id: seatId, libraryId },
+        select: { id: true, seatNumber: true },
       });
-      if (existingSeat) {
-        const updated = await prisma.seat.update({
-          where: { id: existingSeat.id },
-          data: { status },
+      if (matchingSeats.length === 0) {
+        matchingSeats = await prisma.seat.findMany({
+          where: { seatNumber: seatId, libraryId },
+          select: { id: true, seatNumber: true },
         });
-        serverCache.invalidate(libraryId);
-        return NextResponse.json({ success: true, seat: updated });
       }
+    } else if (seatNumber) {
+      matchingSeats = await prisma.seat.findMany({
+        where: { seatNumber, libraryId },
+        select: { id: true, seatNumber: true },
+      });
     }
 
-    const targetSeatNumber = seatNumber || seatId;
-    const updated = await prisma.seat.updateMany({
-      where: { seatNumber: targetSeatNumber, libraryId },
+    if (matchingSeats.length === 0) {
+      return NextResponse.json({ error: 'Seat not found in this library' }, { status: 404 });
+    }
+
+    const targetSeatIds = matchingSeats.map((s) => s.id);
+
+    // If making AVAILABLE or MAINTENANCE, release any active seat assignments in the DB
+    if (status === 'AVAILABLE' || status === 'MAINTENANCE') {
+      await prisma.seatAssignment.updateMany({
+        where: {
+          seatId: { in: targetSeatIds },
+          status: 'ACTIVE',
+        },
+        data: {
+          status: 'RELEASED',
+        },
+      });
+    }
+
+    await prisma.seat.updateMany({
+      where: { id: { in: targetSeatIds } },
       data: { status },
     });
 
     serverCache.invalidate(libraryId);
-    return NextResponse.json({ success: true, count: updated.count });
+
+    return NextResponse.json({
+      success: true,
+      updatedCount: targetSeatIds.length,
+      status,
+    });
   } catch (error: any) {
     console.error('API PATCH /api/libraries/[id]/seats error:', error);
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });

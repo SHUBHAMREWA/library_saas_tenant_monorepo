@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@library/database';
+import { serverCache } from '@/lib/server-cache';
 import crypto from 'crypto';
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
 
 export async function handleCreateRoom(req: NextRequest, libraryId: string) {
   try {
@@ -70,15 +77,20 @@ export async function handleCreateRoom(req: NextRequest, libraryId: string) {
       }
     }
 
-    return NextResponse.json({
-      success: true,
-      room: {
-        id: createdRoom.id,
-        name: createdRoom.name,
-        rows: validRows,
+    serverCache.invalidate(libraryId);
+
+    return NextResponse.json(
+      {
+        success: true,
+        room: {
+          id: createdRoom.id,
+          name: createdRoom.name,
+          rows: validRows,
+        },
+        seats: createdSeats,
       },
-      seats: createdSeats,
-    });
+      { headers: NO_CACHE_HEADERS }
+    );
   } catch (error: any) {
     console.error('API POST /api/libraries/[id]/rooms error:', error);
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
@@ -107,7 +119,9 @@ export async function handleUpdateRoom(req: NextRequest, libraryId: string) {
       data: { name: newName.trim() },
     });
 
-    return NextResponse.json({ success: true, room: updated });
+    serverCache.invalidate(libraryId);
+
+    return NextResponse.json({ success: true, room: updated }, { headers: NO_CACHE_HEADERS });
   } catch (error: any) {
     console.error('API PUT /api/libraries/[id]/rooms error:', error);
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
@@ -148,7 +162,23 @@ export async function handleDeleteRoom(req: NextRequest, libraryId: string) {
       where: { id: room.id },
     });
 
-    return NextResponse.json({ success: true, deletedRoomId: roomId });
+    serverCache.invalidate(libraryId);
+
+    // Forward deletion to Render cloud backend if reachable
+    try {
+      const rawBackend =
+        (process.env.API_URL && process.env.API_URL.startsWith('http') ? process.env.API_URL : null) ||
+        (process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.startsWith('http') ? process.env.NEXT_PUBLIC_API_URL : null) ||
+        'https://seelibrarybackend.onrender.com';
+      const renderOrigin = rawBackend.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
+      await fetch(`${renderOrigin}/api/v1/libraries/${libraryId}/spaces/rooms/${roomId}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-email': 'shubhamrewamp17@gmail.com' },
+        signal: AbortSignal.timeout(3000),
+      }).catch(() => {});
+    } catch {}
+
+    return NextResponse.json({ success: true, deletedRoomId: roomId }, { headers: NO_CACHE_HEADERS });
   } catch (error: any) {
     console.error('API DELETE /api/libraries/[id]/rooms error:', error);
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });

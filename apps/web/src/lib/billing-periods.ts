@@ -15,7 +15,7 @@ const MONTH_NAMES_FULL = [
 ];
 
 /**
- * Formats a short month period label, e.g. "Jan – Feb 2026" or "Dec 2025 – Jan 2026"
+ * Formats a short month period label, e.g. "September 2026" (1 mo) or "Sep – Oct 2026" (2 mos) or "Sep 2026 – Feb 2027" (6 mos)
  */
 export function formatMonthPeriod(validFromStr?: string, validToStr?: string): string {
   if (!validFromStr) {
@@ -35,14 +35,18 @@ export function formatMonthPeriod(validFromStr?: string, validToStr?: string): s
     return `${MONTH_NAMES_FULL[fromDate.getMonth()]} ${fromDate.getFullYear()}`;
   }
 
+  const monthsCount = getMonthsDifference(validFromStr, validToStr);
   const fromMonth = fromDate.getMonth();
-  const toMonth = toDate.getMonth();
   const fromYear = fromDate.getFullYear();
-  const toYear = toDate.getFullYear();
 
-  if (fromMonth === toMonth && fromYear === toYear) {
+  if (monthsCount <= 1) {
     return `${MONTH_NAMES_FULL[fromMonth]} ${fromYear}`;
   }
+
+  // Multi-month period: covers fromMonth to (fromMonth + monthsCount - 1)
+  const endCycleDate = new Date(fromYear, fromMonth + (monthsCount - 1), 1);
+  const toMonth = endCycleDate.getMonth();
+  const toYear = endCycleDate.getFullYear();
 
   if (fromYear === toYear) {
     return `${MONTH_NAMES_SHORT[fromMonth]} – ${MONTH_NAMES_SHORT[toMonth]} ${toYear}`;
@@ -52,8 +56,37 @@ export function formatMonthPeriod(validFromStr?: string, validToStr?: string): s
 }
 
 /**
+ * Formats a friendly date span, e.g. "16 Sep – 16 Nov 2026" or "16 Sep 2026"
+ */
+export function formatFriendlyPeriod(validFromStr?: string, validToStr?: string): string {
+  if (!validFromStr) return '';
+  const dFrom = new Date(validFromStr);
+  if (isNaN(dFrom.getTime())) return validFromStr;
+
+  const fromDay = dFrom.getDate();
+  const fromMonth = MONTH_NAMES_SHORT[dFrom.getMonth()];
+  const fromYear = dFrom.getFullYear();
+
+  if (!validToStr) return `${fromDay} ${fromMonth} ${fromYear}`;
+  const dTo = new Date(validToStr);
+  if (isNaN(dTo.getTime())) return `${fromDay} ${fromMonth} ${fromYear} – ${validToStr}`;
+
+  const toDay = dTo.getDate();
+  const toMonth = MONTH_NAMES_SHORT[dTo.getMonth()];
+  const toYear = dTo.getFullYear();
+
+  if (fromYear === toYear) {
+    if (fromMonth === toMonth && fromDay === toDay) {
+      return `${fromDay} ${fromMonth} ${fromYear}`;
+    }
+    return `${fromDay} ${fromMonth} – ${toDay} ${toMonth} ${fromYear}`;
+  }
+  return `${fromDay} ${fromMonth} ${fromYear} – ${toDay} ${toMonth} ${toYear}`;
+}
+
+/**
  * Returns a detailed period label with exact dates,
- * e.g. "January – February 2026 (10 Jan – 10 Feb)"
+ * e.g. "September 2026 (16 Sep – 16 Oct)" or "September – October 2026 (16 Sep – 16 Nov)"
  */
 export function getDetailedPeriodLabel(validFromStr?: string, validToStr?: string): string {
   if (!validFromStr) return '';
@@ -68,21 +101,24 @@ export function getDetailedPeriodLabel(validFromStr?: string, validToStr?: strin
   const fromMonthShort = MONTH_NAMES_SHORT[fromDate.getMonth()];
   const toMonthShort = MONTH_NAMES_SHORT[toDate.getMonth()];
   const fromMonthFull = MONTH_NAMES_FULL[fromDate.getMonth()];
-  const toMonthFull = MONTH_NAMES_FULL[toDate.getMonth()];
   const fromYear = fromDate.getFullYear();
-  const toYear = toDate.getFullYear();
 
   const formattedSpan = `${fromDay} ${fromMonthShort} – ${toDay} ${toMonthShort}`;
+  const monthsCount = getMonthsDifference(validFromStr, validToStr || toDate.toISOString());
 
-  if (fromMonthFull === toMonthFull && fromYear === toYear) {
+  if (monthsCount <= 1) {
     return `${fromMonthFull} ${fromYear} (${formattedSpan})`;
   }
 
+  const endCycleDate = new Date(fromYear, fromDate.getMonth() + (monthsCount - 1), 1);
+  const endMonthFull = MONTH_NAMES_FULL[endCycleDate.getMonth()];
+  const toYear = endCycleDate.getFullYear();
+
   if (fromYear === toYear) {
-    return `${fromMonthFull} – ${toMonthFull} ${toYear} (${formattedSpan})`;
+    return `${fromMonthFull} – ${endMonthFull} ${toYear} (${formattedSpan})`;
   }
 
-  return `${fromMonthFull} ${fromYear} – ${toMonthFull} ${toYear} (${formattedSpan})`;
+  return `${fromMonthFull} ${fromYear} – ${endMonthFull} ${toYear} (${formattedSpan})`;
 }
 
 /**
@@ -176,6 +212,16 @@ export function getMonthsDifference(fromStr: string, toStr: string): number {
   const from = new Date(fromStr);
   const to = new Date(toStr);
   if (isNaN(from.getTime()) || isNaN(to.getTime())) return 1;
-  const days = Math.max(1, Math.round((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)));
-  return Math.max(1, Math.round(days / 30));
+
+  const yearDiff = to.getFullYear() - from.getFullYear();
+  const monthDiff = to.getMonth() - from.getMonth();
+  const dayDiff = to.getDate() - from.getDate();
+
+  let totalMonths = yearDiff * 12 + monthDiff;
+  if (dayDiff > 15) {
+    totalMonths += 1;
+  } else if (dayDiff < -15 && totalMonths > 1) {
+    totalMonths -= 1;
+  }
+  return Math.max(1, totalMonths);
 }

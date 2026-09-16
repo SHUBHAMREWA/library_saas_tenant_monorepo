@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@library/database';
 
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
+
 export async function handleGetLibrary(
   _req: NextRequest,
   libraryId: string
@@ -55,20 +61,23 @@ export async function handleGetLibrary(
       })),
     }));
 
-    return NextResponse.json({
-      success: true,
-      library: {
-        id: library.id,
-        name: library.name,
-        slug: library.slug,
-        address: library.address,
-        isActive: library.isActive,
-        owner: library.owner,
-        totalSeats: library._count.seats,
-        totalStudents: library._count.students,
-        rooms,
+    return NextResponse.json(
+      {
+        success: true,
+        library: {
+          id: library.id,
+          name: library.name,
+          slug: library.slug,
+          address: library.address,
+          isActive: library.isActive,
+          owner: library.owner,
+          totalSeats: library._count.seats,
+          totalStudents: library._count.students,
+          rooms,
+        },
       },
-    });
+      { headers: NO_CACHE_HEADERS }
+    );
   } catch (error: any) {
     console.error('API GET /api/libraries/[id] error:', error);
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });

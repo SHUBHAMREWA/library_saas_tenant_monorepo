@@ -408,9 +408,17 @@ export default function MobileDashboard() {
     try {
       let fetchedLibraries: LibraryBranch[] | null = null;
       try {
-        const getRes = await fetch(`/api/libraries?email=${encodeURIComponent(userEmail.toLowerCase().trim())}`, {
-          signal: AbortSignal.timeout(8000),
-        });
+        const getRes = await fetch(
+          `/api/libraries?email=${encodeURIComponent(userEmail.toLowerCase().trim())}&_t=${Date.now()}`,
+          {
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store',
+              'Pragma': 'no-cache',
+            },
+            signal: AbortSignal.timeout(8000),
+          }
+        );
         if (getRes.ok) {
           const getData = await getRes.json();
           if (Array.isArray(getData?.libraries)) {
@@ -433,19 +441,13 @@ export default function MobileDashboard() {
             localStorage.setItem('seelibrary_active_lib_id', targetLib.id);
           } catch {}
         } else {
-          // If server returned 0 libraries, verify if local cache has valid libraries before clearing state
-          const savedLibs = typeof window !== 'undefined' ? localStorage.getItem('seelibrary_libraries') : null;
-          let parsed: any[] = [];
-          try { parsed = savedLibs ? JSON.parse(savedLibs) : []; } catch {}
-          if (parsed.length > 0) {
-            setLibraries(parsed);
-            const savedActiveId = typeof window !== 'undefined' ? localStorage.getItem('seelibrary_active_lib_id') : null;
-            const target = (savedActiveId && parsed.find((l: any) => l.id === savedActiveId)) || parsed[0];
-            setActiveLibraryId(target.id);
-          } else {
-            setLibraries([]);
-            setActiveLibraryId(null);
-          }
+          // If server confirmed 0 libraries exist for this user, clear state cleanly
+          setLibraries([]);
+          setActiveLibraryId(null);
+          try {
+            localStorage.removeItem('seelibrary_libraries');
+            localStorage.removeItem('seelibrary_active_lib_id');
+          } catch {}
         }
       } else {
         // In case of network error or server timeout, fallback to cached libraries
@@ -775,8 +777,13 @@ export default function MobileDashboard() {
     if (!libraryId) return;
     setIsLoadingStudents(true);
     try {
-      const res = await fetch(`/api/libraries/${libraryId}/students`, {
-        headers: currentUser?.email ? { 'x-user-email': currentUser.email } : {},
+      const res = await fetch(`/api/libraries/${libraryId}/students?_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+          ...(currentUser?.email ? { 'x-user-email': currentUser.email } : {}),
+          'Cache-Control': 'no-cache, no-store',
+          'Pragma': 'no-cache',
+        },
       });
       if (res.ok) {
         const data = await res.json();
@@ -798,8 +805,13 @@ export default function MobileDashboard() {
     if (!libraryId) return;
     setIsLoadingSeats(true);
     try {
-      const res = await fetch(`/api/libraries/${libraryId}/seats`, {
-        headers: currentUser?.email ? { 'x-user-email': currentUser.email } : {},
+      const res = await fetch(`/api/libraries/${libraryId}/seats?_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+          ...(currentUser?.email ? { 'x-user-email': currentUser.email } : {}),
+          'Cache-Control': 'no-cache, no-store',
+          'Pragma': 'no-cache',
+        },
       });
       if (res.ok) {
         const data = await res.json();
@@ -822,8 +834,13 @@ export default function MobileDashboard() {
     if (!libraryId || !hasActiveSubscription) return;
     setIsLoadingTransactions(true);
     try {
-      const res = await fetch(`/api/libraries/${libraryId}/transactions`, {
-        headers: currentUser?.email ? { 'x-user-email': currentUser.email } : {},
+      const res = await fetch(`/api/libraries/${libraryId}/transactions?_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+          ...(currentUser?.email ? { 'x-user-email': currentUser.email } : {}),
+          'Cache-Control': 'no-cache, no-store',
+          'Pragma': 'no-cache',
+        },
       });
       if (res.ok) {
         const data = await res.json();
@@ -1146,7 +1163,7 @@ export default function MobileDashboard() {
       name: data.name,
       contactPhone: data.contactPhone,
       address: data.address,
-      rooms: [{ id: `r-${Date.now()}`, name: 'Main Hall', rows: ['Row A', 'Row B'] }],
+      rooms: [],
       seats: [],
       students: [],
       createdAt: new Date().toISOString(),
@@ -1229,6 +1246,80 @@ export default function MobileDashboard() {
   };
 
   const handleStatusChange = async (seatId: string, newStatus: SeatStatus) => {
+    const targetSeat = activeLibrary?.seats.find((s) => s.id === seatId || s.seatNumber === seatId);
+    const targetSeatNum = targetSeat?.seatNumber;
+    const targetRoomId = targetSeat?.roomId;
+
+    // 1. Optimistic update: Update seat AND unassign students from local state
+    updateActiveLibrary((lib) => {
+      const updatedSeats = lib.seats.map((s) => {
+        const isThisSeat =
+          s.id === seatId ||
+          (targetSeatNum && s.seatNumber === targetSeatNum && (!targetRoomId || s.roomId === targetRoomId));
+        if (isThisSeat) {
+          return {
+            ...s,
+            status: newStatus,
+            studentName: newStatus === 'AVAILABLE' || newStatus === 'MAINTENANCE' ? null : s.studentName,
+            shift: newStatus === 'AVAILABLE' || newStatus === 'MAINTENANCE' ? undefined : s.shift,
+            studentId: newStatus === 'AVAILABLE' || newStatus === 'MAINTENANCE' ? null : s.studentId,
+            occupants: newStatus === 'AVAILABLE' || newStatus === 'MAINTENANCE' ? [] : s.occupants,
+          };
+        }
+        return s;
+      });
+
+      const updatedStudents =
+        newStatus === 'AVAILABLE' || newStatus === 'MAINTENANCE'
+          ? lib.students.map((std) => {
+              const isAssignedToThisSeat =
+                (std.seatId && std.seatId === seatId) ||
+                (targetSeatNum &&
+                  std.seatNumber === targetSeatNum &&
+                  (!targetRoomId || !std.roomId || std.roomId === targetRoomId));
+              if (isAssignedToThisSeat) {
+                return {
+                  ...std,
+                  seatId: null,
+                  seatNumber: null,
+                  previousSeatNumber: targetSeatNum || std.seatNumber || null,
+                  inactiveDays: 0,
+                };
+              }
+              return std;
+            })
+          : lib.students;
+
+      return {
+        ...lib,
+        seats: updatedSeats,
+        students: updatedStudents,
+      };
+    });
+
+    // If active profile student was on this seat, update profile state
+    if (newStatus === 'AVAILABLE' || newStatus === 'MAINTENANCE') {
+      setSelectedStudentForProfile((prev) => {
+        if (!prev) return prev;
+        const isAssigned =
+          (prev.seatId && prev.seatId === seatId) ||
+          (targetSeatNum &&
+            prev.seatNumber === targetSeatNum &&
+            (!targetRoomId || !prev.roomId || prev.roomId === targetRoomId));
+        if (isAssigned) {
+          return {
+            ...prev,
+            seatId: null,
+            seatNumber: null,
+            previousSeatNumber: targetSeatNum || prev.seatNumber || null,
+            inactiveDays: 0,
+          };
+        }
+        return prev;
+      });
+    }
+
+    // 2. Persist to PostgreSQL database
     if (activeLibrary) {
       try {
         await fetch(`/api/libraries/${activeLibrary.id}/seats`, {
@@ -1240,19 +1331,6 @@ export default function MobileDashboard() {
         console.error('Failed to update seat status in DB:', e);
       }
     }
-
-    updateActiveLibrary((lib) => ({
-      ...lib,
-      seats: lib.seats.map((s) =>
-        s.id === seatId
-          ? {
-              ...s,
-              status: newStatus,
-              studentName: newStatus === 'AVAILABLE' ? null : s.studentName,
-            }
-          : s
-      ),
-    }));
   };
 
   const handleRoomCreated = async (data: {
@@ -1276,9 +1354,7 @@ export default function MobileDashboard() {
           const createdSeats = result.seats || [];
 
           updateActiveLibrary((lib) => {
-            const existingRooms = (lib.rooms || []).filter(
-              (r) => r.name !== 'Main Hall' || lib.seats.length > 0
-            );
+            const existingRooms = lib.rooms || [];
             return {
               ...lib,
               rooms: [...existingRooms, createdRoom],
@@ -1333,9 +1409,7 @@ export default function MobileDashboard() {
     }
 
     updateActiveLibrary((lib) => {
-      const existingRooms = (lib.rooms || []).filter(
-        (r) => r.name !== 'Main Hall' || lib.seats.length > 0
-      );
+      const existingRooms = lib.rooms || [];
       return {
         ...lib,
         rooms: [...existingRooms, newRoom],

@@ -32,7 +32,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) =>
       Promise.all(
         keys.map((key) => {
-          if (key !== CACHE_NAME && key !== API_CACHE_NAME) {
+          if (key !== CACHE_NAME) {
             return caches.delete(key);
           }
         })
@@ -55,31 +55,9 @@ self.addEventListener('fetch', (event) => {
     return; // Pass directly to network with zero caching
   }
 
-  // Admin and API GET requests: Network-First with fallback to API Cache
-  if (
-    event.request.method === 'GET' &&
-    (url.pathname.startsWith('/api/admin') || url.pathname.startsWith('/api/v1/admin'))
-  ) {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const clone = response.clone();
-            caches.open(API_CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => {
-          return caches.match(event.request).then((cached) => {
-            if (cached) return cached;
-            return new Response(JSON.stringify({ error: 'Offline / Network unavailable' }), {
-              status: 503,
-              headers: { 'Content-Type': 'application/json' },
-            });
-          });
-        })
-    );
-    return;
+  // Live APIs must NEVER be cached by the Service Worker (Zero stale cache on refresh)
+  if (url.pathname.startsWith('/api/')) {
+    return; // Pass directly to network
   }
 
   // Cache-First for Next.js static bundles and icons

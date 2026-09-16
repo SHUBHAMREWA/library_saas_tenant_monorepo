@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Phone, Search, Armchair, Shield, Check, Clock, Plus, Bell, Calendar, Filter, RefreshCw } from 'lucide-react';
+import { Phone, Search, Armchair, Shield, Check, Clock, Plus, Bell, Calendar, CalendarDays, Filter, RefreshCw } from 'lucide-react';
 import { WhatsAppIcon } from './WhatsAppIcon';
 import { generateStudentWhatsAppMessage, generateWhatsAppFeeReminderText } from '@/lib/receipt-utils';
-import { formatMonthPeriod, getMonthsDifference } from '@/lib/billing-periods';
+import { formatMonthPeriod, getMonthsDifference, formatFriendlyPeriod } from '@/lib/billing-periods';
 
 export interface StudentFeeRecord {
   id: string;
@@ -301,7 +301,7 @@ export const getLatestEnrolledShiftAndDuration = (
   const hasSeat = Boolean(student.seatNumber);
 
   // If student has no transactions and no seat assigned, they have no active enrollment shift
-  if (!hasTx && !hasSeat && !student.shift) {
+  if (!hasTx && !hasSeat) {
     return { shift: undefined, stayDuration: undefined, label: '' };
   }
 
@@ -461,7 +461,7 @@ export const StudentList: React.FC<StudentListProps> = ({
   }, [initialFilterTab]);
 
   // Determines if a student has any fee due overall
-  // (Both active seat holders with expired/due fees, AND inactive students with unpaid remaining dues)
+  // (Both active seat holders with expired/due fees, AND unassigned students with unpaid remaining dues or expired transactions)
   const isStudentFeeDue = (s: StudentItem) => {
     const hasUnpaidBalance = Boolean(s.remainingFee && s.remainingFee > 0);
     if (hasUnpaidBalance) return true;
@@ -469,26 +469,29 @@ export const StudentList: React.FC<StudentListProps> = ({
     if (hasActiveSeat && (s.membershipEndsInDays <= 0 || s.status === 'EXPIRED' || !s.monthlyFee || s.monthlyFee === 0)) {
       return true;
     }
+    const hasTransactions = Boolean(s.transactions && s.transactions.length > 0);
+    if (hasTransactions && s.membershipEndsInDays <= 0) {
+      return true;
+    }
     return false;
   };
 
-  // Inactive students: admitted but no seat allocated yet (or seat released)
+  // Inactive students: truly inactive (no seat AND no active validity)
   const inactiveCount = students.filter(
-    (s) => !s.seatNumber || s.status === 'INACTIVE'
+    (s) => (!s.seatNumber || s.status === 'INACTIVE') && s.membershipEndsInDays <= 0
   ).length;
 
-  // Active students: students with a seat allocated (membership active)
+  // Active students: students with a seat allocated OR active membership validity
   const activeCount = students.filter(
-    (s) => Boolean(s.seatNumber) && s.status !== 'INACTIVE'
+    (s) => (Boolean(s.seatNumber) && s.status !== 'INACTIVE') || s.membershipEndsInDays > 0
   ).length;
 
   // Fee due: ALL students with fees due (both active seat holders AND inactive students with dues)
   const feeDueCount = students.filter(isStudentFeeDue).length;
 
-  // Expiring in next 5 days: students with an allocated seat expiring soon
+  // Expiring in next 5 days: students with an active membership expiring soon
   const expiring5DaysCount = students.filter(
     (s) =>
-      Boolean(s.seatNumber) &&
       s.membershipEndsInDays <= 5 &&
       s.membershipEndsInDays > 0 &&
       s.status !== 'EXPIRED'
@@ -504,20 +507,22 @@ export const StudentList: React.FC<StudentListProps> = ({
         (s.seatNumber && s.seatNumber.toLowerCase().includes(query));
       if (!matchesSearch) return false;
 
-      const isNoSeat = !s.seatNumber || s.status === 'INACTIVE';
+      const isEnrolledOrSeated =
+        (Boolean(s.seatNumber) && s.status !== 'INACTIVE') || s.membershipEndsInDays > 0;
+      const isTrulyInactive =
+        (!s.seatNumber || s.status === 'INACTIVE') && s.membershipEndsInDays <= 0;
 
       if (filterTab === 'INACTIVE') {
-        return isNoSeat;
+        return isTrulyInactive;
       }
       if (filterTab === 'ACTIVE') {
-        return !isNoSeat;
+        return isEnrolledOrSeated;
       }
       if (filterTab === 'FEE_DUE') {
         return isStudentFeeDue(s);
       }
       if (filterTab === 'EXPIRING_5_DAYS') {
         return (
-          !isNoSeat &&
           s.membershipEndsInDays <= 5 &&
           s.membershipEndsInDays > 0 &&
           s.status !== 'EXPIRED'
@@ -663,27 +668,39 @@ export const StudentList: React.FC<StudentListProps> = ({
       {/* Student List */}
       <div className="space-y-2">
         {visibleStudents.map((student) => {
-          const isNoSeat = !student.seatNumber || student.status === 'INACTIVE';
-
-          // Accurate agreed monthly plan rate (respects student's custom monthly enrollment rate e.g. ₹500, ₹600)
+          const hasTransactions = Boolean(student.transactions && student.transactions.length > 0);
           const latestTx = (student.transactions || [])[0];
+          const hasSeat = Boolean(student.seatNumber);
+          const hasActiveValidity = student.membershipEndsInDays > 0;
+          const isExpired = student.membershipEndsInDays <= 0 && hasTransactions;
+          const isUnenrolled = !hasTransactions && !hasSeat;
+
+          // Accurate agreed monthly plan rate (respects student's custom monthly enrollment rate e.g. ₹500, ₹600 or multi-month pack)
+          const txMonths = (latestTx?.validFrom && latestTx?.validTo)
+            ? getMonthsDifference(latestTx.validFrom, latestTx.validTo)
+            : 1;
           const studentTrueMonthlyRate =
             (latestTx?.totalFee && Number(latestTx.totalFee) > 0)
-              ? Number(latestTx.totalFee)
+              ? Math.round(Number(latestTx.totalFee) / (txMonths || 1))
               : (latestTx?.amount && Number(latestTx.amount) > 0)
-              ? Number(latestTx.amount)
+              ? Math.round(Number(latestTx.amount) / (txMonths || 1))
               : (student.monthlyFee && Number(student.monthlyFee) > 0)
               ? Number(student.monthlyFee)
               : (student.totalFee && Number(student.totalFee) > 0)
               ? Number(student.totalFee)
               : 0; // No default — student must be enrolled first
 
+          const enrolledPeriodSpan = latestTx?.validFrom
+            ? formatFriendlyPeriod(latestTx.validFrom, latestTx.validTo)
+            : undefined;
+
           const isStudentFeeDue =
             Boolean(student.remainingFee && student.remainingFee > 0) ||
-            (!isNoSeat &&
+            (hasSeat &&
               (student.membershipEndsInDays <= 0 ||
                 student.status === 'EXPIRED' ||
-                !student.monthlyFee));
+                !student.monthlyFee)) ||
+            (hasTransactions && student.membershipEndsInDays <= 0);
 
           return (
             <div
@@ -710,28 +727,27 @@ export const StudentList: React.FC<StudentListProps> = ({
                       <h4 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base truncate">
                         {student.fullName}
                       </h4>
-                      {isNoSeat && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-[#222222] text-slate-700 dark:text-neutral-300 border border-slate-300/80 dark:border-[#333333]">
-                          INACTIVE
-                        </span>
-                      )}
                       {student.remainingFee && student.remainingFee > 0 ? (
                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                           DUE: ₹{student.remainingFee}
                         </span>
-                      ) : !isNoSeat && (student.membershipEndsInDays <= 0 || student.status === 'EXPIRED') ? (
+                      ) : isExpired ? (
                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
                           FEE DUE
                         </span>
-                      ) : !isNoSeat && student.membershipEndsInDays <= 5 ? (
+                      ) : hasActiveValidity && student.membershipEndsInDays <= 5 ? (
                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                           DUE IN {student.membershipEndsInDays}D
                         </span>
-                      ) : !isNoSeat ? (
+                      ) : hasActiveValidity ? (
                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                           ACTIVE
                         </span>
-                      ) : null}
+                      ) : (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-[#222222] text-slate-700 dark:text-neutral-300 border border-slate-300/80 dark:border-[#333333]">
+                          INACTIVE
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-[#a8a8a8] mt-0.5">
                       <span>{student.phone}</span>
@@ -745,12 +761,29 @@ export const StudentList: React.FC<StudentListProps> = ({
                   </div>
                 </div>
 
-                {/* Top Right: Seat Pill & Validity */}
+                {/* Top Right: Seat Pill / Action & Validity */}
                 <div className="flex flex-col items-end gap-1 shrink-0">
-                  {student.seatNumber ? (
+                  {hasSeat ? (
                     <span className="text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-md flex items-center gap-1 border border-indigo-100 dark:border-indigo-900/60">
                       <Armchair className="w-3 h-3" /> {student.seatNumber}
                     </span>
+                  ) : hasActiveValidity ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onAssignSeat) {
+                          onAssignSeat(student);
+                        } else {
+                          onStudentClick?.(student, 'profile');
+                        }
+                      }}
+                      className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 px-2.5 py-0.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
+                      title="Active membership — click to allocate seat"
+                    >
+                      <Armchair className="w-2.5 h-2.5" />
+                      <span>Assign Seat</span>
+                    </button>
                   ) : (
                     <button
                       type="button"
@@ -771,7 +804,24 @@ export const StudentList: React.FC<StudentListProps> = ({
                       <span>Re-Enroll</span>
                     </button>
                   )}
-                  {isNoSeat ? (
+
+                  {hasActiveValidity ? (
+                    <div
+                      className={`text-[11px] flex items-center gap-1 font-semibold ${
+                        student.membershipEndsInDays <= 5
+                          ? 'text-amber-600 dark:text-amber-400'
+                          : 'text-emerald-600 dark:text-emerald-400'
+                      }`}
+                    >
+                      <Clock className="w-3 h-3" />
+                      <span>{student.membershipEndsInDays}d left</span>
+                    </div>
+                  ) : isExpired ? (
+                    <div className="text-[11px] flex items-center gap-1 font-bold text-rose-600 dark:text-rose-400">
+                      <Clock className="w-3 h-3" />
+                      <span>Expired</span>
+                    </div>
+                  ) : (
                     (() => {
                       const prevSeat = getStudentPreviousSeat(student);
                       return prevSeat.seatNumber ? (
@@ -788,17 +838,6 @@ export const StudentList: React.FC<StudentListProps> = ({
                         </span>
                       );
                     })()
-                  ) : (
-                    <div className={`text-[11px] flex items-center gap-1 font-medium ${
-                      student.membershipEndsInDays <= 0
-                        ? 'text-rose-600 dark:text-rose-400 font-bold'
-                        : student.membershipEndsInDays <= 5
-                        ? 'text-amber-600 dark:text-amber-400 font-semibold'
-                        : 'text-slate-400 dark:text-[#737373]'
-                    }`}>
-                      <Clock className="w-3 h-3" />
-                      <span>{student.membershipEndsInDays <= 0 ? 'Expired' : `${student.membershipEndsInDays}d left`}</span>
-                    </div>
                   )}
                 </div>
               </div>
@@ -816,7 +855,7 @@ export const StudentList: React.FC<StudentListProps> = ({
                     );
                   })()}
 
-                  {isNoSeat ? (
+                  {isUnenrolled ? (
                     <span className="font-semibold text-slate-500 dark:text-neutral-400 bg-slate-100 dark:bg-[#1a1a1a] border border-slate-200 dark:border-[#262626] px-1.5 py-0.5 rounded text-[10px] inline-flex items-center">
                       Admission Recorded
                     </span>
@@ -827,7 +866,7 @@ export const StudentList: React.FC<StudentListProps> = ({
                         onStudentClick?.(student, 'feeHistory');
                       }}
                       className="font-bold text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-950/80 hover:bg-amber-200 dark:hover:bg-amber-900 border border-amber-300 dark:border-amber-700 px-1.5 py-0.5 rounded text-[10px] inline-flex items-center cursor-pointer transition-colors"
-                      title="Remaining fee due - click to collect fee"
+                      title="Remaining fee due - click to view fee history"
                     >
                       ₹{studentTrueMonthlyRate}/mo • Due: ₹{student.remainingFee}
                     </span>
@@ -854,6 +893,20 @@ export const StudentList: React.FC<StudentListProps> = ({
                       Fee Due
                     </span>
                   )}
+
+                  {enrolledPeriodSpan && !isUnenrolled && (
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onStudentClick?.(student, 'feeHistory');
+                      }}
+                      className="font-medium text-slate-600 dark:text-neutral-300 bg-slate-100 dark:bg-[#1a1a1a] hover:bg-slate-200/80 dark:hover:bg-[#262626] border border-slate-200 dark:border-[#262626] px-1.5 py-0.5 rounded text-[10px] inline-flex items-center gap-1 cursor-pointer transition-colors"
+                      title={`Enrolled Date Period: ${enrolledPeriodSpan} (Click to open Timeline)`}
+                    >
+                      <CalendarDays className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
+                      <span>{enrolledPeriodSpan}</span>
+                    </span>
+                  )}
                 </div>
 
                 {/* Quick Action Buttons */}
@@ -871,12 +924,25 @@ export const StudentList: React.FC<StudentListProps> = ({
                   </a>
 
                   {(() => {
-                    const isStudentInactive = !student.seatNumber || student.status === 'INACTIVE' || filterTab === 'INACTIVE';
-                    const isStudentExpiringSoon = !isStudentInactive && (filterTab === 'EXPIRING_5_DAYS' || (student.membershipEndsInDays !== undefined && student.membershipEndsInDays > 0 && student.membershipEndsInDays <= 5 && !isStudentFeeDue));
-                    const hasOverallDue = !isStudentInactive && (isStudentFeeDue || filterTab === 'FEE_DUE' || filterTab === 'MONTH_UNPAID' || filterTab === 'MONTH_PARTIAL_DUE');
+                    const isStudentTrulyInactive =
+                      (!hasSeat && !hasActiveValidity && !hasTransactions) ||
+                      (student.status === 'INACTIVE' && !hasActiveValidity);
+                    const isStudentExpiringSoon =
+                      !isStudentTrulyInactive &&
+                      (filterTab === 'EXPIRING_5_DAYS' ||
+                        (student.membershipEndsInDays !== undefined &&
+                          student.membershipEndsInDays > 0 &&
+                          student.membershipEndsInDays <= 5 &&
+                          !isStudentFeeDue));
+                    const hasOverallDue =
+                      !isStudentTrulyInactive &&
+                      (isStudentFeeDue ||
+                        filterTab === 'FEE_DUE' ||
+                        filterTab === 'MONTH_UNPAID' ||
+                        filterTab === 'MONTH_PARTIAL_DUE');
 
                     let waCategory: 'INACTIVE' | 'FEE_DUE' | 'EXPIRING_SOON' | 'ACTIVE_PAID' = 'ACTIVE_PAID';
-                    if (isStudentInactive) {
+                    if (isStudentTrulyInactive) {
                       waCategory = 'INACTIVE';
                     } else if (hasOverallDue) {
                       waCategory = 'FEE_DUE';
@@ -886,8 +952,13 @@ export const StudentList: React.FC<StudentListProps> = ({
                       waCategory = 'ACTIVE_PAID';
                     }
 
-                    const dueAmount = student.remainingFee && student.remainingFee > 0 ? student.remainingFee : studentTrueMonthlyRate;
-                    const monthPeriod = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
+                    const dueAmount =
+                      student.remainingFee && student.remainingFee > 0
+                        ? student.remainingFee
+                        : studentTrueMonthlyRate;
+                    const monthPeriod =
+                      enrolledPeriodSpan ||
+                      new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
                     const reminderText = generateStudentWhatsAppMessage({
                       libraryName: libraryName || 'seeLibrary Study Center',

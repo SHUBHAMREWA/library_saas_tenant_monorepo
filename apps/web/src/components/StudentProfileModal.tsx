@@ -48,7 +48,7 @@ import {
   openWhatsApp,
 } from '@/lib/receipt-utils';
 import { CameraCaptureModal } from './CameraCaptureModal';
-import { getMonthsDifference } from '@/lib/billing-periods';
+import { getMonthsDifference, addMonthsToDate, formatMonthPeriod } from '@/lib/billing-periods';
 
 function formatFriendlyDate(dateStr?: string): string {
   if (!dateStr) return '';
@@ -88,7 +88,8 @@ function formatFriendlyPeriod(validFromStr?: string, validToStr?: string): strin
 }
 
 function formatShiftDetailed(shift?: string, stayDuration?: string): string {
-  const normShift = shift ? shift.toUpperCase() : 'FULL_DAY';
+  if (!shift && !stayDuration) return 'No Shift Assigned';
+  const normShift = shift ? shift.toUpperCase() : '';
   const normDuration = stayDuration ? stayDuration.toUpperCase() : undefined;
 
   if (normShift === 'MORNING') {
@@ -103,7 +104,9 @@ function formatShiftDetailed(shift?: string, stayDuration?: string): string {
   }
   if (normShift === 'FOUR_HOURS') return '4 Hours / Day';
   if (normShift === 'HALF_DAY') return 'Half Day (6–8 Hours / Day)';
-  return 'Full Day (24/7 Unlimited)';
+  if (normShift === 'FULL_DAY') return 'Full Day (24/7 Unlimited)';
+  if (normShift === 'NIGHT') return 'Night Shift';
+  return normShift || 'No Shift Assigned';
 }
 
 interface StudentProfileModalProps {
@@ -152,9 +155,9 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
 
   const isFeePending = Boolean(
     student &&
-      (student.membershipEndsInDays <= 0 ||
-        student.status === 'EXPIRED' ||
-        !student.monthlyFee ||
+      ((student.status !== 'INACTIVE' &&
+        student.seatNumber &&
+        (student.membershipEndsInDays <= 0 || student.status === 'EXPIRED')) ||
         Boolean(student.remainingFee && student.remainingFee > 0))
   );
 
@@ -187,7 +190,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   const [editPhone, setEditPhone] = useState('');
   const [editStudyPurposeChoice, setEditStudyPurposeChoice] = useState('Civil Services / UPSC');
   const [editCustomPurpose, setEditCustomPurpose] = useState('');
-  const [editShift, setEditShift] = useState('FULL_DAY');
+  const [editShift, setEditShift] = useState('');
   const [editKycType, setEditKycType] = useState('AADHAAR');
   const [editKycDocId, setEditKycDocId] = useState('');
   const [editPhotoUrl, setEditPhotoUrl] = useState<string | null>(null);
@@ -224,12 +227,19 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   const currentMonthTx = useMemo(() => {
     if (!student?.transactions || student.transactions.length === 0) return null;
     return student.transactions.find((tx) => {
-      if (tx.validFrom && tx.validTo) {
+      if (tx.validFrom) {
         const dFrom = new Date(tx.validFrom);
-        const dTo = new Date(tx.validTo);
-        if (!isNaN(dFrom.getTime()) && !isNaN(dTo.getTime())) {
-          if (dFrom <= nowVal && dTo >= nowVal) return true;
-          if (dFrom.getMonth() === nowVal.getMonth() && dFrom.getFullYear() === currentYearNumVal) return true;
+        if (!isNaN(dFrom.getTime())) {
+          const monthsCount = tx.validTo ? getMonthsDifference(tx.validFrom, tx.validTo) : 1;
+          const startYear = dFrom.getFullYear();
+          const startMonth = dFrom.getMonth();
+          for (let k = 0; k < monthsCount; k++) {
+            const cycleYear = startYear + Math.floor((startMonth + k) / 12);
+            const cycleMonth = (startMonth + k) % 12;
+            if (nowVal.getFullYear() === cycleYear && nowVal.getMonth() === cycleMonth) {
+              return true;
+            }
+          }
         }
       }
       if (tx.paidForMonth) {
@@ -299,22 +309,50 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
     return (student?.transactions || []).filter((tx) => {
       let matchYear = true;
       if (feeHistoryYear !== 'ALL') {
-        const dMatch = tx.paymentDate && new Date(tx.paymentDate).getFullYear().toString() === feeHistoryYear;
-        const pMatch = tx.paidForMonth && tx.paidForMonth.includes(feeHistoryYear);
-        const vMatch =
-          (tx.validFrom && tx.validFrom.includes(feeHistoryYear)) ||
-          (tx.validTo && tx.validTo.includes(feeHistoryYear));
-        matchYear = Boolean(dMatch || pMatch || vMatch);
+        const targetYr = Number(feeHistoryYear);
+        let yMatch = false;
+        if (tx.paymentDate && new Date(tx.paymentDate).getFullYear().toString() === feeHistoryYear) yMatch = true;
+        if (tx.paidForMonth && tx.paidForMonth.includes(feeHistoryYear)) yMatch = true;
+        if (tx.validFrom) {
+          const vFrom = new Date(tx.validFrom);
+          const monthsCount = tx.validTo ? getMonthsDifference(tx.validFrom, tx.validTo) : 1;
+          const startYear = vFrom.getFullYear();
+          const startMonth = vFrom.getMonth();
+          for (let k = 0; k < monthsCount; k++) {
+            const cycleYear = startYear + Math.floor((startMonth + k) / 12);
+            if (cycleYear === targetYr) {
+              yMatch = true;
+              break;
+            }
+          }
+        }
+        matchYear = yMatch;
       }
 
       let matchMonth = true;
       if (feeHistoryMonth !== 'ALL') {
-        const pMatch = tx.paidForMonth && tx.paidForMonth.toLowerCase().includes(feeHistoryMonth.toLowerCase());
-        const dMatch =
-          tx.paymentDate &&
-          new Date(tx.paymentDate).toLocaleString('en-US', { month: 'long' }).toLowerCase() ===
-            feeHistoryMonth.toLowerCase();
-        matchMonth = Boolean(pMatch || dMatch);
+        const targetMonthIdx = MONTH_NAMES.findIndex(
+          (m) => m.toLowerCase() === feeHistoryMonth.toLowerCase()
+        );
+        let mMatch = false;
+        if (tx.paidForMonth && tx.paidForMonth.toLowerCase().includes(feeHistoryMonth.toLowerCase())) mMatch = true;
+        if (tx.paymentDate && new Date(tx.paymentDate).toLocaleString('en-US', { month: 'long' }).toLowerCase() === feeHistoryMonth.toLowerCase()) mMatch = true;
+        if (tx.validFrom && targetMonthIdx !== -1) {
+          const vFrom = new Date(tx.validFrom);
+          const monthsCount = tx.validTo ? getMonthsDifference(tx.validFrom, tx.validTo) : 1;
+          const startYear = vFrom.getFullYear();
+          const startMonth = vFrom.getMonth();
+          for (let k = 0; k < monthsCount; k++) {
+            const cycleMonth = (startMonth + k) % 12;
+            const cycleYear = startYear + Math.floor((startMonth + k) / 12);
+            const targetYr = feeHistoryYear !== 'ALL' ? Number(feeHistoryYear) : cycleYear;
+            if (cycleMonth === targetMonthIdx && cycleYear === targetYr) {
+              mMatch = true;
+              break;
+            }
+          }
+        }
+        matchMonth = mMatch;
       }
 
       return matchYear && matchMonth;
@@ -342,17 +380,24 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
       const isFutureMonth = targetYearNum > currentCalYear || (targetYearNum === currentCalYear && mIdx > currentCalMonthIdx);
       const isPastMonth = targetYearNum < currentCalYear || (targetYearNum === currentCalYear && mIdx < currentCalMonthIdx);
 
-      const monthStart = new Date(targetYearNum, mIdx, 1, 0, 0, 0, 0);
-      const monthEnd = new Date(targetYearNum, mIdx + 1, 0, 23, 59, 59, 999);
-
-      // Search all transactions for this student matching or overlapping this month
+      // Search all transactions for this student that cover this specific cycle month
       const matchingTxs = (student.transactions || []).filter((tx) => {
-        // If validFrom is specified, check date range overlap with this month
+        // If validFrom is specified, check exact covered cycle months
         if (tx.validFrom) {
           const vFrom = new Date(tx.validFrom);
-          const vTo = tx.validTo ? new Date(tx.validTo) : new Date(vFrom.getFullYear(), vFrom.getMonth() + 1, 0, 23, 59, 59, 999);
-          if (!isNaN(vFrom.getTime()) && !isNaN(vTo.getTime())) {
-            return vFrom <= monthEnd && vTo >= monthStart;
+          if (!isNaN(vFrom.getTime())) {
+            const monthsCount = tx.validTo ? getMonthsDifference(tx.validFrom, tx.validTo) : 1;
+            const startYear = vFrom.getFullYear();
+            const startMonth = vFrom.getMonth();
+
+            for (let k = 0; k < monthsCount; k++) {
+              const cycleYear = startYear + Math.floor((startMonth + k) / 12);
+              const cycleMonth = (startMonth + k) % 12;
+              if (targetYearNum === cycleYear && mIdx === cycleMonth) {
+                return true;
+              }
+            }
+            return false;
           }
         }
 
@@ -368,16 +413,34 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
         return matchY && matchM;
       });
 
-      const totalPaid = matchingTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-      const totalDue = matchingTxs.reduce((sum, t) => sum + (Number(t.remainingFee) || 0), 0);
+      // Calculate monthly share of fee if multi-month transaction
+      const totalPaid = matchingTxs.reduce((sum, t) => {
+        const monthsCount = t.validFrom && t.validTo ? getMonthsDifference(t.validFrom, t.validTo) : 1;
+        const perMonthAmount = Math.round((Number(t.amount) || 0) / (monthsCount || 1));
+        return sum + perMonthAmount;
+      }, 0);
+
+      const totalDue = matchingTxs.reduce((sum, t) => {
+        const monthsCount = t.validFrom && t.validTo ? getMonthsDifference(t.validFrom, t.validTo) : 1;
+        const perMonthDue = Math.round((Number(t.remainingFee) || 0) / (monthsCount || 1));
+        return sum + perMonthDue;
+      }, 0);
+
       const hasFullPaid = matchingTxs.some((t) => t.status === 'PAID' && (!t.remainingFee || t.remainingFee === 0));
       const hasPartialPaid = matchingTxs.some((t) => t.status === 'PARTIAL' || (t.remainingFee && t.remainingFee > 0));
 
-      // Representative period span if transaction exists
+      // Representative period span for this specific month cycle
       let periodSpan: string | undefined = undefined;
       const txWithPeriod = matchingTxs.find((t) => t.validFrom) || matchingTxs[0];
       if (txWithPeriod?.validFrom) {
-        periodSpan = formatFriendlyPeriod(txWithPeriod.validFrom, txWithPeriod.validTo);
+        const vFrom = new Date(txWithPeriod.validFrom);
+        const startYear = vFrom.getFullYear();
+        const startMonth = vFrom.getMonth();
+        const cycleIndex = (targetYearNum - startYear) * 12 + (mIdx - startMonth);
+        const vFromDateOnly = txWithPeriod.validFrom.split('T')[0];
+        const cycleFrom = addMonthsToDate(vFromDateOnly, cycleIndex);
+        const cycleTo = addMonthsToDate(vFromDateOnly, cycleIndex + 1);
+        periodSpan = formatFriendlyPeriod(cycleFrom, cycleTo);
       }
 
       // Determine Enrollment Status
@@ -454,7 +517,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
         setEditStudyPurposeChoice('General Study');
         setEditCustomPurpose('');
       }
-      setEditShift(student.shift || 'FULL_DAY');
+      setEditShift(student.shift || '');
       setEditKycType(student.kycType || 'AADHAAR');
       setEditKycDocId(student.kycDocId || '');
       setEditPhotoUrl(student.photoUrl || null);
@@ -988,6 +1051,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                     onChange={(e) => setEditShift(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 dark:border-[#333] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 bg-white dark:bg-[#1a1a1a] focus:ring-2 focus:ring-indigo-500"
                   >
+                    <option value="">-- No Shift Assigned --</option>
                     <option value="FULL_DAY">Full Day (24/7)</option>
                     <option value="MORNING">Morning Shift</option>
                     <option value="EVENING">Evening Shift</option>
@@ -1256,7 +1320,9 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                       </span>
                       <div className="flex items-center gap-1.5 mt-1">
                         <span className="font-extrabold text-emerald-700 dark:text-emerald-400 text-xs">
-                          ₹{currentMonthTx?.totalFee || computedMonthlyRate || 1000}/mo
+                          {currentMonthTx?.totalFee || computedMonthlyRate || (student.monthlyFee && student.monthlyFee > 0 ? student.monthlyFee : 0)
+                            ? `₹${currentMonthTx?.totalFee || computedMonthlyRate || student.monthlyFee}/mo`
+                            : 'Not Set'}
                         </span>
                         {Boolean(student.remainingFee && student.remainingFee > 0) && (
                           <span className="text-[9px] font-bold text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-950/60 px-1 py-0.2 rounded">
@@ -1519,7 +1585,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                         Monthly Rate
                       </span>
                       <span className="font-extrabold text-emerald-700 dark:text-emerald-400 mt-0.5 block text-xs sm:text-sm">
-                        {computedMonthlyRate > 0 ? `₹${computedMonthlyRate}` : '₹1000'}
+                        {computedMonthlyRate > 0 ? `₹${computedMonthlyRate}` : (student.monthlyFee && student.monthlyFee > 0 ? `₹${student.monthlyFee}` : 'Not Set')}
                       </span>
                     </div>
 
@@ -1528,7 +1594,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                         Validity
                       </span>
                       <span className="font-extrabold text-indigo-600 dark:text-indigo-400 mt-0.5 block text-xs sm:text-sm">
-                        {student.membershipEndsInDays > 0 ? `${student.membershipEndsInDays}d left` : 'Expired'}
+                        {student.status === 'INACTIVE' || !student.seatNumber ? 'Inactive' : student.membershipEndsInDays > 0 ? `${student.membershipEndsInDays}d left` : 'Expired'}
                       </span>
                     </div>
                   </div>
