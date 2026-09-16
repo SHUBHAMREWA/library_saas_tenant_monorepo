@@ -169,6 +169,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
         reg.showNotification('seeLibrary Alerts Enabled', {
           body: 'You will receive real-time alerts when student memberships expire or admins broadcast.',
           icon: '/icons/icon-192x192.png',
+          badge: '/icons/badge-96x96.png',
         });
       }
     } catch (err: any) {

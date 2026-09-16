@@ -167,7 +167,7 @@ export function PWACompanion({ userEmail, libraryId }: PWACompanionProps = {}) {
           reg.showNotification('seeLibrary Alerts Enabled', {
             body: 'You will now receive real-time alerts for student fee renewals and admin announcements.',
             icon: '/icons/icon-192x192.png',
-            badge: '/icons/badge-72x72.png',
+            badge: '/icons/badge-96x96.png',
           });
         }
 

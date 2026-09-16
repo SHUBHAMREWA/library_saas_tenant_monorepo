@@ -1,6 +1,6 @@
 // Service Worker for Library Management SaaS (PWA)
-const CACHE_NAME = 'library-hub-v1';
-const API_CACHE_NAME = 'library-hub-api-v1';
+const CACHE_NAME = 'library-hub-v3';
+const API_CACHE_NAME = 'library-hub-api-v3';
 
 const STATIC_PRECACHE = [
   '/',
@@ -113,10 +113,23 @@ self.addEventListener('push', (event) => {
     }
   }
 
+  // Helper to ensure absolute URLs for Android Chrome background notifications
+  const resolveUrl = (path) => {
+    if (!path) return undefined;
+    if (typeof path === 'string' && (path.startsWith('http://') || path.startsWith('https://'))) {
+      return path;
+    }
+    try {
+      return new URL(path, self.location.origin).href;
+    } catch (e) {
+      return path;
+    }
+  };
+
   const options = {
     body: payload.body,
-    icon: payload.icon || '/icons/icon-192x192.png',
-    badge: payload.badge || '/icons/badge-96x96.png',
+    icon: resolveUrl(payload.icon || '/icons/icon-192x192.png'),
+    badge: resolveUrl(payload.badge || '/icons/badge-96x96.png'),
     vibrate: payload.vibrate || [100, 50, 100],
     tag: payload.tag || 'seelibrary-alert',
     renotify: true,
