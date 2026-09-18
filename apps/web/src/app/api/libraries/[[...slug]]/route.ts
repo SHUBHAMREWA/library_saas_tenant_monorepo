@@ -6,7 +6,7 @@ import { handleCreateRoom, handleUpdateRoom, handleDeleteRoom } from '@/lib/api-
 import { handleCreateRows, handleDeleteRow } from '@/lib/api-handlers/libraries/rows';
 import { handleCreateSeats, handleUpdateSeat, handleDeleteSeats, handleAssignSeat, handleGetSeats } from '@/lib/api-handlers/libraries/seats';
 import { handleCreateStudent, handleUpdateStudent, handleDeleteStudent, handleGetStudents } from '@/lib/api-handlers/libraries/students';
-import { handleGetTransactions, handleCreateTransaction } from '@/lib/api-handlers/libraries/transactions';
+import { handleGetTransactions, handleCreateTransaction, handleUpdateTransaction, handleDeleteTransaction } from '@/lib/api-handlers/libraries/transactions';
 import {
   handleGetSubscription,
   handleCreateOrder,
@@ -142,6 +142,10 @@ export async function PATCH(
     return handleUpdateStudent(req, id, sub);
   }
 
+  if (resource === 'transactions' && sub) {
+    return handleUpdateTransaction(req, id, sub);
+  }
+
   return NextResponse.json({ error: `Not found: ${slug.join('/')}` }, { status: 404 });
 }
 
@@ -171,6 +175,10 @@ export async function DELETE(
 
   if (resource === 'students' && sub) {
     return handleDeleteStudent(req, id, sub);
+  }
+
+  if (resource === 'transactions' && sub) {
+    return handleDeleteTransaction(req, id, sub);
   }
 
   return NextResponse.json({ error: `Not found: ${slug.join('/')}` }, { status: 404 });
