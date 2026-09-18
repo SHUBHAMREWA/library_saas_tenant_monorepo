@@ -122,27 +122,6 @@ async function runStudentExpiryCheck() {
   };
 }
 
-// In-process 3-Hour background interval runner (singleton safeguard)
-const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
-
-declare global {
-  var __library_3hr_cron_started: boolean | undefined;
-}
-
-if (!global.__library_3hr_cron_started && process.env.NODE_ENV !== 'test') {
-  global.__library_3hr_cron_started = true;
-  console.log('🕒 [Background Cron] Registered 3-hour student expiry notification runner.');
-  setInterval(async () => {
-    try {
-      console.log('🕒 [Background Cron] Running 3-hour student expiry sweep...');
-      const summary = await runStudentExpiryCheck();
-      console.log(`🕒 [Background Cron] Sweep completed. Dispatched ${summary.alertsDispatched} alert(s).`);
-    } catch (err) {
-      console.error('🕒 [Background Cron Error] Expiry sweep failed:', err);
-    }
-  }, THREE_HOURS_MS);
-}
-
 // 1. GET /api/notifications or /api/notifications/vapid-public-key or /api/notifications/cron
 export async function GET(
   req: NextRequest,
