@@ -93,6 +93,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
   const [assignedSeatNumber, setAssignedSeatNumber] = useState<string>('');
   const [paymentType, setPaymentType] = useState<'REMAINING_DUE' | 'NEW_MONTH'>('NEW_MONTH');
   const [monthsCount, setMonthsCount] = useState<number>(1);
+  const [perMonthRate, setPerMonthRate] = useState<number>(1200);
   const [totalFee, setTotalFee] = useState<number | ''>(1200);
   const [amount, setAmount] = useState<number | ''>(1200); // Get Fee / Collected
   const [validFrom, setValidFrom] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -155,10 +156,14 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
     setPaidForMonth(formatMonthPeriod(from, newValidTo));
 
     if (paymentType === 'NEW_MONTH') {
-      const isUnenrolled = !std?.transactions?.length && !std?.seatNumber;
-      const agreed = isUnenrolled ? 0 : getStudentAgreedRate(std);
-      const singleFee = getSuggestedFee(shiftToUse, durationToUse, agreed > 0 ? agreed : undefined);
-      const multipliedTotal = singleFee * newMonthsCount;
+      const agreed = getStudentAgreedRate(std);
+      const effectiveMonthlyRate = (overrideShift || overrideDuration)
+        ? getSuggestedFee(shiftToUse, durationToUse, agreed > 0 ? agreed : undefined)
+        : (perMonthRate > 0 ? perMonthRate : (agreed > 0 ? agreed : getSuggestedFee(shiftToUse, durationToUse)));
+      if (overrideShift || overrideDuration) {
+        setPerMonthRate(effectiveMonthlyRate);
+      }
+      const multipliedTotal = effectiveMonthlyRate * newMonthsCount;
       setTotalFee(multipliedTotal);
       setAmount(multipliedTotal);
     }
@@ -198,6 +203,10 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         setStayDuration(initDuration);
 
         const hasDue = Boolean(activeStudent.remainingFee && activeStudent.remainingFee > 0);
+        const agreed = getStudentAgreedRate(activeStudent);
+        const initialRate = agreed > 0 ? agreed : getSuggestedFee(initShift, initDuration);
+        setPerMonthRate(initialRate);
+
         if (hasDue) {
           setPaymentType('REMAINING_DUE');
           const due = activeStudent.remainingFee!;
@@ -209,11 +218,8 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
           setNotes(`Remaining fee clearance for ${targetMonth}`);
         } else {
           setPaymentType('NEW_MONTH');
-          const isUnenrolled = !activeStudent.transactions?.length && !activeStudent.seatNumber;
-          const agreed = isUnenrolled ? 0 : getStudentAgreedRate(activeStudent);
-          const fee = getSuggestedFee(initShift, initDuration, agreed > 0 ? agreed : undefined);
-          setTotalFee(fee);
-          setAmount(fee);
+          setTotalFee(initialRate);
+          setAmount(initialRate);
           setPaidForMonth(formatMonthPeriod(todayStr, nextMonth));
           setNotes('');
         }
@@ -228,6 +234,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         setSelectedShift(initShift);
         setStayDuration(initDuration);
         const fee = getSuggestedFee(initShift, initDuration);
+        setPerMonthRate(fee);
         setTotalFee(fee);
         setAmount(fee);
         setPaidForMonth(formatMonthPeriod(todayStr, nextMonth));
@@ -256,6 +263,10 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
       setStayDuration(initDuration);
 
       const hasDue = Boolean(found.remainingFee && found.remainingFee > 0);
+      const agreed = getStudentAgreedRate(found);
+      const fee = getSuggestedFee(initShift, initDuration, agreed > 0 ? agreed : undefined);
+      setPerMonthRate(fee);
+
       if (hasDue) {
         setPaymentType('REMAINING_DUE');
         const due = found.remainingFee!;
@@ -267,9 +278,6 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         setNotes(`Remaining fee clearance for ${targetMonth}`);
       } else {
         setPaymentType('NEW_MONTH');
-        const isUnenrolled = !found.transactions?.length && !found.seatNumber;
-        const agreed = isUnenrolled ? 0 : getStudentAgreedRate(found);
-        const fee = getSuggestedFee(initShift, initDuration, agreed > 0 ? agreed : undefined);
         setTotalFee(fee);
         setAmount(fee);
         setPaidForMonth(formatMonthPeriod(todayStr, nextMonth));
@@ -1082,9 +1090,11 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                     setSelectedShift(newShift);
                     setStayDuration(newDuration);
                     const agreed = getStudentAgreedRate(currentStudent);
-                    const fee = getSuggestedFee(newShift, newDuration, agreed);
-                    setTotalFee(fee);
-                    setAmount(fee);
+                    const fee = getSuggestedFee(newShift, newDuration, agreed > 0 ? agreed : undefined);
+                    setPerMonthRate(fee);
+                    const newTotal = fee * monthsCount;
+                    setTotalFee(newTotal);
+                    setAmount(newTotal);
                     setPaidForMonth(currentMonth);
                     setNotes('');
                   }}
@@ -1171,8 +1181,9 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                         const singleFee = getSuggestedFee(
                           shiftOption.id,
                           nextDuration,
-                          isStudentDefaultPlan ? agreed : undefined
+                          isStudentDefaultPlan && agreed > 0 ? agreed : undefined
                         );
+                        setPerMonthRate(singleFee);
                         const newTotal = singleFee * monthsCount;
                         setTotalFee(newTotal);
                         setAmount(newTotal);
@@ -1231,8 +1242,9 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                           const singleFee = getSuggestedFee(
                             selectedShift,
                             dur.id,
-                            isStudentDefaultPlan ? agreed : undefined
+                            isStudentDefaultPlan && agreed > 0 ? agreed : undefined
                           );
+                          setPerMonthRate(singleFee);
                           const newTotal = singleFee * monthsCount;
                           setTotalFee(newTotal);
                           setAmount(newTotal);
@@ -1342,6 +1354,9 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                       setTotalFee(val);
                       if (amount === totalFee) {
                         setAmount(val);
+                      }
+                      if (typeof val === 'number' && val > 0 && monthsCount > 0) {
+                        setPerMonthRate(Math.round(val / monthsCount));
                       }
                     }}
                     placeholder="1200"
@@ -1463,14 +1478,15 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
 
               {/* Dynamic Calculation Breakdown */}
               {(() => {
-                const isUnenrolled = !currentStudent?.transactions?.length && !currentStudent?.seatNumber;
-                const agreed = isUnenrolled ? 0 : getStudentAgreedRate(currentStudent);
-                const singleFee = getSuggestedFee(selectedShift, stayDuration, agreed > 0 ? agreed : undefined);
+                const agreed = getStudentAgreedRate(currentStudent);
+                const effectiveSingleRate = perMonthRate > 0
+                  ? perMonthRate
+                  : (agreed > 0 ? agreed : getSuggestedFee(selectedShift, stayDuration));
                 const approxDays = validFrom && validTo ? Math.max(1, Math.round((new Date(validTo).getTime() - new Date(validFrom).getTime()) / (1000 * 60 * 60 * 24))) : monthsCount * 30;
                 return (
                   <div className="pt-2 border-t border-slate-200/70 dark:border-[#2a2a2a] flex items-center justify-between text-[11px]">
                     <span className="text-slate-500 dark:text-neutral-400">
-                      Rate calculation: <strong className="text-slate-800 dark:text-neutral-200">₹{singleFee.toLocaleString('en-IN')}/mo × {monthsCount} {monthsCount === 1 ? 'month' : 'months'}</strong>
+                      Rate calculation: <strong className="text-slate-800 dark:text-neutral-200">₹{effectiveSingleRate.toLocaleString('en-IN')}/mo × {monthsCount} {monthsCount === 1 ? 'month' : 'months'}</strong>
                     </span>
                     <span className="font-bold text-emerald-700 dark:text-emerald-400">
                       ≈ {approxDays} Days Active
