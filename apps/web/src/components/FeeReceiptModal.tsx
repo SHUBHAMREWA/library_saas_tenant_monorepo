@@ -13,21 +13,11 @@ import {
   Armchair,
   FileCheck,
   Share2,
+  Edit3,
 } from 'lucide-react';
 import { StudentFeeRecord } from './StudentList';
 import { WhatsAppIcon } from './WhatsAppIcon';
-import { generateWhatsAppReceiptText, openWhatsApp } from '@/lib/receipt-utils';
-
-function formatFriendlyDate(dateStr?: string): string {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
-}
+import { generateWhatsAppReceiptText, openWhatsApp, formatDateDMY, printFeeReceipt, FeeReceiptData } from '@/lib/receipt-utils';
 
 interface FeeReceiptModalProps {
   isOpen: boolean;
@@ -36,6 +26,7 @@ interface FeeReceiptModalProps {
   libraryName: string;
   libraryAddress?: string;
   libraryPhone?: string;
+  onEditReceipt?: (transaction: StudentFeeRecord) => void;
 }
 
 export const FeeReceiptModal: React.FC<FeeReceiptModalProps> = ({
@@ -45,17 +36,14 @@ export const FeeReceiptModal: React.FC<FeeReceiptModalProps> = ({
   libraryName,
   libraryAddress,
   libraryPhone,
+  onEditReceipt,
 }) => {
   const [copied, setCopied] = useState(false);
   const receiptRef = useRef<HTMLDivElement>(null);
 
   if (!isOpen || !transaction) return null;
 
-  const formattedDate = new Date(transaction.paymentDate).toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  const formattedDate = formatDateDMY(transaction.paymentDate);
 
   const totalFee = transaction.totalFee ?? transaction.amount;
   const remainingFee = transaction.remainingFee ?? 0;
@@ -66,13 +54,15 @@ export const FeeReceiptModal: React.FC<FeeReceiptModalProps> = ({
     transaction.notes?.toLowerCase().includes('due payment')
   );
 
-  const receiptData = {
+  const receiptData: FeeReceiptData = {
     libraryName,
     libraryAddress,
     libraryPhone,
     studentName: transaction.studentName || 'Student',
     studentPhone: transaction.studentPhone || '',
     seatNumber: transaction.seatNumber,
+    shift: transaction.shift,
+    stayDuration: transaction.stayDuration,
     receiptNumber: transaction.receiptNumber,
     paidForMonth: transaction.paidForMonth,
     validFrom: transaction.validFrom,
@@ -107,7 +97,7 @@ export const FeeReceiptModal: React.FC<FeeReceiptModalProps> = ({
   };
 
   const handlePrint = () => {
-    window.print();
+    printFeeReceipt(receiptData);
   };
 
   return (
@@ -127,13 +117,29 @@ export const FeeReceiptModal: React.FC<FeeReceiptModalProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-[#262626] text-slate-400 hover:text-slate-600 dark:hover:text-neutral-200 cursor-pointer transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {onEditReceipt && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onEditReceipt(transaction);
+                }}
+                className="px-2.5 py-1 text-xs font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/50 flex items-center gap-1 transition-colors cursor-pointer"
+                title="Edit this receipt details, dates or fees"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Edit</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-[#262626] text-slate-400 hover:text-slate-600 dark:hover:text-neutral-200 cursor-pointer transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Printable Receipt Card */}
@@ -212,7 +218,7 @@ export const FeeReceiptModal: React.FC<FeeReceiptModalProps> = ({
               </span>
               {transaction.validFrom && transaction.validTo && (
                 <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
-                  Validity: {formatFriendlyDate(transaction.validFrom)} – {formatFriendlyDate(transaction.validTo)}
+                  Validity: {formatDateDMY(transaction.validFrom)} to {formatDateDMY(transaction.validTo)}
                 </span>
               )}
             </div>
@@ -280,7 +286,7 @@ export const FeeReceiptModal: React.FC<FeeReceiptModalProps> = ({
         </div>
 
         {/* Action Buttons */}
-        <div className="px-5 pb-5 pt-1 space-y-2">
+        <div className="px-5 pb-5 pt-1 space-y-2 print:hidden no-print">
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
@@ -302,6 +308,21 @@ export const FeeReceiptModal: React.FC<FeeReceiptModalProps> = ({
           </div>
 
           <div className="flex gap-2">
+            {onEditReceipt && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onEditReceipt(transaction);
+                }}
+                className="py-2 px-3 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                title="Edit receipt details"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                <span>Edit Receipt</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleCopyText}

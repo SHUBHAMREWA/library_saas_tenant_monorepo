@@ -73,14 +73,34 @@ export function formatShiftSummary(shift?: string, stayDuration?: string): strin
 }
 
 /**
+ * Format any date string or Date object to standard Day-Month-Year (DD-MM-YYYY)
+ */
+export function formatDateDMY(dateStr?: string | null): string {
+  if (!dateStr) return '';
+  const clean = dateStr.trim().split('T')[0];
+  if (/^\d{2}-\d{2}-\d{4}$/.test(clean)) {
+    return clean;
+  }
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(clean)) {
+    return clean.replace(/\//g, '-');
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+    const [y, m, d] = clean.split('-');
+    return `${d}-${m}-${y}`;
+  }
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}-${month}-${year}`;
+}
+
+/**
  * Generates a clean, compact WhatsApp message for a fee payment receipt
  */
 export function generateWhatsAppReceiptText(data: FeeReceiptData): string {
-  const formattedDate = new Date(data.paymentDate).toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  const formattedDate = formatDateDMY(data.paymentDate);
 
   const dueText =
     data.remainingFee !== undefined && data.remainingFee > 0
@@ -90,6 +110,9 @@ export function generateWhatsAppReceiptText(data: FeeReceiptData): string {
   const seatInfo = data.seatNumber ? `\n• *Seat:* Seat ${data.seatNumber}` : '';
   const shiftInfo = data.shift ? ` (${formatShiftSummary(data.shift, data.stayDuration)})` : '';
   const receiptNo = data.receiptNumber ? `\n• *Receipt No:* #${data.receiptNumber}` : '';
+  const validityInfo = data.validFrom && data.validTo
+    ? `\n• *Validity:* ${formatDateDMY(data.validFrom)} to ${formatDateDMY(data.validTo)}`
+    : '';
 
   const lines = [
     `*🧾 Fee Payment Receipt • ${data.libraryName}*`,
@@ -97,7 +120,7 @@ export function generateWhatsAppReceiptText(data: FeeReceiptData): string {
     `Namaste *${data.studentName}*, your fee payment has been received successfully. ✅`,
     ``,
     `• *Amount Paid:* ₹${Number(data.amount).toLocaleString('en-IN')}`,
-    `• *Month:* ${data.paidForMonth}`,
+    `• *Month:* ${data.paidForMonth}${validityInfo}`,
     `• *Date:* ${formattedDate} (${data.paymentMode})${seatInfo}${shiftInfo}${dueText}${receiptNo}`,
     ``,
     `Thank you for studying with us! 📚✨`,
@@ -105,6 +128,313 @@ export function generateWhatsAppReceiptText(data: FeeReceiptData): string {
   ].filter(Boolean);
 
   return lines.join('\n');
+}
+
+/**
+ * Clean, isolated receipt printer that always prints exactly 1 sheet of paper
+ * without duplicating or printing the background page / action buttons.
+ */
+export function printFeeReceipt(data: FeeReceiptData): void {
+  if (typeof window === 'undefined') return;
+
+  const formattedPaymentDate = formatDateDMY(data.paymentDate);
+  const formattedValidity = data.validFrom && data.validTo
+    ? `${formatDateDMY(data.validFrom)} to ${formatDateDMY(data.validTo)}`
+    : null;
+
+  const isDueClearance = data.isSettlingDue;
+  const isFullyPaid = !data.remainingFee || data.remainingFee <= 0;
+  const shiftText = formatShiftSummary(data.shift, data.stayDuration);
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Receipt #${data.receiptNumber || 'Fee-Receipt'} - ${data.studentName}</title>
+  <style>
+    @page {
+      size: portrait;
+      margin: 8mm 10mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+      color: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 10px;
+    }
+    .receipt-container {
+      width: 100%;
+      max-width: 440px;
+      border: 1px solid #cbd5e1;
+      border-radius: 14px;
+      padding: 20px;
+      background: #ffffff;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .header {
+      text-align: center;
+      padding-bottom: 12px;
+      border-bottom: 2px dashed #e2e8f0;
+    }
+    .library-name {
+      font-size: 17px;
+      font-weight: 800;
+      color: #0f172a;
+      margin: 0 0 3px 0;
+    }
+    .library-phone {
+      font-size: 11px;
+      color: #64748b;
+      margin: 0;
+    }
+    .receipt-title-box {
+      margin-top: 10px;
+      display: inline-block;
+      padding: 3px 12px;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      color: #334155;
+    }
+    .receipt-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 12px;
+      font-size: 11.5px;
+      color: #475569;
+    }
+    .receipt-no {
+      font-family: monospace;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .receipt-date {
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .details-card {
+      margin-top: 12px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 10px 14px;
+    }
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 0;
+      font-size: 12px;
+      border-bottom: 1px solid #edf2f7;
+    }
+    .detail-row:last-child {
+      border-bottom: none;
+    }
+    .detail-label {
+      color: #64748b;
+      font-weight: 500;
+    }
+    .detail-value {
+      font-weight: 700;
+      color: #0f172a;
+      text-align: right;
+    }
+    .highlight-indigo {
+      color: #4338ca;
+    }
+    .highlight-emerald {
+      color: #047857;
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .financial-section {
+      margin-top: 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .financial-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 7px 12px;
+      font-size: 12px;
+      background: #ffffff;
+    }
+    .financial-row.header-row {
+      background: #f1f5f9;
+      font-size: 11px;
+      font-weight: 700;
+      color: #475569;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .financial-row.total-row {
+      border-top: 1px solid #e2e8f0;
+      background: #f8fafc;
+      font-weight: 700;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: 10.5px;
+      font-weight: 800;
+    }
+    .status-paid {
+      background: #dcfce7;
+      color: #15803d;
+      border: 1px solid #86efac;
+    }
+    .status-due {
+      background: #fef3c7;
+      color: #b45309;
+      border: 1px solid #fcd34d;
+    }
+    .footer {
+      text-align: center;
+      margin-top: 14px;
+      padding-top: 10px;
+      border-top: 1px dashed #e2e8f0;
+      font-size: 9.5px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <div class="receipt-container">
+    <div class="header">
+      <h1 class="library-name">${data.libraryName || 'seeLibrary Study Center'}</h1>
+      ${data.libraryPhone ? `<p class="library-phone">Contact: ${data.libraryPhone}</p>` : ''}
+      <div class="receipt-title-box">OFFICIAL FEE PAYMENT RECEIPT</div>
+    </div>
+
+    <div class="receipt-meta">
+      <span>Receipt: <strong class="receipt-no">#${data.receiptNumber || 'N/A'}</strong></span>
+      <span>Date: <strong class="receipt-date">${formattedPaymentDate}</strong></span>
+    </div>
+
+    <div class="details-card">
+      <div class="detail-row">
+        <span class="detail-label">Student Name:</span>
+        <span class="detail-value">${data.studentName}</span>
+      </div>
+      ${data.seatNumber ? `
+      <div class="detail-row">
+        <span class="detail-label">Assigned Seat:</span>
+        <span class="detail-value highlight-indigo">Seat ${data.seatNumber}</span>
+      </div>` : `
+      <div class="detail-row">
+        <span class="detail-label">Seat Status:</span>
+        <span class="detail-value" style="color: #64748b; font-weight: 500;">General / Unassigned</span>
+      </div>`}
+      <div class="detail-row">
+        <span class="detail-label">Shift & Duration:</span>
+        <span class="detail-value highlight-indigo">${shiftText}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Month / Period:</span>
+        <span class="detail-value highlight-indigo">${data.paidForMonth}</span>
+      </div>
+      ${formattedValidity ? `
+      <div class="detail-row">
+        <span class="detail-label">Validity Period:</span>
+        <span class="detail-value">${formattedValidity}</span>
+      </div>` : ''}
+      <div class="detail-row">
+        <span class="detail-label">Payment Mode:</span>
+        <span class="detail-value">${data.paymentMode}</span>
+      </div>
+    </div>
+
+    <div class="financial-section">
+      <div class="financial-row header-row">
+        <span>Description</span>
+        <span>Amount</span>
+      </div>
+      <div class="financial-row">
+        <span>${isDueClearance ? 'Due Balance Settlement' : 'Membership Fee'}</span>
+        <span>₹${(data.totalFee ?? data.amount).toLocaleString('en-IN')}</span>
+      </div>
+      <div class="financial-row total-row">
+        <span><strong>Amount Received</strong></span>
+        <span class="highlight-emerald">₹${Number(data.amount).toLocaleString('en-IN')}</span>
+      </div>
+      <div class="financial-row" style="background: #ffffff; border-top: 1px solid #f1f5f9;">
+        <span>Payment Status:</span>
+        <span>
+          ${!isFullyPaid && data.remainingFee
+            ? `<span class="status-badge status-due">₹${data.remainingFee.toLocaleString('en-IN')} (Pending Due)</span>`
+            : `<span class="status-badge status-paid">₹0 (Fully Cleared ✅)</span>`}
+        </span>
+      </div>
+    </div>
+
+    ${data.notes ? `
+    <div style="margin-top: 8px; font-size: 10.5px; color: #64748b; font-style: italic;">
+      Note: "${data.notes}"
+    </div>` : ''}
+
+    <div class="footer">
+      Computer-generated digital receipt • Thank you for studying with us! 📚✨
+    </div>
+  </div>
+</body>
+</html>`;
+
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = 'none';
+  iframe.style.zIndex = '-9999';
+  document.body.appendChild(iframe);
+
+  const iframeDoc = iframe.contentWindow?.document;
+  if (!iframeDoc) {
+    window.print();
+    if (document.body.contains(iframe)) {
+      document.body.removeChild(iframe);
+    }
+    return;
+  }
+
+  iframeDoc.open();
+  iframeDoc.write(html);
+  iframeDoc.close();
+
+  setTimeout(() => {
+    try {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    } catch (err) {
+      console.error('Print failed in iframe, falling back to window.print:', err);
+      window.print();
+    } finally {
+      setTimeout(() => {
+        if (document.body.contains(iframe)) {
+          document.body.removeChild(iframe);
+        }
+      }, 2000);
+    }
+  }, 300);
 }
 
 /**

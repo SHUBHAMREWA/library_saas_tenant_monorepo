@@ -119,6 +119,7 @@ interface StudentProfileModalProps {
   onDeleteStudent?: (studentId: string) => Promise<void> | void;
   onCollectFee?: (student: StudentItem) => void;
   onViewReceipt?: (transaction: StudentFeeRecord) => void;
+  onEditTransaction?: (transaction: StudentFeeRecord) => void;
   libraryName?: string;
   libraryPhone?: string;
   initialTab?: 'profile' | 'feeHistory' | 'kyc' | 'enrollmentTimeline';
@@ -142,6 +143,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   onDeleteStudent,
   onCollectFee,
   onViewReceipt,
+  onEditTransaction,
   libraryName = 'seeLibrary Study Center',
   libraryPhone,
   initialTab = 'profile',
@@ -1738,6 +1740,17 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                                   <FileText className="w-3 h-3" />
                                   <span>Receipt</span>
                                 </button>
+                                {onEditTransaction && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onEditTransaction(tx)}
+                                    className="px-2 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 rounded font-bold hover:bg-amber-100 dark:hover:bg-amber-900/50 cursor-pointer flex items-center gap-1 border border-amber-200 dark:border-amber-800/60"
+                                    title="Edit this receipt details"
+                                  >
+                                    <Pencil className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                                    <span>Edit</span>
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </div>

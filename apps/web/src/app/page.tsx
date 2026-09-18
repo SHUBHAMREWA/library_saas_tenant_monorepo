@@ -152,6 +152,11 @@ const FeeReceiptModal = dynamic(
   { ssr: false }
 );
 
+const EditReceiptModal = dynamic(
+  () => import('../components/EditReceiptModal').then((m) => m.EditReceiptModal),
+  { ssr: false }
+);
+
 const AssignSeatModal = dynamic(
   () => import('../components/AssignSeatModal').then((m) => m.AssignSeatModal),
   { ssr: false }
@@ -325,6 +330,7 @@ export default function MobileDashboard() {
   const [subscriptionGateAction, setSubscriptionGateAction] = useState<string>('Enroll Students');
   const [selectedStudentForProfile, setSelectedStudentForProfile] = useState<StudentItem | null>(null);
   const [selectedReceiptTx, setSelectedReceiptTx] = useState<StudentFeeRecord | null>(null);
+  const [transactionForEdit, setTransactionForEdit] = useState<StudentFeeRecord | null>(null);
   const [selectedSeatForAssignment, setSelectedSeatForAssignment] = useState<VisualSeatItem | null>(null);
   const [preselectedShiftForAssignment, setPreselectedShiftForAssignment] = useState<string | undefined>(undefined);
   const [preselectedSeatNumberForNewStudent, setPreselectedSeatNumberForNewStudent] = useState<string | null>(null);
@@ -2397,6 +2403,274 @@ export default function MobileDashboard() {
     return newTx;
   };
 
+  const handleUpdateFeeTransaction = async (updatedData: {
+    id: string;
+    studentId: string;
+    amount: number;
+    totalFee: number;
+    remainingFee: number;
+    paidForMonth: string;
+    validFrom?: string;
+    validTo?: string;
+    paymentDate: string;
+    paymentMode: string;
+    notes?: string;
+  }) => {
+    if (!activeLibrary) return;
+
+    const isPartial = updatedData.remainingFee > 0;
+    const newStatus: 'PAID' | 'PARTIAL' = isPartial ? 'PARTIAL' : 'PAID';
+
+    // 1. Optimistic UI update
+    updateActiveLibrary((lib) => {
+      const updatedTxs = (lib.feeTransactions || []).map((t) => {
+        if (t.id === updatedData.id) {
+          return {
+            ...t,
+            amount: updatedData.amount,
+            totalFee: updatedData.totalFee,
+            remainingFee: updatedData.remainingFee,
+            paidForMonth: updatedData.paidForMonth,
+            validFrom: updatedData.validFrom,
+            validTo: updatedData.validTo,
+            paymentDate: updatedData.paymentDate,
+            paymentMode: updatedData.paymentMode,
+            notes: updatedData.notes,
+            status: newStatus,
+          };
+        }
+        return t;
+      });
+
+      const updatedStudents = lib.students.map((s) => {
+        if (s.id === updatedData.studentId) {
+          const studentTxs = (s.transactions || []).map((t) => {
+            if (t.id === updatedData.id) {
+              return {
+                ...t,
+                amount: updatedData.amount,
+                totalFee: updatedData.totalFee,
+                remainingFee: updatedData.remainingFee,
+                paidForMonth: updatedData.paidForMonth,
+                validFrom: updatedData.validFrom,
+                validTo: updatedData.validTo,
+                paymentDate: updatedData.paymentDate,
+                paymentMode: updatedData.paymentMode,
+                notes: updatedData.notes,
+                status: newStatus,
+              };
+            }
+            return t;
+          });
+
+          const months = (updatedData.validFrom && updatedData.validTo)
+            ? getMonthsDifference(updatedData.validFrom, updatedData.validTo)
+            : 1;
+          const updatedMonthlyFee = updatedData.totalFee > 0
+            ? Math.round(updatedData.totalFee / (months || 1))
+            : (s.monthlyFee || s.totalFee || 0);
+
+          let calculatedDays = s.membershipEndsInDays;
+          if (updatedData.validTo) {
+            calculatedDays = Math.max(0, Math.ceil((new Date(updatedData.validTo).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+          }
+
+          const studentDues = studentTxs.reduce((sum, t) => sum + (t.remainingFee || 0), 0);
+
+          return {
+            ...s,
+            monthlyFee: updatedMonthlyFee,
+            totalFee: updatedMonthlyFee,
+            remainingFee: studentDues,
+            membershipEndsInDays: calculatedDays,
+            transactions: studentTxs,
+          };
+        }
+        return s;
+      });
+
+      return {
+        ...lib,
+        feeTransactions: updatedTxs,
+        students: updatedStudents,
+      };
+    });
+
+    // Update student in selected profile modal if open
+    setSelectedStudentForProfile((prev) => {
+      if (prev && prev.id === updatedData.studentId) {
+        const studentTxs = (prev.transactions || []).map((t) => {
+          if (t.id === updatedData.id) {
+            return {
+              ...t,
+              amount: updatedData.amount,
+              totalFee: updatedData.totalFee,
+              remainingFee: updatedData.remainingFee,
+              paidForMonth: updatedData.paidForMonth,
+              validFrom: updatedData.validFrom,
+              validTo: updatedData.validTo,
+              paymentDate: updatedData.paymentDate,
+              paymentMode: updatedData.paymentMode,
+              notes: updatedData.notes,
+              status: newStatus,
+            };
+          }
+          return t;
+        });
+
+        const months = (updatedData.validFrom && updatedData.validTo)
+          ? getMonthsDifference(updatedData.validFrom, updatedData.validTo)
+          : 1;
+        const updatedMonthlyFee = updatedData.totalFee > 0
+          ? Math.round(updatedData.totalFee / (months || 1))
+          : (prev.monthlyFee || prev.totalFee || 0);
+
+        let calculatedDays = prev.membershipEndsInDays;
+        if (updatedData.validTo) {
+          calculatedDays = Math.max(0, Math.ceil((new Date(updatedData.validTo).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+        }
+
+        const studentDues = studentTxs.reduce((sum, t) => sum + (t.remainingFee || 0), 0);
+
+        return {
+          ...prev,
+          monthlyFee: updatedMonthlyFee,
+          totalFee: updatedMonthlyFee,
+          remainingFee: studentDues,
+          membershipEndsInDays: calculatedDays,
+          transactions: studentTxs,
+        };
+      }
+      return prev;
+    });
+
+    // Update selected receipt if currently viewing this receipt
+    setSelectedReceiptTx((prev) => {
+      if (prev && prev.id === updatedData.id) {
+        return {
+          ...prev,
+          amount: updatedData.amount,
+          totalFee: updatedData.totalFee,
+          remainingFee: updatedData.remainingFee,
+          paidForMonth: updatedData.paidForMonth,
+          validFrom: updatedData.validFrom,
+          validTo: updatedData.validTo,
+          paymentDate: updatedData.paymentDate,
+          paymentMode: updatedData.paymentMode,
+          notes: updatedData.notes,
+          status: newStatus,
+        };
+      }
+      return prev;
+    });
+
+    // 2. Persist to PostgreSQL backend
+    try {
+      const res = await fetch(`/api/libraries/${activeLibrary.id}/transactions/${updatedData.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedData),
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Failed to update receipt in DB');
+      }
+      // Silently sync transactions & student list in background
+      fetchLibraryTransactions(activeLibrary.id);
+      fetchLibraryStudents(activeLibrary.id);
+    } catch (e: any) {
+      console.error('Failed to update fee transaction in DB:', e);
+      throw e;
+    }
+  };
+
+  const handleDeleteFeeTransaction = async (transactionId: string, studentId: string) => {
+    if (!activeLibrary) return;
+
+    // 1. Optimistic UI update
+    updateActiveLibrary((lib) => {
+      const updatedTxs = (lib.feeTransactions || []).filter((t) => t.id !== transactionId);
+
+      const updatedStudents = lib.students.map((s) => {
+        if (s.id === studentId) {
+          const remainingStudentTxs = (s.transactions || []).filter((t) => t.id !== transactionId);
+
+          const validTransactions = remainingStudentTxs
+            .filter((t) => Boolean(t.validTo))
+            .sort((a, b) => new Date(b.validTo!).getTime() - new Date(a.validTo!).getTime());
+
+          let newDays = 0;
+          if (validTransactions.length > 0 && validTransactions[0].validTo) {
+            newDays = Math.max(0, Math.ceil((new Date(validTransactions[0].validTo).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+          }
+
+          const studentDues = remainingStudentTxs.reduce((sum, t) => sum + (t.remainingFee || 0), 0);
+
+          return {
+            ...s,
+            membershipEndsInDays: newDays,
+            remainingFee: studentDues,
+            transactions: remainingStudentTxs,
+          };
+        }
+        return s;
+      });
+
+      return {
+        ...lib,
+        feeTransactions: updatedTxs,
+        students: updatedStudents,
+      };
+    });
+
+    // Update selected profile modal if open
+    setSelectedStudentForProfile((prev) => {
+      if (prev && prev.id === studentId) {
+        const remainingStudentTxs = (prev.transactions || []).filter((t) => t.id !== transactionId);
+        const validTransactions = remainingStudentTxs
+          .filter((t) => Boolean(t.validTo))
+          .sort((a, b) => new Date(b.validTo!).getTime() - new Date(a.validTo!).getTime());
+
+        let newDays = 0;
+        if (validTransactions.length > 0 && validTransactions[0].validTo) {
+          newDays = Math.max(0, Math.ceil((new Date(validTransactions[0].validTo).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+        }
+
+        const studentDues = remainingStudentTxs.reduce((sum, t) => sum + (t.remainingFee || 0), 0);
+
+        return {
+          ...prev,
+          membershipEndsInDays: newDays,
+          remainingFee: studentDues,
+          transactions: remainingStudentTxs,
+        };
+      }
+      return prev;
+    });
+
+    // Close receipt modal if deleted receipt was open
+    if (selectedReceiptTx?.id === transactionId) {
+      setSelectedReceiptTx(null);
+    }
+
+    // 2. Persist to PostgreSQL backend
+    try {
+      const res = await fetch(`/api/libraries/${activeLibrary.id}/transactions/${transactionId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Failed to delete receipt from DB');
+      }
+      // Silently sync transactions & student list in background
+      fetchLibraryTransactions(activeLibrary.id);
+      fetchLibraryStudents(activeLibrary.id);
+    } catch (e: any) {
+      console.error('Failed to delete fee transaction in DB:', e);
+      throw e;
+    }
+  };
+
   // 0. SKELETON LOADING STATE (During SSR hydration or initial DB network sync)
   if (!mounted || (currentUser && isSyncingData && libraries.length === 0)) {
     return <DashboardSkeleton />;
@@ -4192,6 +4466,7 @@ export default function MobileDashboard() {
                     }
                   }}
                   onViewReceipt={(tx) => setSelectedReceiptTx(tx)}
+                  onEditTransaction={(tx) => setTransactionForEdit(tx)}
                   onOpenCollectFee={() => {
                     requireSubscription('Collect Fees', () => {
                       setStudentForFeeCollection(null);
@@ -4454,6 +4729,7 @@ export default function MobileDashboard() {
           libraryName={activeLibrary?.name || 'seeLibrary Study Center'}
           libraryPhone={activeLibrary?.contactPhone}
           onViewReceipt={(tx) => setSelectedReceiptTx(tx)}
+          onEditTransaction={(tx) => setTransactionForEdit(tx)}
           onCollectFee={(std) => {
             requireSubscription('Collect Fees', () => {
               setReturnToStudentProfileId(std.id);
@@ -4510,6 +4786,19 @@ export default function MobileDashboard() {
           libraryName={activeLibrary?.name || 'seeLibrary Study Center'}
           libraryAddress={activeLibrary?.address}
           libraryPhone={activeLibrary?.contactPhone}
+          onEditReceipt={(tx) => setTransactionForEdit(tx)}
+        />
+      )}
+
+      {/* Edit or Delete Fee Receipt Modal */}
+      {transactionForEdit && (
+        <EditReceiptModal
+          isOpen={!!transactionForEdit}
+          onClose={() => setTransactionForEdit(null)}
+          transaction={transactionForEdit}
+          onUpdate={handleUpdateFeeTransaction}
+          onDelete={handleDeleteFeeTransaction}
+          libraryName={activeLibrary?.name || 'seeLibrary Study Center'}
         />
       )}
 

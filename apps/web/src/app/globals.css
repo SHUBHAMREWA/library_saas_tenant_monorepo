@@ -94,3 +94,15 @@ select option {
 .dark ::-webkit-scrollbar-thumb:hover {
   background: rgba(163, 163, 163, 0.7);
 }
+
+/* Global Print Styles */
+@media print {
+  @page {
+    size: portrait;
+    margin: 8mm 10mm;
+  }
+  .no-print,
+  button {
+    display: none !important;
+  }
+}

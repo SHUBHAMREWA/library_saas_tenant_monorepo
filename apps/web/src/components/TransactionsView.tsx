@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   TrendingUp,
   RefreshCw,
+  Edit3,
 } from 'lucide-react';
 import { StudentFeeRecord } from './StudentList';
 import { WhatsAppIcon } from './WhatsAppIcon';
@@ -26,6 +27,7 @@ interface TransactionsViewProps {
   onOpenCollectFee: () => void;
   onStudentClick?: (studentId: string) => void;
   onViewReceipt?: (transaction: StudentFeeRecord) => void;
+  onEditTransaction?: (transaction: StudentFeeRecord) => void;
   libraryName?: string;
   libraryPhone?: string;
   isRefreshing?: boolean;
@@ -63,6 +65,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   onOpenCollectFee,
   onStudentClick,
   onViewReceipt,
+  onEditTransaction,
   libraryName = 'seeLibrary Study Center',
   libraryPhone,
   isRefreshing,
@@ -559,6 +562,21 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                   <ReceiptText className="w-3.5 h-3.5 text-slate-500" />
                   <span>Receipt</span>
                 </button>
+
+                {onEditTransaction && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditTransaction(tx);
+                    }}
+                    className="flex-1 sm:flex-initial py-1.5 px-3 rounded-xl border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 shadow-2xs"
+                    title="Edit receipt dates, amount, or dues"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    <span>Edit</span>
+                  </button>
+                )}
               </div>
             </div>
           );

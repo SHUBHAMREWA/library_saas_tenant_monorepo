@@ -347,3 +347,293 @@ export async function handleCreateTransaction(req: NextRequest, libraryId: strin
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
   }
 }
+
+export async function handleUpdateTransaction(req: NextRequest, libraryId: string, transactionId: string) {
+  try {
+    const callerEmail = (req.headers.get('x-user-email') || req.headers.get('x-admin-email'))?.toLowerCase().trim();
+    const configuredAdmin = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+
+    let isSuperAdmin = Boolean(configuredAdmin && callerEmail === configuredAdmin);
+    if (!isSuperAdmin && callerEmail) {
+      const dbUser = await prisma.user.findUnique({ where: { email: callerEmail } });
+      isSuperAdmin = dbUser?.role === 'SUPER_ADMIN';
+    }
+
+    if (!isSuperAdmin) {
+      const activeSub = await prisma.subscription.findFirst({
+        where: {
+          libraryId,
+          status: { in: ['ACTIVE', 'MANUAL'] },
+          endDate: { gt: new Date() },
+        },
+      });
+
+      if (!activeSub) {
+        return NextResponse.json(
+          {
+            error: 'Active SaaS subscription required to update transactions.',
+            code: 'SUBSCRIPTION_REQUIRED',
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    const existingTx = await prisma.studentFeeTransaction.findFirst({
+      where: { id: transactionId, libraryId },
+      include: {
+        student: {
+          include: {
+            memberships: {
+              where: { status: { in: ['ACTIVE', 'PAUSED', 'EXPIRED'] } },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+            },
+            seatAssignments: {
+              where: { status: 'ACTIVE' },
+              include: { seat: true },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+
+    if (!existingTx) {
+      return NextResponse.json({ error: 'Transaction not found in this library' }, { status: 404 });
+    }
+
+    const body = await req.json();
+    const {
+      amount,
+      totalFee,
+      remainingFee,
+      paidForMonth,
+      validFrom,
+      validTo,
+      paymentDate,
+      paymentMode,
+      notes,
+    } = body;
+
+    const parsedAmount = amount !== undefined ? Number(amount) : Number(existingTx.amount);
+    const parsedTotalFee = totalFee !== undefined && Number(totalFee) > 0
+      ? Number(totalFee)
+      : (existingTx.totalFee ? Number(existingTx.totalFee) : parsedAmount);
+    const parsedRemainingFee = remainingFee !== undefined
+      ? Number(remainingFee)
+      : Math.max(0, parsedTotalFee - parsedAmount);
+    const newStatus = parsedRemainingFee > 0 ? 'PARTIAL' : 'PAID';
+
+    const updatedTx = await prisma.studentFeeTransaction.update({
+      where: { id: transactionId },
+      data: {
+        amount: parsedAmount,
+        totalFee: parsedTotalFee,
+        remainingFee: parsedRemainingFee,
+        paidForMonth: paidForMonth ? paidForMonth.trim() : existingTx.paidForMonth,
+        validFrom: validFrom ? new Date(validFrom) : existingTx.validFrom,
+        validTo: validTo ? new Date(validTo) : existingTx.validTo,
+        paymentDate: paymentDate ? new Date(paymentDate) : existingTx.paymentDate,
+        paymentMode: paymentMode || existingTx.paymentMode,
+        status: newStatus,
+        notes: notes !== undefined ? (notes?.trim() || null) : existingTx.notes,
+      },
+    });
+
+    let updatedDaysRemaining: number | undefined;
+    const student = existingTx.student;
+    const activeMembership = student?.memberships?.[0];
+
+    // Find latest transaction for this student by validTo / paymentDate
+    const allStudentTxs = await prisma.studentFeeTransaction.findMany({
+      where: { studentId: existingTx.studentId, libraryId },
+      orderBy: [{ validTo: 'desc' }, { paymentDate: 'desc' }],
+    });
+
+    const latestTx = allStudentTxs[0];
+    if (activeMembership && latestTx?.validTo) {
+      const now = new Date();
+      updatedDaysRemaining = Math.max(
+        0,
+        Math.ceil((new Date(latestTx.validTo).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+      );
+
+      const txMonths = (latestTx.validFrom && latestTx.validTo)
+        ? Math.max(1, Math.round((new Date(latestTx.validTo).getTime() - new Date(latestTx.validFrom).getTime()) / (1000 * 60 * 60 * 24 * 30)))
+        : 1;
+      const singleMonthFee = latestTx.totalFee
+        ? Math.round(Number(latestTx.totalFee) / (txMonths || 1))
+        : Number(latestTx.amount);
+
+      await prisma.membership.update({
+        where: { id: activeMembership.id },
+        data: {
+          expectedEndDate: latestTx.validTo,
+          feeAmount: singleMonthFee,
+          status: updatedDaysRemaining > 0 ? 'ACTIVE' : 'EXPIRED',
+        },
+      });
+    }
+
+    // Total remaining dues for this student
+    const totalStudentRemainingDue = allStudentTxs.reduce(
+      (sum, t) => sum + (Number(t.remainingFee) || 0),
+      0
+    );
+
+    return NextResponse.json({
+      success: true,
+      transaction: {
+        id: updatedTx.id,
+        studentId: updatedTx.studentId,
+        studentName: student?.fullName || 'Student',
+        studentPhone: student?.phone || '',
+        seatNumber: student?.seatAssignments?.[0]?.seat?.seatNumber || null,
+        amount: Number(updatedTx.amount),
+        totalFee: updatedTx.totalFee ? Number(updatedTx.totalFee) : Number(updatedTx.amount),
+        remainingFee: updatedTx.remainingFee ? Number(updatedTx.remainingFee) : 0,
+        validFrom: updatedTx.validFrom ? updatedTx.validFrom.toISOString() : undefined,
+        validTo: updatedTx.validTo ? updatedTx.validTo.toISOString() : undefined,
+        paidForMonth: updatedTx.paidForMonth,
+        paymentDate: updatedTx.paymentDate.toISOString(),
+        paymentMode: updatedTx.paymentMode,
+        status: updatedTx.status,
+        receiptNumber: updatedTx.receiptNumber || undefined,
+        notes: updatedTx.notes || undefined,
+      },
+      updatedStudent: {
+        id: existingTx.studentId,
+        remainingFee: totalStudentRemainingDue,
+        membershipEndsInDays: updatedDaysRemaining,
+      },
+    });
+  } catch (error: any) {
+    console.error('API PATCH /api/libraries/[id]/transactions/[txId] error:', error);
+    return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
+  }
+}
+
+export async function handleDeleteTransaction(req: NextRequest, libraryId: string, transactionId: string) {
+  try {
+    const callerEmail = (req.headers.get('x-user-email') || req.headers.get('x-admin-email'))?.toLowerCase().trim();
+    const configuredAdmin = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+
+    let isSuperAdmin = Boolean(configuredAdmin && callerEmail === configuredAdmin);
+    if (!isSuperAdmin && callerEmail) {
+      const dbUser = await prisma.user.findUnique({ where: { email: callerEmail } });
+      isSuperAdmin = dbUser?.role === 'SUPER_ADMIN';
+    }
+
+    if (!isSuperAdmin) {
+      const activeSub = await prisma.subscription.findFirst({
+        where: {
+          libraryId,
+          status: { in: ['ACTIVE', 'MANUAL'] },
+          endDate: { gt: new Date() },
+        },
+      });
+
+      if (!activeSub) {
+        return NextResponse.json(
+          {
+            error: 'Active SaaS subscription required to delete transactions.',
+            code: 'SUBSCRIPTION_REQUIRED',
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    const existingTx = await prisma.studentFeeTransaction.findFirst({
+      where: { id: transactionId, libraryId },
+      include: {
+        student: {
+          include: {
+            memberships: {
+              where: { status: { in: ['ACTIVE', 'PAUSED', 'EXPIRED'] } },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+
+    if (!existingTx) {
+      return NextResponse.json({ error: 'Transaction not found in this library' }, { status: 404 });
+    }
+
+    const studentId = existingTx.studentId;
+
+    // Delete transaction
+    await prisma.studentFeeTransaction.delete({
+      where: { id: transactionId },
+    });
+
+    // Recalculate student validity & membership from remaining transactions
+    const remainingTxs = await prisma.studentFeeTransaction.findMany({
+      where: { studentId, libraryId },
+      orderBy: [{ validTo: 'desc' }, { paymentDate: 'desc' }],
+    });
+
+    let updatedDaysRemaining: number = 0;
+    const activeMembership = existingTx.student?.memberships?.[0];
+
+    if (remainingTxs.length > 0 && activeMembership) {
+      const latestTx = remainingTxs[0];
+      if (latestTx.validTo) {
+        const now = new Date();
+        updatedDaysRemaining = Math.max(
+          0,
+          Math.ceil((new Date(latestTx.validTo).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+        );
+
+        const txMonths = (latestTx.validFrom && latestTx.validTo)
+          ? Math.max(1, Math.round((new Date(latestTx.validTo).getTime() - new Date(latestTx.validFrom).getTime()) / (1000 * 60 * 60 * 24 * 30)))
+          : 1;
+        const singleMonthFee = latestTx.totalFee
+          ? Math.round(Number(latestTx.totalFee) / (txMonths || 1))
+          : Number(latestTx.amount);
+
+        await prisma.membership.update({
+          where: { id: activeMembership.id },
+          data: {
+            expectedEndDate: latestTx.validTo,
+            feeAmount: singleMonthFee,
+            status: updatedDaysRemaining > 0 ? 'ACTIVE' : 'EXPIRED',
+          },
+        });
+      }
+    } else if (activeMembership) {
+      const now = new Date();
+      await prisma.membership.update({
+        where: { id: activeMembership.id },
+        data: {
+          expectedEndDate: now,
+          status: 'EXPIRED',
+        },
+      });
+      updatedDaysRemaining = 0;
+    }
+
+    const totalStudentRemainingDue = remainingTxs.reduce(
+      (sum, t) => sum + (Number(t.remainingFee) || 0),
+      0
+    );
+
+    return NextResponse.json({
+      success: true,
+      deletedTransactionId: transactionId,
+      studentId,
+      updatedStudent: {
+        id: studentId,
+        remainingFee: totalStudentRemainingDue,
+        membershipEndsInDays: updatedDaysRemaining,
+      },
+    });
+  } catch (error: any) {
+    console.error('API DELETE /api/libraries/[id]/transactions/[txId] error:', error);
+    return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
+  }
+}

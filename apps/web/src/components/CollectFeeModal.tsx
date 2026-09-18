@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { X, CheckCircle2, IndianRupee, Calendar, CreditCard, User, Armchair, ShieldCheck, Clock, AlertCircle, Printer, FileCheck, Copy, Search, ChevronDown, Check, Loader2, Plus, Minus } from 'lucide-react';
 import { StudentItem, getStudentPreviousSeat } from './StudentList';
 import { WhatsAppIcon } from './WhatsAppIcon';
-import { generateWhatsAppReceiptText, openWhatsApp, FeeReceiptData, formatShiftSummary } from '@/lib/receipt-utils';
+import { generateWhatsAppReceiptText, openWhatsApp, FeeReceiptData, formatShiftSummary, formatDateDMY, printFeeReceipt } from '@/lib/receipt-utils';
 import { formatMonthPeriod, getDetailedPeriodLabel, addMonthsToDate, getMonthsDifference } from '@/lib/billing-periods';
 
 interface CollectFeeModalProps {
@@ -589,11 +589,17 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
               {recordedReceipt.validFrom && recordedReceipt.validTo && (
                 <div className="flex justify-between text-[11px]">
                   <span className="text-slate-500 dark:text-neutral-400">Validity:</span>
-                  <span className="text-slate-700 dark:text-neutral-300">
-                    {recordedReceipt.validFrom} to {recordedReceipt.validTo}
+                  <span className="text-slate-800 dark:text-neutral-200 font-semibold">
+                    {formatDateDMY(recordedReceipt.validFrom)} to {formatDateDMY(recordedReceipt.validTo)}
                   </span>
                 </div>
               )}
+              <div className="flex justify-between text-[11px]">
+                <span className="text-slate-500 dark:text-neutral-400">Payment Date:</span>
+                <span className="text-slate-800 dark:text-neutral-200 font-medium">
+                  {formatDateDMY(recordedReceipt.paymentDate)} ({recordedReceipt.paymentMode})
+                </span>
+              </div>
               <div className="flex justify-between border-t border-slate-200/80 dark:border-[#333] pt-2">
                 <span className="text-slate-500 dark:text-neutral-400">
                   {recordedReceipt.isSettlingDue ? 'Pending Due Balance:' : 'Total Plan Fee:'}
@@ -623,7 +629,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
             </div>
 
             {/* Action buttons */}
-            <div className="space-y-2 pt-1">
+            <div className="space-y-2 pt-1 print:hidden no-print">
               <button
                 type="button"
                 onClick={handleSendWhatsApp}
@@ -636,7 +642,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => printFeeReceipt(recordedReceipt)}
                   className="py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all"
                 >
                   <Printer className="w-4 h-4" />
