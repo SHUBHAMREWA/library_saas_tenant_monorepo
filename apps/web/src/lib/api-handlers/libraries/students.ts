@@ -112,16 +112,47 @@ export async function handleGetStudents(req: NextRequest, libraryId: string) {
         isExpired = false;
       }
 
-      let studentStatus: 'ACTIVE' | 'INACTIVE' | 'EXPIRED' = 'INACTIVE';
-      if (activeSeat) {
-        studentStatus = isExpired ? 'EXPIRED' : 'ACTIVE';
-      } else if (hasPaidTx && !isExpired && daysRemaining > 0) {
-        studentStatus = 'ACTIVE';
-      } else {
-        studentStatus = isExpired && hasPaidTx ? 'EXPIRED' : 'INACTIVE';
+      let returnSeatId: string | null = null;
+      let returnSeatNumber: string | null = null;
+      let returnPreviousSeatNumber: string | null = null;
+
+      if (!isExpired && activeSeat) {
+        returnSeatId = activeSeat.seat?.id || null;
+        returnSeatNumber = activeSeat.seat?.seatNumber || null;
+      } else if (isExpired && activeSeat) {
+        returnPreviousSeatNumber = activeSeat.seat?.seatNumber || null;
+        // Asynchronously release expired seat assignment in database & free up seat
+        prisma.seatAssignment.update({
+          where: { id: activeSeat.id },
+          data: { status: 'RELEASED', endDate: now },
+        }).then(async () => {
+          if (activeSeat.seatId) {
+            const rem = await prisma.seatAssignment.count({
+              where: { seatId: activeSeat.seatId, status: 'ACTIVE' },
+            });
+            if (rem === 0) {
+              await prisma.seat.update({
+                where: { id: activeSeat.seatId },
+                data: { status: 'AVAILABLE' },
+              });
+            }
+          }
+        }).catch((e) => console.warn('Could not auto-release expired seat assignment:', e));
       }
 
-      const assignedShift = activeSeat?.shift || (activeMembership?.status === 'ACTIVE' && activeSeat ? activeMembership?.shift : undefined) || undefined;
+      // Expired students MUST be INACTIVE
+      let studentStatus: 'ACTIVE' | 'INACTIVE' | 'EXPIRED' = 'INACTIVE';
+      if (isExpired) {
+        studentStatus = 'INACTIVE';
+      } else if (returnSeatNumber || (hasPaidTx && daysRemaining > 0)) {
+        studentStatus = 'ACTIVE';
+      } else {
+        studentStatus = 'INACTIVE';
+      }
+
+      const assignedShift = (!isExpired && activeSeat?.shift)
+        || (!isExpired && activeMembership?.status === 'ACTIVE' ? activeMembership?.shift : undefined)
+        || undefined;
 
       return {
         id: std.id,
@@ -133,18 +164,19 @@ export async function handleGetStudents(req: NextRequest, libraryId: string) {
         kycDocId: std.kycDocId || undefined,
         kycType: std.kycDocType || 'AADHAAR',
         shift: assignedShift,
-        seatId: activeSeat?.seat?.id || null,
-        seatNumber: activeSeat?.seat?.seatNumber || null,
-        roomId: activeSeat?.seat?.row?.roomId || null,
-        roomName: activeSeat?.seat?.row?.room?.name || null,
-        rowName: activeSeat?.seat?.row?.name || null,
+        seatId: returnSeatId,
+        seatNumber: returnSeatNumber,
+        previousSeatNumber: returnPreviousSeatNumber || undefined,
+        roomId: returnSeatId ? (activeSeat?.seat?.row?.roomId || null) : null,
+        roomName: returnSeatId ? (activeSeat?.seat?.row?.room?.name || null) : null,
+        rowName: returnSeatId ? (activeSeat?.seat?.row?.name || null) : null,
         status: studentStatus,
         membershipEndsInDays: daysRemaining,
         monthlyFee: activeMembership?.feeAmount ? Number(activeMembership.feeAmount) : 0,
         totalFee: studentTxList[0]?.totalFee,
         remainingFee: hasPaidTx ? (studentTxList[0]?.remainingFee ?? 0) : 0,
         transactions: studentTxList,
-        hasLocker: Boolean(activeSeat?.seat?.hasLocker),
+        hasLocker: Boolean(returnSeatId && activeSeat?.seat?.hasLocker),
       };
     });
 
