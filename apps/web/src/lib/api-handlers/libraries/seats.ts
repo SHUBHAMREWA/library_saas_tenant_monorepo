@@ -35,7 +35,22 @@ export async function handleGetSeats(_req: NextRequest, libraryId: string) {
                 seatAssignments: {
                   where: { status: 'ACTIVE' },
                   include: {
-                    student: { select: { id: true, fullName: true, phone: true, photoUrl: true } },
+                    student: {
+                      select: {
+                        id: true,
+                        fullName: true,
+                        phone: true,
+                        photoUrl: true,
+                        memberships: {
+                          orderBy: { createdAt: 'desc' },
+                          take: 1,
+                        },
+                        feeTransactions: {
+                          orderBy: { paymentDate: 'desc' },
+                          take: 2,
+                        },
+                      },
+                    },
                   },
                 },
               },
@@ -48,6 +63,7 @@ export async function handleGetSeats(_req: NextRequest, libraryId: string) {
 
     const seenSeatKeys = new Set<string>();
     const allSeats: any[] = [];
+    const now = new Date();
 
     const formattedRooms = rooms.map((rm) => {
       const uniqueRowNames = Array.from(new Set(rm.rows.map((rw) => rw.name.trim())));
@@ -57,15 +73,44 @@ export async function handleGetSeats(_req: NextRequest, libraryId: string) {
           if (seenSeatKeys.has(seatKey)) return;
           seenSeatKeys.add(seatKey);
 
-          const activeOccupants = (st.seatAssignments || [])
-            .filter((sa: any) => sa.status === 'ACTIVE' && sa.student && sa.student.fullName)
-            .map((sa: any) => ({
-              studentId: sa.student.id,
-              studentName: sa.student.fullName,
-              phone: sa.student.phone,
-              photoUrl: sa.student.photoUrl || undefined,
+          const activeOccupants: any[] = [];
+
+          for (const sa of st.seatAssignments || []) {
+            if (sa.status !== 'ACTIVE' || !sa.student || !sa.student.fullName) continue;
+
+            const std = sa.student;
+            let latestValidEndDate: Date | null = null;
+            if (std.memberships?.[0]?.expectedEndDate) {
+              latestValidEndDate = new Date(std.memberships[0].expectedEndDate);
+            }
+            for (const tx of std.feeTransactions || []) {
+              if (tx.validTo) {
+                const d = new Date(tx.validTo);
+                if (!isNaN(d.getTime()) && (!latestValidEndDate || d > latestValidEndDate)) {
+                  latestValidEndDate = d;
+                }
+              }
+            }
+
+            const isExpired = latestValidEndDate ? latestValidEndDate.getTime() <= now.getTime() : false;
+
+            if (isExpired) {
+              // Asynchronously release expired seat assignment in DB
+              prisma.seatAssignment.update({
+                where: { id: sa.id },
+                data: { status: 'RELEASED', endDate: now },
+              }).catch(() => {});
+              continue;
+            }
+
+            activeOccupants.push({
+              studentId: std.id,
+              studentName: std.fullName,
+              phone: std.phone,
+              photoUrl: std.photoUrl || undefined,
               shift: sa.shift || 'FULL_DAY',
-            }));
+            });
+          }
 
           let mainName: string | null = null;
           let mainShift: string | undefined = undefined;

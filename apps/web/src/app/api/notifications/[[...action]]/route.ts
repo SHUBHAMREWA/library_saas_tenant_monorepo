@@ -22,14 +22,25 @@ async function runStudentExpiryCheck() {
       library: {
         isActive: true,
       },
-      memberships: {
-        some: {
-          status: 'ACTIVE',
-          expectedEndDate: {
-            lte: threeDaysFromNow,
+      OR: [
+        {
+          memberships: {
+            some: {
+              status: 'ACTIVE',
+              expectedEndDate: {
+                lte: threeDaysFromNow,
+              },
+            },
           },
         },
-      },
+        {
+          seatAssignments: {
+            some: {
+              status: 'ACTIVE',
+            },
+          },
+        },
+      ],
     },
     include: {
       library: {
@@ -40,14 +51,16 @@ async function runStudentExpiryCheck() {
         },
       },
       memberships: {
-        where: { status: 'ACTIVE' },
         orderBy: { createdAt: 'desc' },
         take: 1,
+      },
+      feeTransactions: {
+        orderBy: { paymentDate: 'desc' },
+        take: 3,
       },
       seatAssignments: {
         where: { status: 'ACTIVE' },
         include: { seat: true },
-        take: 1,
       },
     },
   });
@@ -56,13 +69,65 @@ async function runStudentExpiryCheck() {
 
   for (const std of students) {
     const mem = std.memberships[0];
-    if (!mem || !mem.expectedEndDate) continue;
 
-    const endDate = new Date(mem.expectedEndDate);
+    // Determine latest valid end date between membership and fee transactions
+    let latestValidEndDate: Date | null = null;
+    if (mem?.expectedEndDate) {
+      latestValidEndDate = new Date(mem.expectedEndDate);
+    }
+    for (const tx of std.feeTransactions || []) {
+      if (tx.validTo) {
+        const d = new Date(tx.validTo);
+        if (!isNaN(d.getTime()) && (!latestValidEndDate || d > latestValidEndDate)) {
+          latestValidEndDate = d;
+        }
+      }
+    }
+
+    if (!latestValidEndDate) continue;
+
+    const endDate = latestValidEndDate;
     const diffMs = endDate.getTime() - now.getTime();
     const daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-    const seatNumber = std.seatAssignments[0]?.seat?.seatNumber || 'Unassigned';
+    const activeSeatAssignments = std.seatAssignments || [];
+    const seatNumber = activeSeatAssignments[0]?.seat?.seatNumber || 'Unassigned';
+    const isExpired = daysRemaining <= 0;
 
+    // If not expired and not expiring in <= 3 days, skip
+    if (!isExpired && daysRemaining > 3) {
+      continue;
+    }
+
+    // --- AUTO-UNASSIGN SEAT WHEN ENROLLMENT HAS ENDED ---
+    if (isExpired && activeSeatAssignments.length > 0) {
+      for (const sa of activeSeatAssignments) {
+        await prisma.seatAssignment.update({
+          where: { id: sa.id },
+          data: { status: 'RELEASED', endDate: now },
+        });
+
+        if (sa.seatId) {
+          const remainingActiveCount = await prisma.seatAssignment.count({
+            where: { seatId: sa.seatId, status: 'ACTIVE' },
+          });
+          if (remainingActiveCount === 0) {
+            await prisma.seat.update({
+              where: { id: sa.seatId },
+              data: { status: 'AVAILABLE' },
+            });
+          }
+        }
+      }
+
+      if (mem && mem.status === 'ACTIVE') {
+        await prisma.membership.update({
+          where: { id: mem.id },
+          data: { status: 'EXPIRED' },
+        });
+      }
+    }
+
+    // Check if notification already sent in last 24h for this student
     const recentAlert = await prisma.appNotification.findFirst({
       where: {
         libraryId: std.libraryId,
@@ -79,14 +144,17 @@ async function runStudentExpiryCheck() {
       continue;
     }
 
-    const isExpired = daysRemaining <= 0;
     const title = isExpired
       ? `🚨 Membership Expired: ${std.fullName}`
       : `⚠️ Fee Expiring Soon: ${std.fullName} (${daysRemaining}d left)`;
 
     const body = isExpired
-      ? `${std.fullName}'s membership expired on ${endDate.toLocaleDateString('en-IN')}. Seat #${seatNumber} may be released.`
-      : `${std.fullName}'s membership (Seat #${seatNumber}) expires in ${daysRemaining} day(s). Collect fee to retain seat.`;
+      ? (seatNumber && seatNumber !== 'Unassigned'
+          ? `${std.fullName}'s membership expired on ${endDate.toLocaleDateString('en-IN')}. Seat #${seatNumber} has been automatically unassigned and made available.`
+          : `${std.fullName}'s membership expired on ${endDate.toLocaleDateString('en-IN')}.`)
+      : (seatNumber && seatNumber !== 'Unassigned'
+          ? `${std.fullName}'s membership (Seat #${seatNumber}) expires in ${daysRemaining} day(s). Collect fee to retain seat.`
+          : `${std.fullName}'s membership expires in ${daysRemaining} day(s). Collect fee to renew validity.`);
 
     const notification = await createAppNotification({
       title,

@@ -452,8 +452,9 @@ export async function handleUpdateTransaction(req: NextRequest, libraryId: strin
     });
 
     const latestTx = allStudentTxs[0];
+    const now = new Date();
+
     if (activeMembership && latestTx?.validTo) {
-      const now = new Date();
       updatedDaysRemaining = Math.max(
         0,
         Math.ceil((new Date(latestTx.validTo).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
@@ -476,6 +477,28 @@ export async function handleUpdateTransaction(req: NextRequest, libraryId: strin
       });
     }
 
+    // --- Seat unassignment: if the latest validTo across ALL student txs is now in the past, release seat ---
+    let seatUnassigned = false;
+    const latestValidTo = latestTx?.validTo ? new Date(latestTx.validTo) : null;
+    const membershipExpired = latestValidTo ? latestValidTo < now : false;
+
+    if (membershipExpired && student?.seatAssignments?.[0]) {
+      const activeSeatAssignment = student.seatAssignments[0];
+      try {
+        await prisma.seatAssignment.update({
+          where: { id: activeSeatAssignment.id },
+          data: { status: 'RELEASED' },
+        });
+        await prisma.seat.update({
+          where: { id: activeSeatAssignment.seatId },
+          data: { status: 'AVAILABLE' },
+        });
+        seatUnassigned = true;
+      } catch (seatErr) {
+        console.error('Failed to release seat after receipt edit:', seatErr);
+      }
+    }
+
     // Total remaining dues for this student
     const totalStudentRemainingDue = allStudentTxs.reduce(
       (sum, t) => sum + (Number(t.remainingFee) || 0),
@@ -484,12 +507,13 @@ export async function handleUpdateTransaction(req: NextRequest, libraryId: strin
 
     return NextResponse.json({
       success: true,
+      seatUnassigned,
       transaction: {
         id: updatedTx.id,
         studentId: updatedTx.studentId,
         studentName: student?.fullName || 'Student',
         studentPhone: student?.phone || '',
-        seatNumber: student?.seatAssignments?.[0]?.seat?.seatNumber || null,
+        seatNumber: seatUnassigned ? null : (student?.seatAssignments?.[0]?.seat?.seatNumber || null),
         amount: Number(updatedTx.amount),
         totalFee: updatedTx.totalFee ? Number(updatedTx.totalFee) : Number(updatedTx.amount),
         remainingFee: updatedTx.remainingFee ? Number(updatedTx.remainingFee) : 0,
@@ -506,6 +530,7 @@ export async function handleUpdateTransaction(req: NextRequest, libraryId: strin
         id: existingTx.studentId,
         remainingFee: totalStudentRemainingDue,
         membershipEndsInDays: updatedDaysRemaining,
+        seatNumber: seatUnassigned ? null : (student?.seatAssignments?.[0]?.seat?.seatNumber || null),
       },
     });
   } catch (error: any) {
@@ -555,6 +580,11 @@ export async function handleDeleteTransaction(req: NextRequest, libraryId: strin
               orderBy: { createdAt: 'desc' },
               take: 1,
             },
+            seatAssignments: {
+              where: { status: 'ACTIVE' },
+              include: { seat: true },
+              take: 1,
+            },
           },
         },
       },
@@ -577,13 +607,13 @@ export async function handleDeleteTransaction(req: NextRequest, libraryId: strin
       orderBy: [{ validTo: 'desc' }, { paymentDate: 'desc' }],
     });
 
+    const now = new Date();
     let updatedDaysRemaining: number = 0;
     const activeMembership = existingTx.student?.memberships?.[0];
 
     if (remainingTxs.length > 0 && activeMembership) {
       const latestTx = remainingTxs[0];
       if (latestTx.validTo) {
-        const now = new Date();
         updatedDaysRemaining = Math.max(
           0,
           Math.ceil((new Date(latestTx.validTo).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
@@ -606,7 +636,6 @@ export async function handleDeleteTransaction(req: NextRequest, libraryId: strin
         });
       }
     } else if (activeMembership) {
-      const now = new Date();
       await prisma.membership.update({
         where: { id: activeMembership.id },
         data: {
@@ -617,19 +646,81 @@ export async function handleDeleteTransaction(req: NextRequest, libraryId: strin
       updatedDaysRemaining = 0;
     }
 
-    const totalStudentRemainingDue = remainingTxs.reduce(
+    // --- RESTORE remainingFee on all remaining transactions ---
+    // Since we can't track cross-tx settlements, restore each tx to its own
+    // base state: remainingFee = max(0, totalFee - amount), status accordingly.
+    // This correctly reverts any "due settlement" effects from the deleted receipt.
+    const restoredTxIds: string[] = [];
+    for (const tx of remainingTxs) {
+      const txAmount = Number(tx.amount);
+      const txTotalFee = tx.totalFee ? Number(tx.totalFee) : txAmount;
+      const correctRemainingFee = Math.max(0, txTotalFee - txAmount);
+      const correctStatus = correctRemainingFee > 0 ? 'PARTIAL' : 'PAID';
+
+      // Only update if the stored value differs from correct value
+      const storedRemainingFee = tx.remainingFee ? Number(tx.remainingFee) : 0;
+      if (Math.abs(storedRemainingFee - correctRemainingFee) > 0.01 || tx.status !== correctStatus) {
+        await prisma.studentFeeTransaction.update({
+          where: { id: tx.id },
+          data: {
+            remainingFee: correctRemainingFee,
+            status: correctStatus,
+          },
+        });
+        restoredTxIds.push(tx.id);
+      }
+    }
+
+    // Re-fetch remaining txs after restoration (to get updated remainingFee values)
+    const updatedRemainingTxs = restoredTxIds.length > 0
+      ? await prisma.studentFeeTransaction.findMany({
+          where: { studentId, libraryId },
+          orderBy: [{ validTo: 'desc' }, { paymentDate: 'desc' }],
+        })
+      : remainingTxs;
+
+    const totalStudentRemainingDue = updatedRemainingTxs.reduce(
       (sum, t) => sum + (Number(t.remainingFee) || 0),
       0
     );
+
+    // --- Seat unassignment: if no remaining txs OR latest validTo is in the past → release seat ---
+    let seatUnassigned = false;
+    const latestValidTo = updatedRemainingTxs[0]?.validTo
+      ? new Date(updatedRemainingTxs[0].validTo)
+      : null;
+    const shouldReleaseSeat =
+      updatedRemainingTxs.length === 0 ||   // No transactions at all
+      (latestValidTo !== null && latestValidTo < now); // Enrollment expired
+
+    const activeSeatAssignment = existingTx.student?.seatAssignments?.[0];
+    if (shouldReleaseSeat && activeSeatAssignment) {
+      try {
+        await prisma.seatAssignment.update({
+          where: { id: activeSeatAssignment.id },
+          data: { status: 'RELEASED' },
+        });
+        await prisma.seat.update({
+          where: { id: activeSeatAssignment.seatId },
+          data: { status: 'AVAILABLE' },
+        });
+        seatUnassigned = true;
+      } catch (seatErr) {
+        console.error('Failed to release seat after receipt delete:', seatErr);
+      }
+    }
 
     return NextResponse.json({
       success: true,
       deletedTransactionId: transactionId,
       studentId,
+      seatUnassigned,
+      restoredTransactionIds: restoredTxIds,
       updatedStudent: {
         id: studentId,
         remainingFee: totalStudentRemainingDue,
         membershipEndsInDays: updatedDaysRemaining,
+        seatNumber: seatUnassigned ? null : (activeSeatAssignment?.seat?.seatNumber || null),
       },
     });
   } catch (error: any) {

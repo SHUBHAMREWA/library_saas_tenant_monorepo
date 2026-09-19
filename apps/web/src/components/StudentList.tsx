@@ -476,15 +476,18 @@ export const StudentList: React.FC<StudentListProps> = ({
     return false;
   };
 
-  // Inactive students: truly inactive (no seat AND no active validity)
-  const inactiveCount = students.filter(
-    (s) => (!s.seatNumber || s.status === 'INACTIVE') && s.membershipEndsInDays <= 0
-  ).length;
+  // Active students: students with an active seat AND active membership validity (> 0 days, not expired/inactive)
+  const isStudentActive = (s: StudentItem) => {
+    return Boolean(s.seatNumber) && s.membershipEndsInDays > 0 && s.status !== 'INACTIVE' && s.status !== 'EXPIRED';
+  };
 
-  // Active students: students with a seat allocated OR active membership validity
-  const activeCount = students.filter(
-    (s) => (Boolean(s.seatNumber) && s.status !== 'INACTIVE') || s.membershipEndsInDays > 0
-  ).length;
+  // Inactive students: enrollment ended (<= 0 days or EXPIRED/INACTIVE) OR no seat allocated
+  const isStudentInactive = (s: StudentItem) => {
+    return !s.seatNumber || s.membershipEndsInDays <= 0 || s.status === 'INACTIVE' || s.status === 'EXPIRED';
+  };
+
+  const activeCount = students.filter(isStudentActive).length;
+  const inactiveCount = students.filter(isStudentInactive).length;
 
   // Fee due: ALL students with fees due (both active seat holders AND inactive students with dues)
   const feeDueCount = students.filter(isStudentFeeDue).length;
@@ -494,7 +497,8 @@ export const StudentList: React.FC<StudentListProps> = ({
     (s) =>
       s.membershipEndsInDays <= 5 &&
       s.membershipEndsInDays > 0 &&
-      s.status !== 'EXPIRED'
+      s.status !== 'EXPIRED' &&
+      s.status !== 'INACTIVE'
   ).length;
 
   const filtered = useMemo(() => {
@@ -507,16 +511,11 @@ export const StudentList: React.FC<StudentListProps> = ({
         (s.seatNumber && s.seatNumber.toLowerCase().includes(query));
       if (!matchesSearch) return false;
 
-      const isEnrolledOrSeated =
-        (Boolean(s.seatNumber) && s.status !== 'INACTIVE') || s.membershipEndsInDays > 0;
-      const isTrulyInactive =
-        (!s.seatNumber || s.status === 'INACTIVE') && s.membershipEndsInDays <= 0;
-
       if (filterTab === 'INACTIVE') {
-        return isTrulyInactive;
+        return isStudentInactive(s);
       }
       if (filterTab === 'ACTIVE') {
-        return isEnrolledOrSeated;
+        return isStudentActive(s);
       }
       if (filterTab === 'FEE_DUE') {
         return isStudentFeeDue(s);
@@ -525,7 +524,8 @@ export const StudentList: React.FC<StudentListProps> = ({
         return (
           s.membershipEndsInDays <= 5 &&
           s.membershipEndsInDays > 0 &&
-          s.status !== 'EXPIRED'
+          s.status !== 'EXPIRED' &&
+          s.status !== 'INACTIVE'
         );
       }
 
@@ -592,7 +592,7 @@ export const StudentList: React.FC<StudentListProps> = ({
         </button>
       </div>
 
-      {/* Due in 5 Days Alert Banner */}
+      {/* Expire in 5 Days Alert Banner */}
       {expiring5DaysCount > 0 && (
         <div
           onClick={() => setFilterTab(filterTab === 'EXPIRING_5_DAYS' ? 'ALL' : 'EXPIRING_5_DAYS')}
@@ -604,7 +604,7 @@ export const StudentList: React.FC<StudentListProps> = ({
             </div>
             <div>
               <h5 className="text-xs font-bold text-amber-900 dark:text-amber-200">
-                {expiring5DaysCount} Student{expiring5DaysCount > 1 ? 's' : ''} Membership Ending in &le; 5 Days
+                {expiring5DaysCount} Student{expiring5DaysCount > 1 ? 's' : ''} Expiring in &le; 5 Days
               </h5>
               <p className="text-[11px] text-amber-700 dark:text-amber-300">
                 Month ending soon. Collect fee to renew validity and prevent seat auto-release.
@@ -612,7 +612,7 @@ export const StudentList: React.FC<StudentListProps> = ({
             </div>
           </div>
           <span className="text-xs font-bold text-amber-800 dark:text-amber-300 bg-amber-200/60 dark:bg-amber-900/60 group-hover:bg-amber-200 px-2.5 py-1 rounded-lg shrink-0 transition-colors">
-            {filterTab === 'EXPIRING_5_DAYS' ? 'Showing Due' : 'View Due →'}
+            {filterTab === 'EXPIRING_5_DAYS' ? 'Showing Expiring' : 'View Expiring →'}
           </span>
         </div>
       )}
@@ -635,7 +635,7 @@ export const StudentList: React.FC<StudentListProps> = ({
             },
             {
               id: 'EXPIRING_5_DAYS' as const,
-              label: `Due in 5 Days (${expiring5DaysCount})`,
+              label: `Expire in 5 Days (${expiring5DaysCount})`,
               alert: expiring5DaysCount > 0,
             },
           ].map((tab) => (
@@ -733,13 +733,13 @@ export const StudentList: React.FC<StudentListProps> = ({
                         </span>
                       ) : isExpired ? (
                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-                          FEE DUE
+                          EXPIRED
                         </span>
                       ) : hasActiveValidity && student.membershipEndsInDays <= 5 ? (
                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                          DUE IN {student.membershipEndsInDays}D
+                          EXPIRES IN {student.membershipEndsInDays}D
                         </span>
-                      ) : hasActiveValidity ? (
+                      ) : hasActiveValidity && hasSeat ? (
                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                           ACTIVE
                         </span>
@@ -1049,13 +1049,13 @@ export const StudentList: React.FC<StudentListProps> = ({
         ) : filtered.length === 0 ? (
           <div className="p-8 text-center bg-white dark:bg-[#121212] rounded-xl border border-slate-200 dark:border-[#262626] text-slate-500 dark:text-[#a8a8a8] text-sm">
             {filterTab === 'INACTIVE'
-              ? 'No inactive students. All enrolled students have been assigned seats!'
+              ? 'No inactive students. All enrolled students have active validity and allocated seats!'
               : filterTab === 'ACTIVE'
-              ? 'No active students with allocated seats found.'
+              ? 'No active students with allocated seats and valid enrollment found.'
               : filterTab === 'FEE_DUE'
               ? 'No students with fee dues or expired memberships.'
               : filterTab === 'EXPIRING_5_DAYS'
-              ? 'No students with memberships expiring in the next 5 days.'
+              ? 'No students expiring in the next 5 days.'
               : 'No students found matching your search.'}
           </div>
         ) : null}

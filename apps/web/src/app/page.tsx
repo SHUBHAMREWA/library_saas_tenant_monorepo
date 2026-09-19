@@ -1052,14 +1052,14 @@ export default function MobileDashboard() {
 
   const totalStudentsCount = students.length > 0 ? students.length : (activeLibrary?.stats?.totalStudents ?? 0);
   const activeStudentsCount = students.length > 0
-    ? students.filter((s) => s.status === 'ACTIVE').length
+    ? students.filter((s) => Boolean(s.seatNumber) && s.membershipEndsInDays > 0 && s.status !== 'INACTIVE' && s.status !== 'EXPIRED').length
     : (activeLibrary?.stats?.activeStudents ?? 0);
   const unassignedStudentsCount = students.length > 0
-    ? students.filter((s) => !s.seatNumber).length
+    ? students.filter((s) => !s.seatNumber || s.membershipEndsInDays <= 0 || s.status === 'INACTIVE' || s.status === 'EXPIRED').length
     : (activeLibrary?.stats?.unassignedStudents ?? 0);
 
   const expiringSoonCount = students.length > 0
-    ? students.filter((s) => Boolean(s.seatNumber) && s.membershipEndsInDays <= 5 && s.status === 'ACTIVE').length
+    ? students.filter((s) => Boolean(s.seatNumber) && s.membershipEndsInDays <= 5 && s.membershipEndsInDays > 0 && s.status !== 'INACTIVE' && s.status !== 'EXPIRED').length
     : (activeLibrary?.stats?.expiringSoonCount ?? 0);
 
   // Financial and Operational metrics for Home Tab
@@ -2575,6 +2575,33 @@ export default function MobileDashboard() {
         const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.error || 'Failed to update receipt in DB');
       }
+      const resData = await res.json();
+
+      // If the server released the seat (validTo moved to past), clear it in state
+      if (resData.seatUnassigned) {
+        updateActiveLibrary((lib) => {
+          const updatedStudents = lib.students.map((s) => {
+            if (s.id === updatedData.studentId) {
+              return { ...s, seatNumber: null };
+            }
+            return s;
+          });
+          const updatedSeats = (lib.seats || []).map((seat) => {
+            if (seat.studentId === updatedData.studentId) {
+              return { ...seat, status: 'AVAILABLE' as const, studentId: null, studentName: null };
+            }
+            return seat;
+          });
+          return { ...lib, students: updatedStudents, seats: updatedSeats };
+        });
+        setSelectedStudentForProfile((prev) => {
+          if (prev && prev.id === updatedData.studentId) {
+            return { ...prev, seatNumber: null };
+          }
+          return prev;
+        });
+      }
+
       // Silently sync transactions & student list in background
       fetchLibraryTransactions(activeLibrary.id);
       fetchLibraryStudents(activeLibrary.id);
@@ -2662,6 +2689,60 @@ export default function MobileDashboard() {
         const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.error || 'Failed to delete receipt from DB');
       }
+      const resData = await res.json();
+
+      // If the server released the seat or restored dues on prior transactions, sync state
+      if (resData.seatUnassigned || (resData.restoredTransactionIds && resData.restoredTransactionIds.length > 0)) {
+        updateActiveLibrary((lib) => {
+          let updatedStudents = lib.students.map((s) => {
+            if (s.id === studentId) {
+              // Restore remainingFee on prior transactions that were reverted by server
+              const restoredTxs = resData.restoredTransactionIds as string[] || [];
+              const updatedTxs = (s.transactions || []).map((t) => {
+                if (restoredTxs.includes(t.id)) {
+                  const txTotalFee = t.totalFee || t.amount;
+                  const correctRemainingFee = Math.max(0, txTotalFee - t.amount);
+                  return {
+                    ...t,
+                    remainingFee: correctRemainingFee,
+                    status: (correctRemainingFee > 0 ? 'PARTIAL' : 'PAID') as 'PARTIAL' | 'PAID',
+                  };
+                }
+                return t;
+              });
+
+              return {
+                ...s,
+                seatNumber: resData.seatUnassigned ? null : s.seatNumber,
+                transactions: updatedTxs,
+              };
+            }
+            return s;
+          });
+
+          const updatedSeats = resData.seatUnassigned
+            ? (lib.seats || []).map((seat) => {
+                if (seat.studentId === studentId) {
+                  return { ...seat, status: 'AVAILABLE' as const, studentId: null, studentName: null };
+                }
+                return seat;
+              })
+            : lib.seats;
+
+          return { ...lib, students: updatedStudents, seats: updatedSeats };
+        });
+
+        // Also update profile modal if open
+        if (resData.seatUnassigned) {
+          setSelectedStudentForProfile((prev) => {
+            if (prev && prev.id === studentId) {
+              return { ...prev, seatNumber: null };
+            }
+            return prev;
+          });
+        }
+      }
+
       // Silently sync transactions & student list in background
       fetchLibraryTransactions(activeLibrary.id);
       fetchLibraryStudents(activeLibrary.id);
@@ -4365,7 +4446,7 @@ export default function MobileDashboard() {
                   Student Directory
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-neutral-400">
-                  {students.filter((s) => Boolean(s.seatNumber)).length} active • {students.filter((s) => !s.seatNumber).length} inactive (no seat)
+                  {students.filter((s) => Boolean(s.seatNumber) && s.membershipEndsInDays > 0 && s.status !== 'INACTIVE' && s.status !== 'EXPIRED').length} active • {students.filter((s) => !s.seatNumber || s.membershipEndsInDays <= 0 || s.status === 'INACTIVE' || s.status === 'EXPIRED').length} inactive
                 </p>
               </div>
 
