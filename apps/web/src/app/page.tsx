@@ -177,6 +177,11 @@ const PWACompanion = dynamic(
   { ssr: false }
 );
 
+const BulkImportStudentModal = dynamic(
+  () => import('../components/BulkImportStudentModal').then((m) => m.BulkImportStudentModal),
+  { ssr: false }
+);
+
 export interface LibraryBranch {
   id: string;
   name: string;
@@ -326,6 +331,7 @@ export default function MobileDashboard() {
   const [batchSeatTargetRow, setBatchSeatTargetRow] = useState<string>('');
   const [batchSeatTargetRoom, setBatchSeatTargetRoom] = useState<{ id: string; name: string } | null>(null);
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
+  const [isBulkImportModalOpen, setIsBulkImportModalOpen] = useState(false);
   const [isSubscriptionRequiredModalOpen, setIsSubscriptionRequiredModalOpen] = useState(false);
   const [subscriptionGateAction, setSubscriptionGateAction] = useState<string>('Enroll Students');
   const [selectedStudentForProfile, setSelectedStudentForProfile] = useState<StudentItem | null>(null);
@@ -1730,7 +1736,10 @@ export default function MobileDashboard() {
     try {
       const res = await fetch(`/api/libraries/${activeLibrary.id}/students`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(currentUser?.email ? { 'x-user-email': currentUser.email } : {}),
+        },
         body: JSON.stringify(data),
       });
 
@@ -4483,6 +4492,11 @@ export default function MobileDashboard() {
                     setIsStudentModalOpen(true);
                   });
                 }}
+                onBulkImportStudents={() => {
+                  requireSubscription('Bulk Enroll Students', () => {
+                    setIsBulkImportModalOpen(true);
+                  });
+                }}
                 onStudentClick={(student, tab) => {
                   setProfileInitialTab(tab || 'profile');
                   setSelectedStudentForProfile(student);
@@ -4793,6 +4807,24 @@ export default function MobileDashboard() {
           availableSeats={seats.filter((s) => s.status === 'AVAILABLE')}
           preselectedSeatNumber={preselectedSeatNumberForNewStudent}
           onStudentCreated={handleStudentCreated}
+        />
+      )}
+
+      {/* Bulk Student Registration Modal (Excel & CSV) */}
+      {isBulkImportModalOpen && activeLibrary && (
+        <BulkImportStudentModal
+          isOpen={isBulkImportModalOpen}
+          onClose={() => setIsBulkImportModalOpen(false)}
+          libraryId={activeLibrary.id}
+          libraryName={activeLibrary.name}
+          userEmail={currentUser?.email}
+          onStudentsImported={(newStudents) => {
+            updateActiveLibrary((lib) => ({
+              ...lib,
+              students: [...newStudents, ...lib.students],
+            }));
+            fetchLibraryStudents(activeLibrary.id);
+          }}
         />
       )}
 

@@ -5,7 +5,7 @@ import { handleGetLibrary, handleUpdateLibrary, handleDeleteLibrary } from '@/li
 import { handleCreateRoom, handleUpdateRoom, handleDeleteRoom } from '@/lib/api-handlers/libraries/rooms';
 import { handleCreateRows, handleDeleteRow } from '@/lib/api-handlers/libraries/rows';
 import { handleCreateSeats, handleUpdateSeat, handleDeleteSeats, handleAssignSeat, handleGetSeats } from '@/lib/api-handlers/libraries/seats';
-import { handleCreateStudent, handleUpdateStudent, handleDeleteStudent, handleGetStudents } from '@/lib/api-handlers/libraries/students';
+import { handleCreateStudent, handleBulkCreateStudents, handleUpdateStudent, handleDeleteStudent, handleGetStudents } from '@/lib/api-handlers/libraries/students';
 import { handleGetTransactions, handleCreateTransaction, handleUpdateTransaction, handleDeleteTransaction } from '@/lib/api-handlers/libraries/transactions';
 import {
   handleGetSubscription,
@@ -83,8 +83,13 @@ export async function POST(
     return handleCreateSeats(req, id);
   }
 
-  if (resource === 'students' && slug.length === 2) {
-    return handleCreateStudent(req, id);
+  if (resource === 'students') {
+    if (sub === 'bulk') {
+      return handleBulkCreateStudents(req, id);
+    }
+    if (slug.length === 2) {
+      return handleCreateStudent(req, id);
+    }
   }
 
   if (resource === 'transactions') {
