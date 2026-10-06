@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { Phone, Search, Armchair, Shield, Check, Clock, Plus, Bell, Calendar, CalendarDays, Filter, RefreshCw } from 'lucide-react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { Phone, Search, Armchair, Shield, Check, Clock, Plus, Bell, Calendar, CalendarDays, Filter, RefreshCw, Download, Upload, FileSpreadsheet, ChevronDown } from 'lucide-react';
 import { WhatsAppIcon } from './WhatsAppIcon';
 import { generateStudentWhatsAppMessage, generateWhatsAppFeeReminderText } from '@/lib/receipt-utils';
 import { formatMonthPeriod, getMonthsDifference, formatFriendlyPeriod } from '@/lib/billing-periods';
+import { exportStudentsToExcel, exportStudentsToCsv } from '@/lib/excel-export-utils';
 
 export interface StudentFeeRecord {
   id: string;
@@ -234,6 +235,7 @@ export function getStudentMonthPaymentInfo(
 interface StudentListProps {
   students: StudentItem[];
   onAddStudent: () => void;
+  onBulkImportStudents?: () => void;
   onStudentClick?: (student: StudentItem, initialTab?: 'profile' | 'feeHistory' | 'kyc') => void;
   onAssignSeat?: (student: StudentItem) => void;
   onCollectFee?: (student: StudentItem) => void;
@@ -412,6 +414,7 @@ export const MONTH_NAMES = [
 export const StudentList: React.FC<StudentListProps> = ({
   students,
   onAddStudent,
+  onBulkImportStudents,
   onStudentClick,
   onAssignSeat,
   onCollectFee,
@@ -426,6 +429,20 @@ export const StudentList: React.FC<StudentListProps> = ({
   const [visibleCount, setVisibleCount] = useState(35);
   const [filterTab, setFilterTab] = useState<StudentFilterTab>(initialFilterTab);
   const [localRefreshing, setLocalRefreshing] = useState(false);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setIsExportMenuOpen(false);
+      }
+    };
+    if (isExportMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isExportMenuOpen]);
 
   // Debounce search input by 200ms to eliminate UI typing lag
   React.useEffect(() => {
@@ -580,6 +597,60 @@ export const StudentList: React.FC<StudentListProps> = ({
           >
             <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 ${(isRefreshing || localRefreshing) ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">{(isRefreshing || localRefreshing) ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
+        )}
+
+        {/* Export Students Dropdown */}
+        <div className="relative" ref={exportMenuRef}>
+          <button
+            type="button"
+            onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
+            className="bg-white dark:bg-[#1c1c1e] hover:bg-slate-50 dark:hover:bg-[#262626] active:bg-slate-100 text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 shrink-0 shadow-xs cursor-pointer transition-colors"
+            title="Download / Export students list to Excel or CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span className="hidden sm:inline">Export</span>
+            <ChevronDown className="w-3 h-3 text-slate-400" />
+          </button>
+
+          {isExportMenuOpen && (
+            <div className="absolute right-0 top-full mt-1.5 w-48 bg-white dark:bg-[#1a1a1a] rounded-xl shadow-xl border border-slate-200 dark:border-[#2a2a2a] py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  exportStudentsToExcel(students, libraryName || 'Library');
+                  setIsExportMenuOpen(false);
+                }}
+                className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 font-medium cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <span>Export as Excel (.xlsx)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  exportStudentsToCsv(students, libraryName || 'Library');
+                  setIsExportMenuOpen(false);
+                }}
+                className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 font-medium cursor-pointer"
+              >
+                <Download className="w-4 h-4 text-indigo-600" />
+                <span>Export as CSV (.csv)</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Bulk Import Button */}
+        {onBulkImportStudents && (
+          <button
+            type="button"
+            onClick={onBulkImportStudents}
+            className="bg-white dark:bg-[#1c1c1e] hover:bg-indigo-50/60 dark:hover:bg-[#262626] active:bg-slate-100 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/60 px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 shrink-0 shadow-xs cursor-pointer transition-colors"
+            title="Bulk enroll students via Excel or CSV"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Bulk Import</span>
           </button>
         )}
 
