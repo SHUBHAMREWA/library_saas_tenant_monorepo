@@ -53,8 +53,16 @@ export interface StudentWhatsAppMessageData {
   category?: StudentWhatsAppCategory;
 }
 
-export function formatShiftSummary(shift?: string, stayDuration?: string): string {
+export function formatShiftSummary(shift?: string, stayDuration?: string, notes?: string): string {
+  if (notes) {
+    const slotMatch = notes.match(/SLOT:\d{1,2}:\d{2}-\d{1,2}:\d{2}(?:\|([^|\n\r]+))?/i);
+    if (slotMatch && slotMatch[1]) return slotMatch[1].trim();
+  }
+  if (shift && (shift.includes('–') || shift.includes('-')) && (shift.includes('AM') || shift.includes('PM'))) {
+    return shift;
+  }
   const normShift = shift ? shift.toUpperCase() : 'FULL_DAY';
+  if (normShift.startsWith('CUSTOM')) return 'Custom Shift';
   const normDuration = stayDuration ? stayDuration.toUpperCase() : undefined;
 
   if (normShift === 'MORNING') {

@@ -26,32 +26,69 @@ export function checkIsSuperAdmin(callerEmail: string | undefined | null, dbUser
   return adminEmails.includes(callerEmail) || dbUserRole === 'SUPER_ADMIN' || isTestAccount;
 }
 
-export async function handleGetTransactions(req: NextRequest, libraryId: string) {
-  try {
-    const callerEmail = (req.headers.get('x-user-email') || req.headers.get('x-admin-email'))?.toLowerCase().trim();
-    let isSuperAdmin = checkIsSuperAdmin(callerEmail);
-    if (!isSuperAdmin && callerEmail) {
-      const dbUser = await prisma.user.findUnique({ where: { email: callerEmail } });
+export async function verifyLibrarySubscriptionOrAdmin(
+  libraryId: string,
+  req: NextRequest
+): Promise<boolean> {
+  const callerEmail = (req.headers.get('x-user-email') || req.headers.get('x-admin-email'))?.toLowerCase().trim();
+  let isSuperAdmin = checkIsSuperAdmin(callerEmail);
+  let dbUser: any = null;
+  if (callerEmail) {
+    dbUser = await prisma.user.findUnique({ where: { email: callerEmail } });
+    if (!isSuperAdmin) {
       isSuperAdmin = checkIsSuperAdmin(callerEmail, dbUser?.role);
     }
+  }
 
-    if (!isSuperAdmin) {
-      const activeSub = await prisma.subscription.findFirst({
-        where: {
-          libraryId,
-          status: { in: ['ACTIVE', 'MANUAL'] },
-          endDate: { gt: new Date() },
-        },
+  if (isSuperAdmin) {
+    return true;
+  }
+
+  const library = await prisma.library.findUnique({
+    where: { id: libraryId },
+    select: { ownerId: true },
+  });
+
+  if (library?.ownerId) {
+    const ownerUser = await prisma.user.findUnique({
+      where: { id: library.ownerId },
+      select: { role: true, email: true },
+    });
+    if (ownerUser && (ownerUser.role === 'SUPER_ADMIN' || checkIsSuperAdmin(ownerUser.email, ownerUser.role))) {
+      return true;
+    }
+  }
+
+  const now = new Date();
+  const subConditions: any[] = [{ libraryId }];
+  if (library?.ownerId) {
+    subConditions.push({ userId: library.ownerId });
+  }
+  if (dbUser?.id) {
+    subConditions.push({ userId: dbUser.id });
+  }
+
+  const activeSub = await prisma.subscription.findFirst({
+    where: {
+      OR: subConditions,
+      status: { in: ['ACTIVE', 'MANUAL'] },
+      endDate: { gt: now },
+    },
+  });
+
+  return Boolean(activeSub);
+}
+
+export async function handleGetTransactions(req: NextRequest, libraryId: string) {
+  try {
+    const isAllowed = await verifyLibrarySubscriptionOrAdmin(libraryId, req);
+    if (!isAllowed) {
+      return NextResponse.json({
+        success: true,
+        subscriptionRequired: true,
+        transactions: [],
+        message: 'Active SaaS subscription required to access the Fee Ledger.',
       });
-
-      if (!activeSub) {
-        return NextResponse.json({
-          success: true,
-          subscriptionRequired: true,
-          transactions: [],
-          message: 'Active SaaS subscription required to access the Fee Ledger.',
-        });
-      }
     }
 
     const { searchParams } = new URL(req.url);
@@ -138,31 +175,15 @@ export async function handleCreateTransaction(req: NextRequest, libraryId: strin
       );
     }
 
-    const callerEmail = (req.headers.get('x-user-email') || req.headers.get('x-admin-email'))?.toLowerCase().trim();
-    let isSuperAdmin = checkIsSuperAdmin(callerEmail);
-    if (!isSuperAdmin && callerEmail) {
-      const dbUser = await prisma.user.findUnique({ where: { email: callerEmail } });
-      isSuperAdmin = checkIsSuperAdmin(callerEmail, dbUser?.role);
-    }
-
-    if (!isSuperAdmin) {
-      const activeSub = await prisma.subscription.findFirst({
-        where: {
-          libraryId,
-          status: { in: ['ACTIVE', 'MANUAL'] },
-          endDate: { gt: new Date() },
+    const isAllowed = await verifyLibrarySubscriptionOrAdmin(libraryId, req);
+    if (!isAllowed) {
+      return NextResponse.json(
+        {
+          error: 'Active SaaS subscription required to collect student fees. Please upgrade your plan in Branch Settings.',
+          code: 'SUBSCRIPTION_REQUIRED',
         },
-      });
-
-      if (!activeSub) {
-        return NextResponse.json(
-          {
-            error: 'Active SaaS subscription required to collect student fees. Please upgrade your plan in Branch Settings.',
-            code: 'SUBSCRIPTION_REQUIRED',
-          },
-          { status: 403 }
-        );
-      }
+        { status: 403 }
+      );
     }
 
     const student = await prisma.student.findFirst({
@@ -198,6 +219,12 @@ export async function handleCreateTransaction(req: NextRequest, libraryId: strin
       ? Math.round(Number(totalFee) / (txMonths || 1))
       : Number(amount);
 
+    const VALID_SHIFTS = ['MORNING', 'EVENING', 'NIGHT', 'FULL_DAY', 'FOUR_HOURS', 'HALF_DAY'];
+    const isCustom = shift === 'CUSTOM' || (notes && notes.includes('SLOT:')) || (shift && !VALID_SHIFTS.includes(shift.toUpperCase()));
+    const dbSafeShift: 'FULL_DAY' | 'MORNING' | 'EVENING' | 'NIGHT' | 'FOUR_HOURS' | 'HALF_DAY' = isCustom
+      ? 'FOUR_HOURS'
+      : (shift ? (shift.toUpperCase() as any) : 'FULL_DAY');
+
     if (!activeMembership) {
       activeMembership = await prisma.membership.create({
         data: {
@@ -208,7 +235,8 @@ export async function handleCreateTransaction(req: NextRequest, libraryId: strin
           expectedEndDate: parsedEnd,
           status: 'ACTIVE',
           feeAmount: singleMonthFee,
-          shift: (shift || 'FULL_DAY') as any,
+          shift: dbSafeShift as any,
+          notes: notes?.trim() || null,
         },
       });
     }
@@ -304,12 +332,21 @@ export async function handleCreateTransaction(req: NextRequest, libraryId: strin
         ? Number(activeMembership.feeAmount || singleMonthFee)
         : singleMonthFee;
 
+      let updatedMembershipNotes = activeMembership.notes || '';
+      if (notes && notes.includes('SLOT:')) {
+        const slotMatch = notes.match(/SLOT:[^|\n]+(?:\|[^\n\r]+)?/);
+        if (slotMatch) {
+          updatedMembershipNotes = `${updatedMembershipNotes.replace(/SLOT:[^|\n]+(?:\|[^\n\r]+)?/g, '').trim()} ${slotMatch[0]}`.trim();
+        }
+      }
+
       await prisma.membership.update({
         where: { id: activeMembership.id },
         data: {
           ...(daysToAdd > 0 && newEndDate ? { expectedEndDate: newEndDate } : {}),
           ...(isSettlingDue ? {} : { feeAmount: effectiveFeeAmount }),
-          ...(shift ? { shift: shift as any } : {}),
+          ...(shift ? { shift: dbSafeShift as any } : {}),
+          ...(updatedMembershipNotes ? { notes: updatedMembershipNotes } : {}),
           status: 'ACTIVE',
         },
       });
@@ -318,7 +355,7 @@ export async function handleCreateTransaction(req: NextRequest, libraryId: strin
     if (shift) {
       await prisma.seatAssignment.updateMany({
         where: { studentId: student.id, libraryId, status: 'ACTIVE' },
-        data: { shift: shift as any },
+        data: { shift: dbSafeShift as any },
       });
     }
 
@@ -364,31 +401,15 @@ export async function handleCreateTransaction(req: NextRequest, libraryId: strin
 
 export async function handleUpdateTransaction(req: NextRequest, libraryId: string, transactionId: string) {
   try {
-    const callerEmail = (req.headers.get('x-user-email') || req.headers.get('x-admin-email'))?.toLowerCase().trim();
-    let isSuperAdmin = checkIsSuperAdmin(callerEmail);
-    if (!isSuperAdmin && callerEmail) {
-      const dbUser = await prisma.user.findUnique({ where: { email: callerEmail } });
-      isSuperAdmin = checkIsSuperAdmin(callerEmail, dbUser?.role);
-    }
-
-    if (!isSuperAdmin) {
-      const activeSub = await prisma.subscription.findFirst({
-        where: {
-          libraryId,
-          status: { in: ['ACTIVE', 'MANUAL'] },
-          endDate: { gt: new Date() },
+    const isAllowed = await verifyLibrarySubscriptionOrAdmin(libraryId, req);
+    if (!isAllowed) {
+      return NextResponse.json(
+        {
+          error: 'Active SaaS subscription required to update transactions.',
+          code: 'SUBSCRIPTION_REQUIRED',
         },
-      });
-
-      if (!activeSub) {
-        return NextResponse.json(
-          {
-            error: 'Active SaaS subscription required to update transactions.',
-            code: 'SUBSCRIPTION_REQUIRED',
-          },
-          { status: 403 }
-        );
-      }
+        { status: 403 }
+      );
     }
 
     const existingTx = await prisma.studentFeeTransaction.findFirst({
@@ -499,12 +520,17 @@ export async function handleUpdateTransaction(req: NextRequest, libraryId: strin
       try {
         await prisma.seatAssignment.update({
           where: { id: activeSeatAssignment.id },
-          data: { status: 'RELEASED' },
+          data: { status: 'RELEASED', endDate: now },
         });
-        await prisma.seat.update({
-          where: { id: activeSeatAssignment.seatId },
-          data: { status: 'AVAILABLE' },
+        const remainingCount = await prisma.seatAssignment.count({
+          where: { seatId: activeSeatAssignment.seatId, libraryId, status: 'ACTIVE' },
         });
+        if (remainingCount === 0) {
+          await prisma.seat.update({
+            where: { id: activeSeatAssignment.seatId },
+            data: { status: 'AVAILABLE' },
+          });
+        }
         seatUnassigned = true;
       } catch (seatErr) {
         console.error('Failed to release seat after receipt edit:', seatErr);
@@ -553,31 +579,15 @@ export async function handleUpdateTransaction(req: NextRequest, libraryId: strin
 
 export async function handleDeleteTransaction(req: NextRequest, libraryId: string, transactionId: string) {
   try {
-    const callerEmail = (req.headers.get('x-user-email') || req.headers.get('x-admin-email'))?.toLowerCase().trim();
-    let isSuperAdmin = checkIsSuperAdmin(callerEmail);
-    if (!isSuperAdmin && callerEmail) {
-      const dbUser = await prisma.user.findUnique({ where: { email: callerEmail } });
-      isSuperAdmin = checkIsSuperAdmin(callerEmail, dbUser?.role);
-    }
-
-    if (!isSuperAdmin) {
-      const activeSub = await prisma.subscription.findFirst({
-        where: {
-          libraryId,
-          status: { in: ['ACTIVE', 'MANUAL'] },
-          endDate: { gt: new Date() },
+    const isAllowed = await verifyLibrarySubscriptionOrAdmin(libraryId, req);
+    if (!isAllowed) {
+      return NextResponse.json(
+        {
+          error: 'Active SaaS subscription required to delete transactions.',
+          code: 'SUBSCRIPTION_REQUIRED',
         },
-      });
-
-      if (!activeSub) {
-        return NextResponse.json(
-          {
-            error: 'Active SaaS subscription required to delete transactions.',
-            code: 'SUBSCRIPTION_REQUIRED',
-          },
-          { status: 403 }
-        );
-      }
+        { status: 403 }
+      );
     }
 
     const existingTx = await prisma.studentFeeTransaction.findFirst({
@@ -708,12 +718,17 @@ export async function handleDeleteTransaction(req: NextRequest, libraryId: strin
       try {
         await prisma.seatAssignment.update({
           where: { id: activeSeatAssignment.id },
-          data: { status: 'RELEASED' },
+          data: { status: 'RELEASED', endDate: now },
         });
-        await prisma.seat.update({
-          where: { id: activeSeatAssignment.seatId },
-          data: { status: 'AVAILABLE' },
+        const remainingCount = await prisma.seatAssignment.count({
+          where: { seatId: activeSeatAssignment.seatId, libraryId, status: 'ACTIVE' },
         });
+        if (remainingCount === 0) {
+          await prisma.seat.update({
+            where: { id: activeSeatAssignment.seatId },
+            data: { status: 'AVAILABLE' },
+          });
+        }
         seatUnassigned = true;
       } catch (seatErr) {
         console.error('Failed to release seat after receipt delete:', seatErr);

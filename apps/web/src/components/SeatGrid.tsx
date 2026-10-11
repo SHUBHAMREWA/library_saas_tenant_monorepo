@@ -2,8 +2,9 @@
 
 import React, { useState } from 'react';
 import type { SeatStatus } from '@library/types';
-import { Armchair, Check, Wrench, Ban, UserCheck, X, Building2, Plus, Trash2, Phone, User, ArrowRight } from 'lucide-react';
+import { Armchair, Check, Wrench, Ban, UserCheck, X, Building2, Plus, Trash2, Phone, User, ArrowRight, Clock } from 'lucide-react';
 import { formatShift } from './StudentList';
+import { calculateAvailableSlotsOnSeat, resolveEffectiveTimeSlot, type TimeSlot } from '@/lib/slot-utils';
 
 export interface SeatOccupant {
   studentId: string;
@@ -11,6 +12,8 @@ export interface SeatOccupant {
   shift: string;
   phone?: string;
   photoUrl?: string;
+  rawShift?: string;
+  timeSlot?: TimeSlot;
 }
 
 export interface VisualSeatItem {
@@ -22,6 +25,7 @@ export interface VisualSeatItem {
   studentName?: string | null;
   shift?: string | null;
   roomId?: string | null;
+  roomName?: string | null;
   occupants?: SeatOccupant[];
   studentId?: string | null;
   studentPhotoUrl?: string | null;
@@ -107,13 +111,25 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
 
   const renderSeatContent = (seat: VisualSeatItem, badge: { label: string; bg: string; indicator: string }) => {
     const occupants = seat.occupants || [];
-    const fullDayOccupant = occupants.find((o) => (o.shift || '').toUpperCase() === 'FULL_DAY') || (seat.studentName && (!seat.shift || seat.shift === 'FULL_DAY') ? { studentName: seat.studentName } : null);
-    const morningOccupant = occupants.find((o) => {
-      const s = (o.shift || '').toUpperCase();
-      return s === 'MORNING' || s === 'FOUR_HOURS' || s === 'HALF_DAY';
-    }) || (seat.studentName && (seat.shift === 'MORNING' || seat.shift === 'FOUR_HOURS' || seat.shift === 'HALF_DAY') ? { studentName: seat.studentName } : null);
-    const eveningOccupant = occupants.find((o) => (o.shift || '').toUpperCase() === 'EVENING') || (seat.studentName && seat.shift === 'EVENING' ? { studentName: seat.studentName } : null);
-    const isShared = Boolean(morningOccupant && eveningOccupant);
+    const fullDayOccupant =
+      occupants.find((o) => (o.rawShift || o.shift || '').toUpperCase() === 'FULL_DAY') ||
+      (seat.studentName && (!seat.shift || seat.shift === 'FULL_DAY') ? { studentName: seat.studentName } : null);
+    const morningOccupant =
+      occupants.find((o) => {
+        const s = (o.rawShift || o.shift || '').toUpperCase();
+        return s === 'MORNING' || s === 'HALF_DAY';
+      }) ||
+      (seat.studentName && (seat.shift === 'MORNING' || seat.shift === 'HALF_DAY') ? { studentName: seat.studentName } : null);
+    const eveningOccupant =
+      occupants.find((o) => (o.rawShift || o.shift || '').toUpperCase() === 'EVENING') ||
+      (seat.studentName && seat.shift === 'EVENING' ? { studentName: seat.studentName } : null);
+
+    const customOccupants = occupants.filter((o) => {
+      const s = (o.rawShift || o.shift || '').toUpperCase();
+      return s !== 'FULL_DAY' && s !== 'MORNING' && s !== 'HALF_DAY' && s !== 'EVENING';
+    });
+
+    const isShared = occupants.length > 1;
 
     return (
       <>
@@ -127,7 +143,7 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
           </div>
           {isShared ? (
             <span className="text-[8px] font-black px-1 py-0.2 rounded bg-indigo-200/80 dark:bg-indigo-900/60 text-indigo-900 dark:text-indigo-200">
-              2/2
+              👥 {occupants.length}
             </span>
           ) : fullDayOccupant ? (
             <span className="text-[8px] font-bold px-1 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
@@ -141,6 +157,10 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
             <span className="text-[8px] font-bold px-1 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300">
               🌇 PM
             </span>
+          ) : customOccupants.length > 0 ? (
+            <span className="text-[8px] font-bold px-1 py-0.2 rounded bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300">
+              ⏱️ Slot
+            </span>
           ) : null}
         </div>
 
@@ -149,7 +169,7 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
             <span className="text-emerald-700 dark:text-emerald-400 font-medium">Free</span>
           ) : isShared ? (
             <span className="text-indigo-800 dark:text-indigo-300 font-bold truncate block">
-              {morningOccupant?.studentName?.split(' ')[0]} + {eveningOccupant?.studentName?.split(' ')[0]}
+              {occupants.map((o) => o.studentName?.split(' ')[0]).join(' + ')}
             </span>
           ) : fullDayOccupant ? (
             <span className="truncate block font-bold text-indigo-950 dark:text-indigo-200">
@@ -163,13 +183,17 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
             <span className="truncate block font-bold text-indigo-900 dark:text-indigo-200">
               {eveningOccupant.studentName}
             </span>
+          ) : customOccupants.length > 0 ? (
+            <span className="truncate block font-bold text-purple-900 dark:text-purple-200">
+              {customOccupants[0].studentName}
+            </span>
           ) : (
             <span className="truncate block">{seat.studentName || badge.label}</span>
           )}
         </div>
 
         {seat.shift && seat.status !== 'AVAILABLE' && !isShared && (
-          <span className="text-[9px] text-slate-500 dark:text-[#a8a8a8] mt-0.5">
+          <span className="text-[9px] text-slate-500 dark:text-[#a8a8a8] mt-0.5 truncate max-w-full">
             {formatShift(seat.shift)}
           </span>
         )}
@@ -524,7 +548,7 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
             {(() => {
               const occupants = selectedSeat.occupants || [];
               const fullDayOccupant =
-                occupants.find((o) => (o.shift || '').toUpperCase() === 'FULL_DAY') ||
+                occupants.find((o) => (o.rawShift || o.shift || '').toUpperCase() === 'FULL_DAY') ||
                 (selectedSeat.studentName && (!selectedSeat.shift || selectedSeat.shift === 'FULL_DAY')
                   ? {
                       studentId: selectedSeat.studentId || '',
@@ -536,11 +560,11 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                   : null);
               const morningOccupant =
                 occupants.find((o) => {
-                  const s = (o.shift || '').toUpperCase();
-                  return s === 'MORNING' || s === 'FOUR_HOURS' || s === 'HALF_DAY';
+                  const s = (o.rawShift || o.shift || '').toUpperCase();
+                  return s === 'MORNING' || s === 'HALF_DAY';
                 }) ||
                 (selectedSeat.studentName &&
-                (selectedSeat.shift === 'MORNING' || selectedSeat.shift === 'FOUR_HOURS' || selectedSeat.shift === 'HALF_DAY')
+                (selectedSeat.shift === 'MORNING' || selectedSeat.shift === 'HALF_DAY')
                   ? {
                       studentId: selectedSeat.studentId || '',
                       studentName: selectedSeat.studentName,
@@ -550,7 +574,7 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                     }
                   : null);
               const eveningOccupant =
-                occupants.find((o) => (o.shift || '').toUpperCase() === 'EVENING') ||
+                occupants.find((o) => (o.rawShift || o.shift || '').toUpperCase() === 'EVENING') ||
                 (selectedSeat.studentName && selectedSeat.shift === 'EVENING'
                   ? {
                       studentId: selectedSeat.studentId || '',
@@ -560,6 +584,13 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                       shift: 'EVENING',
                     }
                   : null);
+
+              const customOccupants = occupants.filter((o) => {
+                const s = (o.rawShift || o.shift || '').toUpperCase();
+                return s !== 'FULL_DAY' && s !== 'MORNING' && s !== 'HALF_DAY' && s !== 'EVENING';
+              });
+
+              const availableWindows = calculateAvailableSlotsOnSeat(occupants);
 
               const renderOccupantCard = (occupant: {
                 studentId?: string;
@@ -621,39 +652,37 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                 <div className="space-y-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-slate-500 dark:text-[#a8a8a8] uppercase tracking-wider block">
-                      Shift Slots & Occupancy (Max 2)
+                      Shift Slots & Occupancy
                     </span>
                     <span
                       className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
                         fullDayOccupant
                           ? 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
-                          : morningOccupant && eveningOccupant
-                          ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                          : morningOccupant || eveningOccupant
+                          : availableWindows.length === 0 && occupants.length > 0
+                          ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                          : occupants.length > 0
                           ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
-                          : 'bg-slate-100 dark:bg-[#222] text-slate-600 dark:text-neutral-400 border border-slate-200 dark:border-[#333]'
+                          : 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
                       }`}
                     >
                       {fullDayOccupant
                         ? '☀️ Full Day (1/1 Locked)'
-                        : morningOccupant && eveningOccupant
-                        ? '👥 2/2 Capacity Full'
-                        : morningOccupant
-                        ? '👤 1/2 (Morning Set • Evening Free)'
-                        : eveningOccupant
-                        ? '👤 1/2 (Evening Set • Morning Free)'
-                        : '🟢 0/2 Available'}
+                        : availableWindows.length === 0 && occupants.length > 0
+                        ? `👥 Full (${occupants.length} Students)`
+                        : occupants.length > 0
+                        ? `👤 ${occupants.length} Student (${availableWindows.length} Slot Free)`
+                        : '🟢 100% Available'}
                     </span>
                   </div>
 
-                  {/* 3 Shift Slots: Full Day, Morning, Evening */}
+                  {/* Shift Slots: Full Day, Morning, Evening */}
                   <div className="space-y-2">
                     {/* 1. Full Day Slot */}
                     <div
                       className={`p-2.5 rounded-xl border transition-all ${
                         fullDayOccupant
                           ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-800 shadow-2xs'
-                          : morningOccupant || eveningOccupant
+                          : occupants.length > 0
                           ? 'bg-slate-50/60 dark:bg-[#161616] border-slate-200/70 dark:border-[#262626] opacity-60'
                           : 'bg-white dark:bg-[#1a1a1a] border-slate-200 dark:border-[#262626]'
                       }`}
@@ -669,9 +698,9 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                           <span className="text-[10px] font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/60 px-2 py-0.5 rounded-md">
                             Occupied (24/7)
                           </span>
-                        ) : morningOccupant || eveningOccupant ? (
+                        ) : occupants.length > 0 ? (
                           <span className="text-[10px] font-semibold text-slate-400 dark:text-neutral-500 bg-slate-100 dark:bg-[#222] px-2 py-0.5 rounded-md">
-                            Unavailable (Shared)
+                            Blocked by Shift Students
                           </span>
                         ) : (
                           <button
@@ -689,9 +718,9 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
 
                       {fullDayOccupant ? (
                         renderOccupantCard(fullDayOccupant)
-                      ) : morningOccupant || eveningOccupant ? (
+                      ) : occupants.length > 0 ? (
                         <span className="text-slate-400 dark:text-neutral-500 font-normal italic text-[11px] block mt-1.5">
-                          Seat shared by Morning/Evening students
+                          Seat is currently shared by custom or shift students
                         </span>
                       ) : (
                         <span className="text-slate-400 dark:text-neutral-500 font-normal italic text-[11px] block mt-1.5">
@@ -714,7 +743,7 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                         <span className="text-[11px] font-bold text-slate-800 dark:text-neutral-200 flex items-center gap-1.5">
                           <span>🌅 Morning Shift</span>
                           <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-normal">
-                            (6 AM – 2 PM)
+                            (06:00 AM – 02:00 PM)
                           </span>
                         </span>
                         {morningOccupant ? (
@@ -747,7 +776,7 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                         </span>
                       ) : (
                         <span className="text-slate-400 dark:text-neutral-500 font-normal italic text-[11px] block mt-1.5">
-                          No morning student assigned (Free)
+                          No morning student assigned
                         </span>
                       )}
                     </div>
@@ -766,7 +795,7 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                         <span className="text-[11px] font-bold text-slate-800 dark:text-neutral-200 flex items-center gap-1.5">
                           <span>🌇 Evening Shift</span>
                           <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-normal">
-                            (2 PM – 10 PM)
+                            (02:00 PM – 10:00 PM)
                           </span>
                         </span>
                         {eveningOccupant ? (
@@ -799,10 +828,68 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                         </span>
                       ) : (
                         <span className="text-slate-400 dark:text-neutral-500 font-normal italic text-[11px] block mt-1.5">
-                          No evening student assigned (Free)
+                          No evening student assigned
                         </span>
                       )}
                     </div>
+
+                    {/* 4. Custom Slot Occupants (if any) */}
+                    {customOccupants.length > 0 && (
+                      <div className="space-y-1.5 pt-1">
+                        <span className="text-[11px] font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider block">
+                          ⏱️ Custom Slot Students ({customOccupants.length})
+                        </span>
+                        {customOccupants.map((cOcc) => (
+                          <div
+                            key={cOcc.studentId}
+                            className="p-2.5 rounded-xl border bg-purple-50/70 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800 shadow-2xs"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-purple-900 dark:text-purple-300 flex items-center gap-1">
+                                <Clock className="w-3.5 h-3.5" />
+                                <span>{cOcc.shift || 'Flexible Slot'}</span>
+                              </span>
+                              <span className="text-[10px] font-extrabold text-purple-800 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/60 px-2 py-0.5 rounded-md">
+                                Custom Slot
+                              </span>
+                            </div>
+                            {renderOccupantCard(cOcc)}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* 5. Available Open Time Windows on Seat */}
+                    {!fullDayOccupant && availableWindows.length > 0 && (
+                      <div className="p-2.5 rounded-xl border bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            Open Time Windows ({availableWindows.length})
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onAssignStudent?.(selectedSeat.id, 'CUSTOM');
+                              setSelectedSeat(null);
+                            }}
+                            className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-white dark:bg-[#1a1a1a] border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100 px-2 py-0.5 rounded-md cursor-pointer transition-colors"
+                          >
+                            + Assign Custom Slot
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {availableWindows.map((aw, idx) => (
+                            <span
+                              key={idx}
+                              className="text-[10px] font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-100/90 dark:bg-emerald-900/50 px-2 py-0.5 rounded-md border border-emerald-300/70 dark:border-emerald-700/60"
+                            >
+                              🟢 {aw.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -915,12 +1002,20 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
             {/* Dynamic Assign Student CTA */}
             {(() => {
               const occupants = selectedSeat.occupants || [];
-              const fullDay = occupants.find((o) => (o.shift || '').toUpperCase() === 'FULL_DAY') || (selectedSeat.studentName && (!selectedSeat.shift || selectedSeat.shift === 'FULL_DAY'));
-              const morning = occupants.find((o) => {
-                const s = (o.shift || '').toUpperCase();
-                return s === 'MORNING' || s === 'FOUR_HOURS' || s === 'HALF_DAY';
-              }) || (selectedSeat.studentName && (selectedSeat.shift === 'MORNING' || selectedSeat.shift === 'FOUR_HOURS' || selectedSeat.shift === 'HALF_DAY'));
-              const evening = occupants.find((o) => (o.shift || '').toUpperCase() === 'EVENING') || (selectedSeat.studentName && selectedSeat.shift === 'EVENING');
+              const fullDay =
+                occupants.find((o) => (o.rawShift || o.shift || '').toUpperCase() === 'FULL_DAY') ||
+                (selectedSeat.studentName && (!selectedSeat.shift || selectedSeat.shift === 'FULL_DAY'));
+              const morning =
+                occupants.find((o) => {
+                  const s = (o.rawShift || o.shift || '').toUpperCase();
+                  return s === 'MORNING' || s === 'HALF_DAY';
+                }) ||
+                (selectedSeat.studentName && (selectedSeat.shift === 'MORNING' || selectedSeat.shift === 'HALF_DAY'));
+              const evening =
+                occupants.find((o) => (o.rawShift || o.shift || '').toUpperCase() === 'EVENING') ||
+                (selectedSeat.studentName && selectedSeat.shift === 'EVENING');
+
+              const availableWindows = calculateAvailableSlotsOnSeat(occupants);
 
               if (fullDay) {
                 return (
@@ -936,7 +1031,8 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                   </button>
                 );
               }
-              if (morning && evening) {
+
+              if (availableWindows.length === 0 && occupants.length > 0) {
                 return (
                   <button
                     type="button"
@@ -946,49 +1042,90 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                     }}
                     className="w-full bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-semibold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors"
                   >
-                    <UserCheck className="w-4 h-4" /> Reassign / Replace Shift Occupant (2/2 Full)
+                    <UserCheck className="w-4 h-4" /> Reassign / Replace Occupant ({occupants.length} Students)
                   </button>
                 );
               }
-              if (morning) {
+
+              if (morning && !evening) {
                 return (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onAssignStudent?.(selectedSeat.id, 'EVENING');
-                      setSelectedSeat(null);
-                    }}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors"
-                  >
-                    <UserCheck className="w-4 h-4" /> + Assign Student to Open Evening Slot (2nd Student)
-                  </button>
+                  <div className="flex flex-col gap-1.5 w-full">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onAssignStudent?.(selectedSeat.id, 'EVENING');
+                        setSelectedSeat(null);
+                      }}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors"
+                    >
+                      <UserCheck className="w-4 h-4" /> + Assign Evening Shift Student
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onAssignStudent?.(selectedSeat.id, 'CUSTOM');
+                        setSelectedSeat(null);
+                      }}
+                      className="w-full bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-semibold py-2 rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors"
+                    >
+                      <Clock className="w-3.5 h-3.5" /> + Assign Custom Slot (2–3h)
+                    </button>
+                  </div>
                 );
               }
-              if (evening) {
+
+              if (evening && !morning) {
                 return (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onAssignStudent?.(selectedSeat.id, 'MORNING');
-                      setSelectedSeat(null);
-                    }}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors"
-                  >
-                    <UserCheck className="w-4 h-4" /> + Assign Student to Open Morning Slot (2nd Student)
-                  </button>
+                  <div className="flex flex-col gap-1.5 w-full">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onAssignStudent?.(selectedSeat.id, 'MORNING');
+                        setSelectedSeat(null);
+                      }}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors"
+                    >
+                      <UserCheck className="w-4 h-4" /> + Assign Morning Shift Student
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onAssignStudent?.(selectedSeat.id, 'CUSTOM');
+                        setSelectedSeat(null);
+                      }}
+                      className="w-full bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-semibold py-2 rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors"
+                    >
+                      <Clock className="w-3.5 h-3.5" /> + Assign Custom Slot (2–3h)
+                    </button>
+                  </div>
                 );
               }
+
               return (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onAssignStudent?.(selectedSeat.id);
-                    setSelectedSeat(null);
-                  }}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-colors"
-                >
-                  <UserCheck className="w-4 h-4" /> Assign Student to Seat
-                </button>
+                <div className="flex flex-col gap-1.5 w-full">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAssignStudent?.(selectedSeat.id);
+                      setSelectedSeat(null);
+                    }}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-colors"
+                  >
+                    <UserCheck className="w-4 h-4" /> Assign Student to Seat
+                  </button>
+                  {occupants.length > 0 && availableWindows.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onAssignStudent?.(selectedSeat.id, 'CUSTOM');
+                        setSelectedSeat(null);
+                      }}
+                      className="w-full bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-semibold py-2 rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors"
+                    >
+                      <Clock className="w-3.5 h-3.5" /> + Assign Custom Slot ({availableWindows.length} Free Window{availableWindows.length > 1 ? 's' : ''})
+                    </button>
+                  )}
+                </div>
               );
             })()}
 

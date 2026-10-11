@@ -17,12 +17,24 @@ import {
   Loader2,
 } from 'lucide-react';
 import { StudentItem } from './StudentList';
+import {
+  calculateAvailableSlotsOnSeat,
+  resolveEffectiveTimeSlot,
+  checkSlotsOverlap,
+  QUICK_CUSTOM_SLOT_PRESETS,
+  minutesToTimeString,
+  timeStringToMinutes,
+  TimeSlot,
+} from '@/lib/slot-utils';
+import { Time12Picker, formatTime12 } from './Time12Picker';
 
 export interface SeatOccupant {
   studentId: string;
   studentName: string;
   shift: string;
   phone?: string;
+  notes?: string;
+  timeSlot?: TimeSlot;
 }
 
 export interface SeatInfo {
@@ -30,6 +42,7 @@ export interface SeatInfo {
   seatNumber: string;
   rowName?: string;
   roomId?: string | null;
+  roomName?: string | null;
   studentName?: string | null;
   status?: string;
   hasLocker?: boolean;
@@ -43,7 +56,17 @@ interface AssignSeatModalProps {
   students: StudentItem[];
   isLoadingStudents?: boolean;
   initialShift?: string;
-  onAssign: (studentId: string, seatNumber: string, shift?: string, isReserved?: boolean, seatId?: string, roomId?: string | null, rowName?: string) => Promise<void> | void;
+  onAssign: (
+    studentId: string,
+    seatNumber: string,
+    shift?: string,
+    isReserved?: boolean,
+    seatId?: string,
+    roomId?: string | null,
+    rowName?: string,
+    customSlot?: any,
+    forceReassign?: boolean
+  ) => Promise<void> | void;
   onEnrollNewStudent: (seatNumber: string) => void;
   onEnrollAndCollectFee?: (student: StudentItem, seatNumber: string, shift: string, duration?: string) => void;
 }
@@ -55,6 +78,7 @@ const SHIFT_OPTIONS = [
   { id: 'MORNING', label: 'Morning', sub: '6 AM - 2 PM' },
   { id: 'EVENING', label: 'Evening', sub: '2 PM - 10 PM' },
   { id: 'NIGHT', label: 'Night', sub: '10 PM - 6 AM' },
+  { id: 'CUSTOM', label: 'Custom Slot', sub: '2–3h Flexible' },
 ];
 
 export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
@@ -71,6 +95,9 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
   const [search, setSearch] = useState('');
   const [selectedShift, setSelectedShift] = useState<string>('FULL_DAY');
   const [selectedDuration, setSelectedDuration] = useState<string>('HALF_DAY'); // For morning/evening: FOUR_HOURS or HALF_DAY
+  const [customStartMin, setCustomStartMin] = useState<number>(600); // 10:00 AM
+  const [customEndMin, setCustomEndMin] = useState<number>(780); // 01:00 PM
+  const [customPresetLabel, setCustomPresetLabel] = useState<string>('10:00 AM – 01:00 PM (3h)');
   const [isReserved, setIsReserved] = useState<boolean>(false);
   const [filterMode, setFilterMode] = useState<'SHIFT_ONLY' | 'ALL'>('SHIFT_ONLY');
   const [assigningId, setAssigningId] = useState<string | null>(null);
@@ -116,6 +143,10 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
         ]
       : [];
 
+  const availableSlots = useMemo(() => {
+    return calculateAvailableSlotsOnSeat(occupants as any);
+  }, [occupants]);
+
   const fullDayOccupant = occupants.find(
     (o) => (o.shift || '').toUpperCase() === 'FULL_DAY'
   );
@@ -134,14 +165,18 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
    * Determine the student's enrolled shift for the current month period.
    * Checks recent fee transactions first, then student record.
    */
-  const getStudentEnrolledShift = (student: StudentItem): 'MORNING' | 'EVENING' | 'FULL_DAY' | 'NONE' => {
+  const getStudentEnrolledShift = (student: StudentItem): 'MORNING' | 'EVENING' | 'FULL_DAY' | 'CUSTOM' | 'NONE' => {
     // Newly admitted students: no transactions AND no seat → never enrolled
     const txs = student.transactions || [];
     if (txs.length === 0 && !student.seatNumber) return 'NONE';
 
     for (const tx of txs) {
+      if (tx.notes && (tx.notes.includes('SLOT:') || tx.notes.toLowerCase().includes('custom'))) {
+        return 'CUSTOM';
+      }
       if (tx.shift) {
         const s = tx.shift.toUpperCase();
+        if (s === 'CUSTOM') return 'CUSTOM';
         if (s === 'MORNING' || s === 'FOUR_HOURS' || s === 'HALF_DAY') return 'MORNING';
         if (s === 'EVENING') return 'EVENING';
         if (s === 'FULL_DAY') return 'FULL_DAY';
@@ -153,14 +188,19 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
         if (n.includes('FULL_DAY') || n.includes('FULL DAY')) return 'FULL_DAY';
       }
     }
+    if (student.notes && (student.notes.includes('SLOT:') || student.notes.toLowerCase().includes('custom'))) {
+      return 'CUSTOM';
+    }
     if (student.seatNumber && student.shift) {
       const raw = student.shift.toUpperCase();
+      if (raw === 'CUSTOM') return 'CUSTOM';
       if (raw === 'MORNING' || raw === 'FOUR_HOURS' || raw === 'HALF_DAY') return 'MORNING';
       if (raw === 'EVENING') return 'EVENING';
       if (raw === 'FULL_DAY') return 'FULL_DAY';
     }
     if (student.shift) {
       const raw = student.shift.toUpperCase();
+      if (raw === 'CUSTOM') return 'CUSTOM';
       if (raw === 'MORNING' || raw === 'FOUR_HOURS' || raw === 'HALF_DAY') return 'MORNING';
       if (raw === 'EVENING') return 'EVENING';
       if (raw === 'FULL_DAY') return 'FULL_DAY';
@@ -169,7 +209,7 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
   };
 
   /**
-   * Live counts of enrolled students for each of the 3 shift columns
+   * Live counts of enrolled students for each of the shift columns
    */
   const morningEnrolledCount = useMemo(() => {
     return students.filter((s) => getStudentEnrolledShift(s) === 'MORNING').length;
@@ -181,6 +221,10 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
 
   const fullDayEnrolledCount = useMemo(() => {
     return students.filter((s) => getStudentEnrolledShift(s) === 'FULL_DAY').length;
+  }, [students]);
+
+  const customEnrolledCount = useMemo(() => {
+    return students.filter((s) => getStudentEnrolledShift(s) === 'CUSTOM').length;
   }, [students]);
 
   /**
@@ -277,6 +321,7 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
           if (selectedShift === 'MORNING' && studentShift !== 'MORNING') return false;
           if (selectedShift === 'EVENING' && studentShift !== 'EVENING') return false;
           if (selectedShift === 'FULL_DAY' && studentShift !== 'FULL_DAY') return false;
+          if (selectedShift === 'CUSTOM' && studentShift !== 'CUSTOM') return false;
         }
 
         // 2. Search filter (by name, phone, or current seat number)
@@ -318,14 +363,28 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
     }).length;
   }, [students, search]);
 
-  const executeAssignment = async (student: StudentItem) => {
+  const executeAssignment = async (student: StudentItem, forceReassign?: boolean) => {
     setAssigningId(student.id);
-    const shiftToPass = selectedShift; // 'MORNING' | 'EVENING' | 'FULL_DAY'
+    const shiftToPass = selectedShift; // 'MORNING' | 'EVENING' | 'FULL_DAY' | 'CUSTOM'
+    const customSlotPayload = selectedShift === 'CUSTOM'
+      ? { startMin: customStartMin, endMin: customEndMin, label: customPresetLabel }
+      : undefined;
     try {
-      await onAssign(student.id, seat.seatNumber, shiftToPass, isReserved, seat.id, seat.roomId, seat.rowName);
+      await onAssign(
+        student.id,
+        seat.seatNumber,
+        shiftToPass,
+        isReserved,
+        seat.id,
+        seat.roomId,
+        seat.rowName,
+        customSlotPayload,
+        forceReassign
+      );
       onClose();
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to assign seat:', e);
+      alert(e?.message || 'Failed to assign seat. Please try again.');
     } finally {
       setAssigningId(null);
       setPendingStudent(null);
@@ -334,10 +393,6 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
   };
 
   const handleStudentSelect = (student: StudentItem) => {
-    const targetShift = (selectedShift || 'FULL_DAY').toUpperCase();
-    const isTargetMorning = targetShift === 'MORNING' || targetShift === 'FOUR_HOURS' || targetShift === 'HALF_DAY';
-    const isTargetEvening = targetShift === 'EVENING';
-
     // Rule: Student MUST have an active enrollment for the current period.
     // NOTE: This also passes if the student's seat was unassigned but their paid
     // enrollment window (validFrom–validTo) still covers today → NO re-enrollment needed.
@@ -346,23 +401,31 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
       return;
     }
 
+    const customSlotPayload = selectedShift === 'CUSTOM'
+      ? { startMin: customStartMin, endMin: customEndMin, label: customPresetLabel, isCustom: true }
+      : undefined;
+
+    const requestedSlot = resolveEffectiveTimeSlot(
+      selectedShift,
+      customSlotPayload ? customSlotPayload.label : (student.notes || undefined),
+      selectedDuration
+    );
+
     let conflictReason = '';
     let hasConflict = false;
 
-    if (fullDayOccupant && fullDayOccupant.studentId !== student.id) {
-      hasConflict = true;
-      conflictReason = `Seat ${seat.seatNumber} is currently occupied for Full Day (24/7) by ${fullDayOccupant.studentName}. Assigning ${student.fullName} will remove ${fullDayOccupant.studentName}'s full day allocation.`;
-    } else if (targetShift === 'FULL_DAY' && occupants.length > 0 && !occupants.some(o => o.studentId === student.id)) {
-      hasConflict = true;
-      const names = occupants.map(o => o.studentName).join(', ');
-      conflictReason = `Assigning Full Day (24/7) will remove current occupant(s): ${names}.`;
-    } else if (isTargetMorning && morningOccupant && morningOccupant.studentId !== student.id) {
-      hasConflict = true;
-      conflictReason = `Morning shift is already occupied by ${morningOccupant.studentName}. Reassigning will replace them.`;
-    } else if (isTargetEvening && eveningOccupant && eveningOccupant.studentId !== student.id) {
-      hasConflict = true;
-      conflictReason = `Evening shift is already occupied by ${eveningOccupant.studentName}. Reassigning will replace them.`;
-    } else if (isSeatCurrentlyReserved && !occupants.some(o => o.studentId === student.id)) {
+    // Check time conflict with every existing occupant of the seat
+    for (const occ of occupants) {
+      if (occ.studentId === student.id) continue;
+      const occSlot = occ.timeSlot || resolveEffectiveTimeSlot(occ.shift, occ.notes);
+      if (checkSlotsOverlap(requestedSlot, occSlot)) {
+        hasConflict = true;
+        conflictReason = `Time clash on Seat ${seat.seatNumber}: ${occ.studentName} is occupying (${occSlot.label}). The requested slot (${requestedSlot.label}) overlaps with their timing.`;
+        break;
+      }
+    }
+
+    if (!hasConflict && isSeatCurrentlyReserved && !occupants.some((o) => o.studentId === student.id)) {
       hasConflict = true;
       conflictReason = `Seat ${seat.seatNumber} is currently marked as Reserved.`;
     }
@@ -373,7 +436,7 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
       return;
     }
 
-    executeAssignment(student);
+    executeAssignment(student, false);
   };
 
   return (
@@ -394,7 +457,7 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
             <div>
               <div className="flex items-center gap-1.5 flex-wrap">
                 <h3 className="font-bold text-slate-900 dark:text-white text-base">
-                  Assign Seat {seat.seatNumber}
+                  {seat.roomName ? `[${seat.roomName}] ` : ''}Assign Seat {seat.seatNumber}
                 </h3>
                 {seat.hasLocker && (
                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 flex items-center gap-1">
@@ -408,7 +471,7 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
                 )}
               </div>
               <p className="text-xs text-slate-500 dark:text-neutral-400 mt-0.5">
-                {seat.rowName ? `${seat.rowName} • ` : ''}Select shift slot to assign student
+                {seat.roomName ? `${seat.roomName} • ` : ''}{seat.rowName ? `${seat.rowName} • ` : ''}Select shift slot to assign student
               </p>
             </div>
           </div>
@@ -423,48 +486,84 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
 
         {/* Scrollable Modal Body */}
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-3.5 min-h-0">
-          {/* Compact Occupancy Summary Bar */}
-          <div className="p-2.5 bg-slate-50 dark:bg-[#18181b] rounded-xl border border-slate-200 dark:border-[#27272a] flex items-center justify-between text-xs gap-2 shrink-0">
-            <span className="text-[11px] font-bold text-slate-600 dark:text-neutral-400 uppercase tracking-wider flex items-center gap-1 shrink-0">
-              <Armchair className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span>Seat {seat.seatNumber} Status:</span>
-            </span>
-            <div className="flex items-center gap-2 font-semibold text-xs truncate">
-              {fullDayOccupant ? (
-                <span className="text-purple-700 dark:text-purple-300 font-bold truncate">
-                  ☀️ Full Day: {fullDayOccupant.studentName}
+          {/* Seat Time Slot Availability Tracker */}
+          <div className="p-3 bg-slate-50 dark:bg-[#18181b] rounded-xl border border-slate-200 dark:border-[#27272a] space-y-2 shrink-0">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-slate-700 dark:text-neutral-300 flex items-center gap-1.5 uppercase tracking-wider">
+                <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>{seat.roomName ? `[${seat.roomName}] ` : ''}Seat {seat.seatNumber} Slot Availability</span>
+              </span>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                fullDayOccupant
+                  ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                  : occupants.length >= 2
+                  ? 'bg-purple-100 dark:bg-purple-950/70 text-purple-800 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                  : occupants.length === 1
+                  ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                  : 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+              }`}>
+                {fullDayOccupant
+                  ? '☀️ Full Day Locked'
+                  : occupants.length > 0
+                  ? `👥 ${occupants.length} Occupant${occupants.length > 1 ? 's' : ''}`
+                  : '🟢 Completely Free'}
+              </span>
+            </div>
+
+            {/* Occupied Slots List */}
+            {occupants.length > 0 && (
+              <div className="space-y-1">
+                <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                  <span>🔴 Occupied Hours:</span>
                 </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {occupants.map((occ, idx) => {
+                    const slot = occ.timeSlot || resolveEffectiveTimeSlot(occ.shift, occ.notes);
+                    return (
+                      <span
+                        key={idx}
+                        className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 flex items-center gap-1"
+                      >
+                        <span>👤 {occ.studentName}:</span>
+                        <span>{slot.label}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Available Free Windows */}
+            <div className="space-y-1">
+              <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                <span>🟢 Available Free Slots:</span>
+              </span>
+              {availableSlots.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {availableSlots.map((slot, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setSelectedShift('CUSTOM');
+                        setCustomStartMin(slot.startMin);
+                        setCustomEndMin(slot.endMin);
+                        setCustomPresetLabel(`${minutesToTimeString(slot.startMin)} – ${minutesToTimeString(slot.endMin)}`);
+                      }}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-all cursor-pointer flex items-center gap-1"
+                      title="Click to select this free slot window for custom assignment"
+                    >
+                      <span>⏱️ {slot.label}</span>
+                      <span className="text-[9px] text-emerald-600 dark:text-emerald-400 underline font-extrabold">Select</span>
+                    </button>
+                  ))}
+                </div>
               ) : (
-                <>
-                  <span className={morningOccupant ? 'text-amber-700 dark:text-amber-400 font-bold truncate' : 'text-slate-500 dark:text-neutral-400'}>
-                    🌅 Morning: {morningOccupant ? morningOccupant.studentName : 'Free'}
-                  </span>
-                  <span className="text-slate-300 dark:text-neutral-600">•</span>
-                  <span className={eveningOccupant ? 'text-indigo-700 dark:text-indigo-400 font-bold truncate' : 'text-slate-500 dark:text-neutral-400'}>
-                    🌇 Evening: {eveningOccupant ? eveningOccupant.studentName : 'Free'}
-                  </span>
-                </>
+                <span className="text-[10px] text-slate-400 dark:text-neutral-500 italic block">
+                  No free time windows available on this seat.
+                </span>
               )}
             </div>
-            <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border shrink-0 ${
-              fullDayOccupant
-                ? 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
-                : morningOccupant && eveningOccupant
-                ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                : morningOccupant || eveningOccupant
-                ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
-            }`}>
-              {fullDayOccupant
-                ? '☀️ Full Day'
-                : morningOccupant && eveningOccupant
-                ? '👥 2/2 Full'
-                : morningOccupant
-                ? '🌅 1/2 Morning'
-                : eveningOccupant
-                ? '🌇 1/2 Evening'
-                : '🟢 0/2 Available'}
-            </span>
           </div>
 
         {/* ENROLLMENT & FEE COLLECTION REQUIRED SCREEN */}
@@ -603,7 +702,7 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
               <button
                 type="button"
                 disabled={assigningId === pendingStudent.id}
-                onClick={() => executeAssignment(pendingStudent)}
+                onClick={() => executeAssignment(pendingStudent, true)}
                 className={`flex-1 py-2.5 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                   fullDayOccupant
                     ? 'bg-rose-600 hover:bg-rose-700 active:bg-rose-800'
@@ -635,7 +734,7 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
                 </span>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {/* Column 1: Morning */}
                 <button
                   type="button"
@@ -734,7 +833,105 @@ export const AssignSeatModal: React.FC<AssignSeatModalProps> = ({
                     )}
                   </div>
                 </button>
+
+                {/* Column 4: Custom Slot */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedShift('CUSTOM')}
+                  className={`p-2.5 sm:p-3 rounded-2xl border text-left flex flex-col justify-between transition-all cursor-pointer relative ${
+                    selectedShift === 'CUSTOM'
+                      ? 'border-blue-500 dark:border-blue-400 bg-blue-50/80 dark:bg-blue-950/40 shadow-xs ring-2 ring-blue-500/20'
+                      : 'border-slate-200 dark:border-[#262626] bg-white dark:bg-[#18181b] hover:border-slate-300 dark:hover:border-[#333]'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1">
+                        <span>⏱️</span>
+                        <span>Custom</span>
+                      </span>
+                      <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-md bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60">
+                        {customEnrolledCount}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-500 dark:text-neutral-400 mt-0.5">2–3h Flexible</div>
+                  </div>
+                  <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-[#262626] text-[10px] font-semibold">
+                    {fullDayOccupant ? (
+                      <span className="text-slate-400 dark:text-neutral-500 italic">🔒 Blocked</span>
+                    ) : availableSlots.length > 0 ? (
+                      <span className="text-emerald-600 dark:text-emerald-400 font-bold truncate block">🟢 {availableSlots.length} Free Window(s)</span>
+                    ) : (
+                      <span className="text-rose-600 dark:text-rose-400 font-bold">Full</span>
+                    )}
+                  </div>
+                </button>
               </div>
+
+              {/* Custom Slot Sub-selector */}
+              {selectedShift === 'CUSTOM' && (
+                <div className="p-3 bg-blue-50/60 dark:bg-[#16161a] rounded-xl border border-blue-200 dark:border-blue-900/50 space-y-2.5 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] font-bold text-blue-950 dark:text-blue-200 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      <span>Select Custom Time Slot for Seat {seat.seatNumber}:</span>
+                    </p>
+                    <span className="text-[10px] font-black text-blue-800 dark:text-blue-300 bg-blue-100 dark:bg-blue-950 px-2 py-0.5 rounded-md border border-blue-200 dark:border-blue-800">
+                      {customPresetLabel || `${minutesToTimeString(customStartMin)} – ${minutesToTimeString(customEndMin)}`}
+                    </span>
+                  </div>
+
+                  {/* Preset Buttons */}
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-semibold text-slate-500 dark:text-neutral-400">Quick Presets:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {QUICK_CUSTOM_SLOT_PRESETS.map((preset) => {
+                        const isSelected = customStartMin === preset.startMin && customEndMin === preset.endMin;
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => {
+                              setCustomStartMin(preset.startMin);
+                              setCustomEndMin(preset.endMin);
+                              setCustomPresetLabel(preset.label);
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all border cursor-pointer ${
+                              isSelected
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                : 'bg-white dark:bg-[#1f1f1f] border-slate-200 dark:border-[#2d2d2d] text-slate-700 dark:text-neutral-300 hover:bg-blue-50 dark:hover:bg-blue-950/40'
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Custom Start & End Time Input (12-Hour AM/PM) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 border-t border-slate-200/80 dark:border-[#262626]">
+                    <Time12Picker
+                      label="Start Time"
+                      totalMinutes={customStartMin}
+                      onChange={(newStart) => {
+                        setCustomStartMin(newStart);
+                        const safeEnd = customEndMin <= newStart ? Math.min(newStart + 180, 1440) : customEndMin;
+                        if (customEndMin <= newStart) setCustomEndMin(safeEnd);
+                        setCustomPresetLabel(`${formatTime12(newStart)} – ${formatTime12(safeEnd)}`);
+                      }}
+                    />
+                    <Time12Picker
+                      label="End Time"
+                      totalMinutes={customEndMin}
+                      onChange={(newEnd) => {
+                        setCustomEndMin(newEnd);
+                        setCustomPresetLabel(`${formatTime12(customStartMin)} – ${formatTime12(newEnd)}`);
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Stay Duration Sub-selector for Morning / Evening */}
               {(selectedShift === 'MORNING' || selectedShift === 'EVENING') && (

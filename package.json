@@ -5,11 +5,12 @@
   "packageManager": "pnpm@11.10.0",
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "pnpm --filter @library/database exec prisma migrate deploy && turbo run dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "postinstall": "pnpm --filter @library/database generate",
+    "db:migrate": "pnpm --filter @library/database exec prisma migrate deploy",
     "db:generate": "pnpm --filter @library/database generate",
     "build:api": "pnpm --filter @library/types build && pnpm --filter @library/validation build && pnpm --filter @library/database generate && pnpm --filter @library/api build",
     "clean": "turbo run clean && rm -rf node_modules"
