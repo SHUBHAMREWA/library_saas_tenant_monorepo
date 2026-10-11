@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "pnpm --filter @library/database exec prisma migrate deploy && next dev",
     "postinstall": "prisma generate --schema=../../packages/database/prisma/schema.prisma || true",
-    "build": "pnpm --filter @library/database exec prisma migrate deploy && prisma generate --schema=../../packages/database/prisma/schema.prisma && next build",
-    "start": "pnpm --filter @library/database exec prisma migrate deploy && next start",
+    "build": "prisma generate --schema=../../packages/database/prisma/schema.prisma && next build",
+    "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "next lint"
   },
