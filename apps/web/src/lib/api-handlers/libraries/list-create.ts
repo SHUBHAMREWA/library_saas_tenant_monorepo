@@ -53,185 +53,8 @@ export async function handleGetLibraries(req: NextRequest) {
       'Expires': '0',
     };
 
-    // 2. Cloud Synchronization: Sync libraries and room state from Render backend
-    try {
-      const rawBackend =
-        (process.env.API_URL && process.env.API_URL.startsWith('http') ? process.env.API_URL : null) ||
-        (process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.startsWith('http') ? process.env.NEXT_PUBLIC_API_URL : null) ||
-        'https://seelibrarybackend.onrender.com';
-      const renderOrigin = rawBackend.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
-
-      const renderRes = await fetch(`${renderOrigin}/api/v1/admin/libraries`, {
-        headers: { 'x-admin-email': 'shubhamrewamp17@gmail.com' },
-        signal: AbortSignal.timeout(3500),
-      });
-
-      if (renderRes.ok) {
-        const renderData = await renderRes.json();
-        const candidateLibs = (renderData.libraries || []).filter(
-          (l: any) =>
-            l.owner?.email?.toLowerCase().trim() === cleanEmail ||
-            l.contactEmail?.toLowerCase().trim() === cleanEmail
-        );
-
-        if (candidateLibs.length > 0) {
-          for (const rLib of candidateLibs) {
-            try {
-              // Upsert library from Render cloud
-              await prisma.library.upsert({
-                where: { id: rLib.id },
-                update: {
-                  name: rLib.name,
-                  contactPhone: rLib.contactPhone || '7898522932',
-                  address: rLib.address || null,
-                  isActive: true,
-                },
-                create: {
-                  id: rLib.id,
-                  ownerId: user.id,
-                  name: rLib.name,
-                  slug: rLib.slug || `${rLib.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36)}`,
-                  contactPhone: rLib.contactPhone || '7898522932',
-                  address: rLib.address || null,
-                  isActive: true,
-                },
-              });
-
-              // Mirror active subscription if present on cloud
-              if (rLib.activeSubscription) {
-                try {
-                  const planCode = rLib.activeSubscription.plan?.code || 'BASIC';
-                  const plan = await prisma.subscriptionPlan.findFirst({
-                    where: { code: planCode },
-                  });
-                  if (plan) {
-                    await prisma.subscription.upsert({
-                      where: { id: rLib.activeSubscription.id },
-                      update: {
-                        status: rLib.activeSubscription.status || 'ACTIVE',
-                        endDate: new Date(rLib.activeSubscription.endDate),
-                      },
-                      create: {
-                        id: rLib.activeSubscription.id,
-                        userId: user.id,
-                        libraryId: rLib.id,
-                        planId: plan.id,
-                        status: rLib.activeSubscription.status || 'ACTIVE',
-                        startDate: new Date(rLib.createdAt || Date.now()),
-                        endDate: new Date(rLib.activeSubscription.endDate),
-                      },
-                    });
-                  }
-                } catch (subErr) {
-                  console.warn('[handleGetLibraries] Subscription mirror warning:', subErr);
-                }
-              }
-
-              // Mirror real rooms from Render (pure additive upsert, never delete local rooms)
-              try {
-                const roomsRes = await fetch(`${renderOrigin}/api/v1/libraries/${rLib.id}/spaces/rooms`, {
-                  headers: { 'x-admin-email': 'shubhamrewamp17@gmail.com' },
-                  signal: AbortSignal.timeout(2500),
-                });
-
-                if (roomsRes.ok) {
-                  const roomsData = await roomsRes.json();
-                  const cloudRooms = roomsData.data || roomsData.rooms || [];
-
-                  // Upsert real rooms and rows from Render cloud without deleting local rooms
-                  for (const cr of cloudRooms) {
-                    const roomObj = await prisma.room.upsert({
-                      where: { id: cr.id },
-                      update: { name: cr.name, isActive: true },
-                      create: { id: cr.id, libraryId: rLib.id, name: cr.name, isActive: true },
-                    });
-                    if (Array.isArray(cr.rows)) {
-                      for (const rw of cr.rows) {
-                        await prisma.row.upsert({
-                          where: { id: rw.id },
-                          update: { name: rw.name, hasLocker: Boolean(rw.hasLocker), isActive: true },
-                          create: {
-                            id: rw.id,
-                            libraryId: rLib.id,
-                            roomId: roomObj.id,
-                            name: rw.name,
-                            hasLocker: Boolean(rw.hasLocker),
-                            isActive: true,
-                          },
-                        });
-                      }
-                    }
-                  }
-                }
-              } catch (roomSyncErr) {
-                console.warn(`[handleGetLibraries] Room sync error for ${rLib.id}:`, roomSyncErr);
-              }
-            } catch (mirrorErr) {
-              console.warn('[handleGetLibraries] Mirror error:', mirrorErr);
-            }
-          }
-        }
-      }
-    } catch (renderSyncErr) {
-      console.warn('[handleGetLibraries] Render sync warning:', renderSyncErr);
-    }
-
-    // Reactivate any user libraries, rooms, rows, seats that were accidentally marked inactive
-    await prisma.library.updateMany({
-      where: {
-        OR: [
-          { ownerId: user.id },
-          { owner: { email: { equals: cleanEmail, mode: 'insensitive' } } },
-          { contactEmail: { equals: cleanEmail, mode: 'insensitive' } },
-        ],
-        isActive: false,
-      },
-      data: { isActive: true },
-    }).catch(() => {});
-
-    await prisma.room.updateMany({
-      where: {
-        library: {
-          OR: [
-            { ownerId: user.id },
-            { owner: { email: { equals: cleanEmail, mode: 'insensitive' } } },
-            { contactEmail: { equals: cleanEmail, mode: 'insensitive' } },
-          ],
-        },
-        isActive: false,
-      },
-      data: { isActive: true },
-    }).catch(() => {});
-
-    await prisma.row.updateMany({
-      where: {
-        library: {
-          OR: [
-            { ownerId: user.id },
-            { owner: { email: { equals: cleanEmail, mode: 'insensitive' } } },
-            { contactEmail: { equals: cleanEmail, mode: 'insensitive' } },
-          ],
-        },
-        isActive: false,
-      },
-      data: { isActive: true },
-    }).catch(() => {});
-
-    await prisma.seat.updateMany({
-      where: {
-        library: {
-          OR: [
-            { ownerId: user.id },
-            { owner: { email: { equals: cleanEmail, mode: 'insensitive' } } },
-            { contactEmail: { equals: cleanEmail, mode: 'insensitive' } },
-          ],
-        },
-        isActive: false,
-      },
-      data: { isActive: true },
-    }).catch(() => {});
-
-    const libraries = await prisma.library.findMany({
+    // 2. Fetch local libraries directly from Neon DB (fast indexed lookup)
+    let libraries = await prisma.library.findMany({
       where: {
         OR: [
           { ownerId: user.id },
@@ -243,6 +66,103 @@ export async function handleGetLibraries(req: NextRequest) {
       include: libraryIncludeOptions,
       orderBy: { createdAt: 'desc' },
     });
+
+    // 3. Fallback: only if user has 0 libraries, sync from Render cloud backend (first login / migration)
+    if (libraries.length === 0) {
+      try {
+        const rawBackend =
+          (process.env.API_URL && process.env.API_URL.startsWith('http') ? process.env.API_URL : null) ||
+          (process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.startsWith('http') ? process.env.NEXT_PUBLIC_API_URL : null) ||
+          'https://seelibrarybackend.onrender.com';
+        const renderOrigin = rawBackend.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
+
+        const renderRes = await fetch(`${renderOrigin}/api/v1/admin/libraries`, {
+          headers: { 'x-admin-email': 'shubhamrewamp17@gmail.com' },
+          signal: AbortSignal.timeout(3000),
+        });
+
+        if (renderRes.ok) {
+          const renderData = await renderRes.json();
+          const candidateLibs = (renderData.libraries || []).filter(
+            (l: any) =>
+              l.owner?.email?.toLowerCase().trim() === cleanEmail ||
+              l.contactEmail?.toLowerCase().trim() === cleanEmail
+          );
+
+          if (candidateLibs.length > 0) {
+            for (const rLib of candidateLibs) {
+              try {
+                await prisma.library.upsert({
+                  where: { id: rLib.id },
+                  update: {
+                    name: rLib.name,
+                    contactPhone: rLib.contactPhone || '7898522932',
+                    address: rLib.address || null,
+                    isActive: true,
+                  },
+                  create: {
+                    id: rLib.id,
+                    ownerId: user.id,
+                    name: rLib.name,
+                    slug: rLib.slug || `${rLib.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36)}`,
+                    contactPhone: rLib.contactPhone || '7898522932',
+                    address: rLib.address || null,
+                    isActive: true,
+                  },
+                });
+
+                if (rLib.activeSubscription) {
+                  try {
+                    const planCode = rLib.activeSubscription.plan?.code || 'BASIC';
+                    const plan = await prisma.subscriptionPlan.findFirst({
+                      where: { code: planCode },
+                    });
+                    if (plan) {
+                      await prisma.subscription.upsert({
+                        where: { id: rLib.activeSubscription.id },
+                        update: {
+                          status: rLib.activeSubscription.status || 'ACTIVE',
+                          endDate: new Date(rLib.activeSubscription.endDate),
+                        },
+                        create: {
+                          id: rLib.activeSubscription.id,
+                          userId: user.id,
+                          libraryId: rLib.id,
+                          planId: plan.id,
+                          status: rLib.activeSubscription.status || 'ACTIVE',
+                          startDate: new Date(rLib.createdAt || Date.now()),
+                          endDate: new Date(rLib.activeSubscription.endDate),
+                        },
+                      });
+                    }
+                  } catch (subErr) {
+                    console.warn('[handleGetLibraries] Subscription mirror warning:', subErr);
+                  }
+                }
+              } catch (mirrorErr) {
+                console.warn('[handleGetLibraries] Mirror error:', mirrorErr);
+              }
+            }
+
+            // Refetch after mirror
+            libraries = await prisma.library.findMany({
+              where: {
+                OR: [
+                  { ownerId: user.id },
+                  { owner: { email: { equals: cleanEmail, mode: 'insensitive' } } },
+                  { contactEmail: { equals: cleanEmail, mode: 'insensitive' } },
+                ],
+                isActive: true,
+              },
+              include: libraryIncludeOptions,
+              orderBy: { createdAt: 'desc' },
+            });
+          }
+        }
+      } catch (renderSyncErr) {
+        console.warn('[handleGetLibraries] Render sync warning:', renderSyncErr);
+      }
+    }
 
     const userSubscriptions = await prisma.subscription.findMany({
       where: {
@@ -259,64 +179,126 @@ export async function handleGetLibraries(req: NextRequest) {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const fiveDaysAhead = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
 
-    const formattedLibraries = await Promise.all(
-      libraries.map(async (lib) => {
-        const [
-          totalSeats,
-          occupiedSeats,
-          activeStudents,
-          unassignedStudents,
-          expiringSoonCount,
-          monthlyTxAgg,
-          pendingDuesAgg,
-          studentsWithDuesCount,
-        ] = await Promise.all([
-          prisma.seat.count({ where: { libraryId: lib.id, isActive: true } }),
-          prisma.seat.count({ where: { libraryId: lib.id, isActive: true, status: 'OCCUPIED' } }),
-          prisma.student.count({ where: { libraryId: lib.id, isActive: true } }),
-          prisma.student.count({
+    const libraryIds = libraries.map((l) => l.id);
+
+    // 4. Batched Database Aggregations (Single round-trip instead of N * 8 linear queries)
+    const [
+      seatCounts,
+      studentCounts,
+      unassignedCounts,
+      expiringCounts,
+      monthlyRevenues,
+      pendingDuesAggs,
+    ] = libraryIds.length > 0
+      ? await Promise.all([
+          // Total and occupied seats
+          prisma.seat.groupBy({
+            by: ['libraryId', 'status'],
+            where: { libraryId: { in: libraryIds }, isActive: true },
+            _count: { id: true },
+          }),
+          // Active students
+          prisma.student.groupBy({
+            by: ['libraryId'],
+            where: { libraryId: { in: libraryIds }, isActive: true },
+            _count: { id: true },
+          }),
+          // Unassigned active students
+          prisma.student.groupBy({
+            by: ['libraryId'],
             where: {
-              libraryId: lib.id,
+              libraryId: { in: libraryIds },
               isActive: true,
               seatAssignments: { none: { status: 'ACTIVE' } },
             },
+            _count: { id: true },
           }),
-          prisma.membership.count({
+          // Memberships expiring in 5 days
+          prisma.membership.groupBy({
+            by: ['libraryId'],
             where: {
-              libraryId: lib.id,
+              libraryId: { in: libraryIds },
               status: 'ACTIVE',
               expectedEndDate: { lte: fiveDaysAhead, gte: now },
             },
+            _count: { id: true },
           }),
-          prisma.studentFeeTransaction.aggregate({
+          // Monthly fee revenue
+          prisma.studentFeeTransaction.groupBy({
+            by: ['libraryId'],
             where: {
-              libraryId: lib.id,
+              libraryId: { in: libraryIds },
               status: 'SUCCESS',
               paymentDate: { gte: startOfMonth },
             },
             _sum: { amount: true },
           }),
-          prisma.studentFeeTransaction.aggregate({
+          // Pending dues amount and student count
+          prisma.studentFeeTransaction.groupBy({
+            by: ['libraryId'],
             where: {
-              libraryId: lib.id,
+              libraryId: { in: libraryIds },
               remainingFee: { gt: 0 },
             },
             _sum: { remainingFee: true },
+            _count: { id: true },
           }),
-          prisma.studentFeeTransaction.count({
-            where: {
-              libraryId: lib.id,
-              remainingFee: { gt: 0 },
-            },
-          }),
-        ]);
+        ])
+      : [[], [], [], [], [], []];
 
-        const availableSeats = Math.max(0, totalSeats - occupiedSeats);
-        const occupancyPercentage = totalSeats > 0 ? Math.round((occupiedSeats / totalSeats) * 100) : 0;
-        const thisMonthFeeCollected = Number(monthlyTxAgg._sum?.amount || 0);
-        const totalPendingDuesAmount = Number(pendingDuesAgg._sum?.remainingFee || 0);
+    // Build O(1) in-memory lookup maps
+    const totalSeatsMap = new Map<string, number>();
+    const occupiedSeatsMap = new Map<string, number>();
+    for (const sc of seatCounts) {
+      totalSeatsMap.set(sc.libraryId, (totalSeatsMap.get(sc.libraryId) || 0) + sc._count.id);
+      if (sc.status === 'OCCUPIED' || sc.status === 'RESERVED') {
+        occupiedSeatsMap.set(sc.libraryId, (occupiedSeatsMap.get(sc.libraryId) || 0) + sc._count.id);
+      }
+    }
 
-        const formattedRooms = (lib.rooms || []).map((rm) => ({
+    const activeStudentsMap = new Map<string, number>();
+    for (const sc of studentCounts) {
+      activeStudentsMap.set(sc.libraryId, sc._count.id);
+    }
+
+    const unassignedStudentsMap = new Map<string, number>();
+    for (const uc of unassignedCounts) {
+      unassignedStudentsMap.set(uc.libraryId, uc._count.id);
+    }
+
+    const expiringSoonMap = new Map<string, number>();
+    for (const ec of expiringCounts) {
+      expiringSoonMap.set(ec.libraryId, ec._count.id);
+    }
+
+    const monthlyRevenueMap = new Map<string, number>();
+    for (const mr of monthlyRevenues) {
+      monthlyRevenueMap.set(mr.libraryId, Number(mr._sum.amount || 0));
+    }
+
+    const pendingDuesMap = new Map<string, { sum: number; count: number }>();
+    for (const pd of pendingDuesAggs) {
+      pendingDuesMap.set(pd.libraryId, {
+        sum: Number(pd._sum.remainingFee || 0),
+        count: pd._count.id,
+      });
+    }
+
+    const formattedLibraries = libraries.map((lib) => {
+      const totalSeats = totalSeatsMap.get(lib.id) || 0;
+      const occupiedSeats = occupiedSeatsMap.get(lib.id) || 0;
+      const activeStudents = activeStudentsMap.get(lib.id) || 0;
+      const unassignedStudents = unassignedStudentsMap.get(lib.id) || 0;
+      const expiringSoonCount = expiringSoonMap.get(lib.id) || 0;
+      const thisMonthFeeCollected = monthlyRevenueMap.get(lib.id) || 0;
+      const duesInfo = pendingDuesMap.get(lib.id) || { sum: 0, count: 0 };
+      const totalPendingDuesAmount = duesInfo.sum;
+      const studentsWithDuesCount = duesInfo.count;
+
+      const availableSeats = Math.max(0, totalSeats - occupiedSeats);
+      const occupancyPercentage = totalSeats > 0 ? Math.round((occupiedSeats / totalSeats) * 100) : 0;
+
+      const formattedRooms = (lib.rooms || []).map((rm) => ({
           id: rm.id,
           name: rm.name,
           rows: Array.from(new Set((rm.rows || []).map((rw) => rw.name.trim()))),
@@ -374,8 +356,7 @@ export async function handleGetLibraries(req: NextRequest) {
           hasActiveSubscription: hasActiveSub,
           subscription: formattedSubscription,
         };
-      })
-    );
+      });
 
     return NextResponse.json(
       { libraries: formattedLibraries },

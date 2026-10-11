@@ -61,6 +61,8 @@ export async function handleGetStudents(req: NextRequest, libraryId: string) {
     });
 
     const now = new Date();
+    const assignmentsToRelease: string[] = [];
+    const seatsToCheck: string[] = [];
     const formattedStudents = students.map((std) => {
       const activeMembership = std.memberships.find((m) => m.status === 'ACTIVE') || std.memberships[0];
       const activeSeat = std.seatAssignments[0];
@@ -121,23 +123,10 @@ export async function handleGetStudents(req: NextRequest, libraryId: string) {
         returnSeatNumber = activeSeat.seat?.seatNumber || null;
       } else if (isExpired && activeSeat) {
         returnPreviousSeatNumber = activeSeat.seat?.seatNumber || null;
-        // Asynchronously release expired seat assignment in database & free up seat
-        prisma.seatAssignment.update({
-          where: { id: activeSeat.id },
-          data: { status: 'RELEASED', endDate: now },
-        }).then(async () => {
-          if (activeSeat.seatId) {
-            const rem = await prisma.seatAssignment.count({
-              where: { seatId: activeSeat.seatId, status: 'ACTIVE' },
-            });
-            if (rem === 0) {
-              await prisma.seat.update({
-                where: { id: activeSeat.seatId },
-                data: { status: 'AVAILABLE' },
-              });
-            }
-          }
-        }).catch((e) => console.warn('Could not auto-release expired seat assignment:', e));
+        assignmentsToRelease.push(activeSeat.id);
+        if (activeSeat.seatId) {
+          seatsToCheck.push(activeSeat.seatId);
+        }
       }
 
       // Expired students MUST be INACTIVE
@@ -154,6 +143,22 @@ export async function handleGetStudents(req: NextRequest, libraryId: string) {
         || (!isExpired && activeMembership?.status === 'ACTIVE' ? activeMembership?.shift : undefined)
         || undefined;
 
+      // Accurately compute total remaining dues across unpaid months
+      const monthLatestTxMap = new Map<string, (typeof studentTxList)[0]>();
+      studentTxList.forEach((tx) => {
+        const key = tx.paidForMonth.trim().toLowerCase();
+        if (!monthLatestTxMap.has(key)) {
+          monthLatestTxMap.set(key, tx);
+        }
+      });
+
+      let totalRemainingDue = 0;
+      monthLatestTxMap.forEach((tx) => {
+        if (tx.remainingFee && tx.remainingFee > 0) {
+          totalRemainingDue += Number(tx.remainingFee);
+        }
+      });
+
       return {
         id: std.id,
         fullName: std.fullName,
@@ -167,18 +172,40 @@ export async function handleGetStudents(req: NextRequest, libraryId: string) {
         seatId: returnSeatId,
         seatNumber: returnSeatNumber,
         previousSeatNumber: returnPreviousSeatNumber || undefined,
-        roomId: returnSeatId ? (activeSeat?.seat?.row?.roomId || null) : null,
-        roomName: returnSeatId ? (activeSeat?.seat?.row?.room?.name || null) : null,
-        rowName: returnSeatId ? (activeSeat?.seat?.row?.name || null) : null,
+        roomId: activeSeat?.seat?.row?.roomId || null,
+        roomName: activeSeat?.seat?.row?.room?.name || null,
+        rowName: activeSeat?.seat?.row?.name || null,
         status: studentStatus,
         membershipEndsInDays: daysRemaining,
         monthlyFee: activeMembership?.feeAmount ? Number(activeMembership.feeAmount) : 0,
         totalFee: studentTxList[0]?.totalFee,
-        remainingFee: hasPaidTx ? (studentTxList[0]?.remainingFee ?? 0) : 0,
+        remainingFee: hasPaidTx ? totalRemainingDue : 0,
         transactions: studentTxList,
         hasLocker: Boolean(returnSeatId && activeSeat?.seat?.hasLocker),
       };
     });
+
+    if (assignmentsToRelease.length > 0) {
+      prisma.seatAssignment.updateMany({
+        where: { id: { in: assignmentsToRelease } },
+        data: { status: 'RELEASED', endDate: now },
+      }).catch((e) => console.warn('Could not auto-release expired assignments:', e));
+    }
+    if (seatsToCheck.length > 0) {
+      prisma.seatAssignment.findMany({
+        where: { seatId: { in: seatsToCheck }, status: 'ACTIVE' },
+        select: { seatId: true },
+      }).then((activeList) => {
+        const stillActiveSeatIds = new Set(activeList.map((a) => a.seatId));
+        const freeSeatIds = Array.from(new Set(seatsToCheck.filter((id) => !stillActiveSeatIds.has(id))));
+        if (freeSeatIds.length > 0) {
+          prisma.seat.updateMany({
+            where: { id: { in: freeSeatIds } },
+            data: { status: 'AVAILABLE' },
+          }).catch((e) => console.warn('Could not free seats:', e));
+        }
+      }).catch((e) => console.warn('Could not check seat assignments:', e));
+    }
 
     return NextResponse.json(
       {
@@ -220,7 +247,9 @@ export async function handleCreateStudent(req: NextRequest, libraryId: string) {
 
     let isSuperAdmin = Boolean(callerEmail && adminEmails.includes(callerEmail)) || isTestAccount;
     if (!isSuperAdmin && callerEmail) {
-      const dbUser = await prisma.user.findUnique({ where: { email: callerEmail } });
+      const dbUser = await prisma.user.findFirst({
+        where: { email: { equals: callerEmail, mode: 'insensitive' } },
+      });
       isSuperAdmin = dbUser?.role === 'SUPER_ADMIN';
     }
 
@@ -231,7 +260,9 @@ export async function handleCreateStudent(req: NextRequest, libraryId: string) {
       });
 
       const callerUser = callerEmail
-        ? await prisma.user.findUnique({ where: { email: callerEmail } })
+        ? await prisma.user.findFirst({
+            where: { email: { equals: callerEmail, mode: 'insensitive' } },
+          })
         : null;
 
       const activeSub = await prisma.subscription.findFirst({
@@ -241,7 +272,7 @@ export async function handleCreateStudent(req: NextRequest, libraryId: string) {
             ...(library?.ownerId ? [{ userId: library.ownerId }] : []),
             ...(callerUser?.id ? [{ userId: callerUser.id }] : []),
           ],
-          status: { in: ['ACTIVE', 'MANUAL'] },
+          status: { in: ['ACTIVE', 'MANUAL', 'TRIAL'] },
         },
         orderBy: { endDate: 'desc' },
       });
@@ -370,20 +401,25 @@ export async function handleUpdateStudent(req: NextRequest, libraryId: string, s
     });
 
     if (shift || monthlyFee !== undefined) {
+      const VALID_SHIFTS = ['MORNING', 'EVENING', 'NIGHT', 'FULL_DAY', 'FOUR_HOURS', 'HALF_DAY'];
+      const dbSafeShift = shift
+        ? (VALID_SHIFTS.includes(shift.toUpperCase()) ? (shift.toUpperCase() as any) : 'FOUR_HOURS')
+        : undefined;
+
       await prisma.membership.updateMany({
         where: { studentId, libraryId, status: { in: ['ACTIVE', 'PAUSED'] } },
         data: {
-          ...(shift ? { shift: shift as any } : {}),
+          ...(dbSafeShift ? { shift: dbSafeShift } : {}),
           ...(monthlyFee !== undefined ? { feeAmount: Number(monthlyFee) } : {}),
         },
       });
-    }
 
-    if (shift) {
-      await prisma.seatAssignment.updateMany({
-        where: { studentId, libraryId, status: 'ACTIVE' },
-        data: { shift: shift as any },
-      });
+      if (dbSafeShift) {
+        await prisma.seatAssignment.updateMany({
+          where: { studentId, libraryId, status: 'ACTIVE' },
+          data: { shift: dbSafeShift },
+        });
+      }
     }
 
     return NextResponse.json({
@@ -482,7 +518,9 @@ export async function handleBulkCreateStudents(req: NextRequest, libraryId: stri
 
     let isSuperAdmin = Boolean(callerEmail && adminEmails.includes(callerEmail)) || isTestAccount;
     if (!isSuperAdmin && callerEmail) {
-      const dbUser = await prisma.user.findUnique({ where: { email: callerEmail } });
+      const dbUser = await prisma.user.findFirst({
+        where: { email: { equals: callerEmail, mode: 'insensitive' } },
+      });
       isSuperAdmin = dbUser?.role === 'SUPER_ADMIN';
     }
 
@@ -493,7 +531,9 @@ export async function handleBulkCreateStudents(req: NextRequest, libraryId: stri
       });
 
       const callerUser = callerEmail
-        ? await prisma.user.findUnique({ where: { email: callerEmail } })
+        ? await prisma.user.findFirst({
+            where: { email: { equals: callerEmail, mode: 'insensitive' } },
+          })
         : null;
 
       const activeSub = await prisma.subscription.findFirst({
@@ -503,7 +543,7 @@ export async function handleBulkCreateStudents(req: NextRequest, libraryId: stri
             ...(library?.ownerId ? [{ userId: library.ownerId }] : []),
             ...(callerUser?.id ? [{ userId: callerUser.id }] : []),
           ],
-          status: { in: ['ACTIVE', 'MANUAL'] },
+          status: { in: ['ACTIVE', 'MANUAL', 'TRIAL'] },
         },
         orderBy: { endDate: 'desc' },
       });
@@ -635,60 +675,58 @@ export async function handleBulkCreateStudents(req: NextRequest, libraryId: stri
       });
     }
 
-    // Step 3: Insert students & their default paused memberships
-    const createdStudents: any[] = [];
+    // Step 3: Insert students & their default paused memberships via batched createMany transaction
     const startDate = new Date();
     const expectedEndDate = new Date(startDate.getTime() + 30 * 86400000);
 
-    for (const candidate of finalCandidatesToInsert) {
-      const studentId = crypto.randomUUID();
-      const student = await prisma.student.create({
-        data: {
-          id: studentId,
-          libraryId,
-          fullName: candidate.fullName,
-          phone: candidate.phone,
-          studyPurpose: null,
-          photoUrl: null,
-          kycPhotoUrl: null,
-          kycDocId: null,
-          kycDocType: 'AADHAAR',
-          isActive: true,
-        },
-      });
+    const studentRecords = finalCandidatesToInsert.map((c) => ({
+      id: crypto.randomUUID(),
+      libraryId,
+      fullName: c.fullName,
+      phone: c.phone,
+      studyPurpose: null,
+      photoUrl: null,
+      kycPhotoUrl: null,
+      kycDocId: null,
+      kycDocType: 'AADHAAR' as const,
+      isActive: true,
+    }));
 
-      await prisma.membership.create({
-        data: {
-          id: crypto.randomUUID(),
-          libraryId,
-          studentId: student.id,
-          startDate,
-          expectedEndDate,
-          status: 'PAUSED',
-          feeAmount: 0,
-          shift: 'FULL_DAY',
-        },
-      });
+    const membershipRecords = studentRecords.map((s) => ({
+      id: crypto.randomUUID(),
+      libraryId,
+      studentId: s.id,
+      startDate,
+      expectedEndDate,
+      status: 'PAUSED' as const,
+      feeAmount: 0,
+      shift: 'FULL_DAY' as const,
+    }));
 
-      createdStudents.push({
-        id: student.id,
-        fullName: student.fullName,
-        phone: student.phone,
-        studyPurpose: undefined,
-        photoUrl: undefined,
-        kycPhotoUrl: undefined,
-        kycDocId: undefined,
-        kycType: student.kycDocType,
-        shift: undefined,
-        seatNumber: null,
-        status: 'INACTIVE',
-        membershipEndsInDays: 0,
-        monthlyFee: 0,
-        remainingFee: 0,
-        totalFee: 0,
-        transactions: [],
-      });
-    }
+    // Perform bulk inserts inside a fast atomic database transaction
+    await prisma.$transaction([
+      prisma.student.createMany({ data: studentRecords }),
+      prisma.membership.createMany({ data: membershipRecords }),
+    ]);
+
+    const createdStudents = studentRecords.map((s) => ({
+      id: s.id,
+      fullName: s.fullName,
+      phone: s.phone,
+      studyPurpose: undefined,
+      photoUrl: undefined,
+      kycPhotoUrl: undefined,
+      kycDocId: undefined,
+      kycType: s.kycDocType,
+      shift: undefined,
+      seatNumber: null,
+      status: 'INACTIVE',
+      membershipEndsInDays: 0,
+      monthlyFee: 0,
+      remainingFee: 0,
+      totalFee: 0,
+      transactions: [],
+    }));
 
     return NextResponse.json({
       success: true,

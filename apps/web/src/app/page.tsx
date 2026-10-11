@@ -50,6 +50,7 @@ import { DesktopSidebar } from '../components/DesktopSidebar';
 import { QuickCheckHero } from '../components/QuickCheckHero';
 import { FooterShareBar } from '../components/FooterShareBar';
 import { getMonthsDifference } from '@/lib/billing-periods';
+import { checkSlotsOverlap, resolveEffectiveTimeSlot, encodeCustomSlot } from '@/lib/slot-utils';
 import {
   DashboardSkeleton,
   DashboardChartSkeleton,
@@ -936,6 +937,9 @@ export default function MobileDashboard() {
   // Active library child entities
   const rawSeats = activeLibrary ? activeLibrary.seats : [];
   const rawStudents = activeLibrary ? activeLibrary.students : [];
+  const rooms = activeLibrary ? activeLibrary.rooms : [];
+  const roomMap = useMemo(() => new Map((rooms || []).map((r) => [r.id, r.name])), [rooms]);
+
   const seats: VisualSeatItem[] = useMemo(() => {
     if (!activeLibrary) return [];
     const stdMap = new Map((activeLibrary.students || []).map((s) => [s.id, s]));
@@ -983,8 +987,13 @@ export default function MobileDashboard() {
         });
       }
 
+      const resolvedRoomId = seat.roomId || (rooms?.[0]?.id) || null;
+      const resolvedRoomName = (seat as any).roomName || (seat.roomId ? roomMap.get(seat.roomId) : undefined) || (rooms?.[0]?.name) || 'Study Hall';
+
       return {
         ...seat,
+        roomId: resolvedRoomId,
+        roomName: resolvedRoomName,
         studentId: primaryStd?.id || (seat as any).studentId || null,
         studentPhotoUrl: primaryStd?.photoUrl || (seat as any).studentPhotoUrl || null,
         studentPhone: primaryStd?.phone || (seat as any).studentPhone || null,
@@ -993,7 +1002,7 @@ export default function MobileDashboard() {
     }).sort((a, b) =>
       a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' })
     );
-  }, [activeLibrary?.seats, activeLibrary?.students]);
+  }, [activeLibrary?.seats, activeLibrary?.students, rooms, roomMap]);
 
   const students = rawStudents.map((std) => {
     const seatObj = std.seatId
@@ -1001,12 +1010,15 @@ export default function MobileDashboard() {
       : (std.seatNumber
         ? rawSeats.find((s) => s.seatNumber === std.seatNumber && (!std.roomId || s.roomId === std.roomId))
         : null);
+    const resolvedRoomId = std.roomId || seatObj?.roomId || null;
+    const resolvedRoomName = std.roomName || (resolvedRoomId ? roomMap.get(resolvedRoomId) : null) || (seatObj as any)?.roomName || null;
     return {
       ...std,
+      roomId: resolvedRoomId,
+      roomName: resolvedRoomName,
       hasLocker: Boolean(std.hasLocker || seatObj?.hasLocker),
     };
   });
-  const rooms = activeLibrary ? activeLibrary.rooms : [];
 
   // Display rooms with fallback for libraries with seats but unconfigured rooms
   const displayRooms = (rooms && rooms.length > 0)
@@ -1793,13 +1805,20 @@ export default function MobileDashboard() {
     isReserved?: boolean,
     seatId?: string,
     roomId?: string | null,
-    rowName?: string
+    rowName?: string,
+    customSlot?: any,
+    forceReassign?: boolean
   ) => {
     if (!activeLibrary) return;
     const student = activeLibrary.students.find((s) => s.id === studentId);
     const oldSeatId = student?.seatId;
     const oldSeatNumber = student?.seatNumber;
     const oldRoomId = student?.roomId;
+
+    const requestedSlot = resolveEffectiveTimeSlot(
+      shift,
+      typeof customSlot === 'string' ? customSlot : customSlot?.label
+    );
 
     // 1. Optimistic UI update
     updateActiveLibrary((lib) => {
@@ -1828,30 +1847,20 @@ export default function MobileDashboard() {
             rowName: seatNumber ? (rowName || std.rowName || null) : null,
             previousSeatNumber: seatNumber ? null : (oldSeatNumber || std.previousSeatNumber || null),
             inactiveDays: seatNumber ? 0 : (std.inactiveDays || 0),
-            shift: shift || std.shift,
+            shift: requestedSlot.isCustom ? requestedSlot.label : (shift || std.shift),
             status: (hasValidMembership ? 'ACTIVE' : (seatNumber ? 'ACTIVE' : 'INACTIVE')) as any,
             membershipEndsInDays: preservedDays,
           };
         }
 
-        // If another student was on this target seat and is evicted due to shift conflict:
+        // If another student was on this target seat and is evicted due to slot conflict:
         const stdIsOnTargetSeat = seatId
           ? std.seatId === seatId
           : (Boolean(seatNumber) && std.seatNumber === seatNumber && (!roomId || std.roomId === roomId));
 
         if (stdIsOnTargetSeat && std.id !== studentId) {
-          const targetShift = (shift || student?.shift || 'FULL_DAY').toUpperCase();
-          const stdShift = (std.shift || 'FULL_DAY').toUpperCase();
-          const isTargetMorning = targetShift === 'MORNING' || targetShift === 'FOUR_HOURS' || targetShift === 'HALF_DAY';
-          const isTargetEvening = targetShift === 'EVENING';
-          const isStdMorning = stdShift === 'MORNING' || stdShift === 'FOUR_HOURS' || stdShift === 'HALF_DAY';
-          const isStdEvening = stdShift === 'EVENING';
-
-          const isConflict =
-            targetShift === 'FULL_DAY' ||
-            stdShift === 'FULL_DAY' ||
-            (isTargetMorning && isStdMorning) ||
-            (isTargetEvening && isStdEvening);
+          const stdSlot = resolveEffectiveTimeSlot(std.shift);
+          const isConflict = forceReassign || checkSlotsOverlap(requestedSlot, stdSlot);
 
           if (isConflict) {
             return {
@@ -1909,30 +1918,23 @@ export default function MobileDashboard() {
 
         if (isTargetSeat) {
           const targetShift = (shift || student?.shift || 'FULL_DAY').toUpperCase();
-          const isTargetMorning = targetShift === 'MORNING' || targetShift === 'FOUR_HOURS' || targetShift === 'HALF_DAY';
-          const isTargetEvening = targetShift === 'EVENING';
-
           const currentOccupants = (seat.occupants || []).filter((o) => o.studentId !== studentId);
           let newOccupants: any[] = [];
 
-          if (targetShift === 'FULL_DAY') {
+          if (forceReassign) {
             newOccupants = [
               {
                 studentId,
                 studentName: student?.fullName || 'Student',
                 phone: student?.phone,
-                shift: 'FULL_DAY',
+                shift: requestedSlot.isCustom ? requestedSlot.label : targetShift,
+                timeSlot: requestedSlot,
               },
             ];
           } else {
-            const keptOccupants = currentOccupants.filter((o) => {
-              const oShift = (o.shift || 'FULL_DAY').toUpperCase();
-              const oIsMorning = oShift === 'MORNING' || oShift === 'FOUR_HOURS' || oShift === 'HALF_DAY';
-              const oIsEvening = oShift === 'EVENING';
-              if (oShift === 'FULL_DAY') return false;
-              if (isTargetMorning && oIsMorning) return false;
-              if (isTargetEvening && oIsEvening) return false;
-              return true;
+            const keptOccupants = currentOccupants.filter((o: any) => {
+              const oSlot = o.timeSlot || resolveEffectiveTimeSlot(o.shift);
+              return !checkSlotsOverlap(requestedSlot, oSlot);
             });
 
             newOccupants = [
@@ -1941,7 +1943,8 @@ export default function MobileDashboard() {
                 studentId,
                 studentName: student?.fullName || 'Student',
                 phone: student?.phone,
-                shift: targetShift,
+                shift: requestedSlot.isCustom ? requestedSlot.label : targetShift,
+                timeSlot: requestedSlot,
               },
             ];
           }
@@ -1992,7 +1995,7 @@ export default function MobileDashboard() {
         rowName: seatNumber ? (rowName || prev.rowName || null) : null,
         previousSeatNumber: seatNumber ? null : (oldSeatNumber || prev.previousSeatNumber || null),
         inactiveDays: seatNumber ? 0 : (prev.inactiveDays || 0),
-        shift: shift || prev.shift,
+        shift: requestedSlot.isCustom ? requestedSlot.label : (shift || prev.shift),
         status: (hasValidMembership ? 'ACTIVE' : (seatNumber ? 'ACTIVE' : 'INACTIVE')) as any,
         membershipEndsInDays: preservedDays,
       };
@@ -2003,7 +2006,10 @@ export default function MobileDashboard() {
       const isUnassign = !seatNumber || seatNumber === 'UNASSIGN';
       const res = await fetch(`/api/libraries/${activeLibrary.id}/seats/assign`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(currentUser?.email ? { 'x-user-email': currentUser.email } : {}),
+        },
         body: JSON.stringify({
           studentId,
           seatId: isUnassign ? null : (seatId || null),
@@ -2013,6 +2019,8 @@ export default function MobileDashboard() {
           shift: isUnassign ? undefined : shift,
           reserveSeat: isReserved,
           unassign: isUnassign,
+          customSlot,
+          forceReassign,
         }),
       });
       if (res.ok) {
@@ -2171,6 +2179,7 @@ export default function MobileDashboard() {
     stayDuration?: string;
     isSettlingDue?: boolean;
     assignedSeatNumber?: string;
+    customSlot?: any;
   }) => {
     if (!activeLibrary) return;
 
@@ -2399,11 +2408,23 @@ export default function MobileDashboard() {
     // 2. Persist to PostgreSQL backend
     try {
       if (paymentData.assignedSeatNumber && paymentData.assignedSeatNumber !== student?.seatNumber) {
-        handleAssignSeat(paymentData.studentId, paymentData.assignedSeatNumber, paymentData.shift);
+        handleAssignSeat(
+          paymentData.studentId,
+          paymentData.assignedSeatNumber,
+          paymentData.shift,
+          false,
+          undefined,
+          undefined,
+          undefined,
+          paymentData.customSlot
+        );
       }
       await fetch(`/api/libraries/${activeLibrary.id}/transactions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(currentUser?.email ? { 'x-user-email': currentUser.email } : {}),
+        },
         body: JSON.stringify(paymentData),
       });
     } catch (e) {
@@ -2577,7 +2598,10 @@ export default function MobileDashboard() {
     try {
       const res = await fetch(`/api/libraries/${activeLibrary.id}/transactions/${updatedData.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(currentUser?.email ? { 'x-user-email': currentUser.email } : {}),
+        },
         body: JSON.stringify(updatedData),
       });
       if (!res.ok) {
@@ -2693,6 +2717,9 @@ export default function MobileDashboard() {
     try {
       const res = await fetch(`/api/libraries/${activeLibrary.id}/transactions/${transactionId}`, {
         method: 'DELETE',
+        headers: {
+          ...(currentUser?.email ? { 'x-user-email': currentUser.email } : {}),
+        },
       });
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
@@ -4282,17 +4309,29 @@ export default function MobileDashboard() {
         {activeTab === 'seats' && (
           <section className="bg-white dark:bg-[#121212] rounded-xl border border-slate-200 dark:border-[#262626] p-4 shadow-xs space-y-3 transition-colors">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-              <div className="flex items-center justify-between sm:justify-start gap-3">
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 dark:text-[#f5f5f5]">Seat Inventory</h3>
-                  <p className="text-xs text-slate-500 dark:text-neutral-400">
-                    {currentSelectedRoom ? (
-                      <>Showing <b>{currentSelectedRoom.name}</b> ({currentRoomSeats.length} seats)</>
-                    ) : (
-                      <>{availableCount} available out of {totalSeats} total seats</>
-                    )}
-                  </p>
-                </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-[#f5f5f5]">Seat Inventory</h3>
+                <p className="text-xs text-slate-500 dark:text-neutral-400">
+                  {currentSelectedRoom ? (
+                    <>Showing <b>{currentSelectedRoom.name}</b> ({currentRoomSeats.length} seats)</>
+                  ) : (
+                    <>{availableCount} available out of {totalSeats} total seats</>
+                  )}
+                </p>
+              </div>
+
+              {/* Action buttons beside Refresh: "+ Add Room & Rows" like dashboard tab */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsRoomModalOpen(true)}
+                  className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer active:scale-95"
+                  title="Add Room & Rows"
+                >
+                  <Building2 className="w-3.5 h-3.5 text-white" />
+                  <span>+ Add Room & Rows</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => {
@@ -4309,44 +4348,6 @@ export default function MobileDashboard() {
                 >
                   <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 ${isLoadingSeats ? 'animate-spin' : ''}`} />
                   <span>Refresh</span>
-                </button>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const targetRoom = currentSelectedRoom || activeLibrary?.rooms?.[0] || null;
-                    if (targetRoom) {
-                      setSelectedRoomId(targetRoom.id);
-                    }
-                    setIsAddRowModalOpen(true);
-                  }}
-                  className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>+ Add Row</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setBatchSeatTargetRow('');
-                    setBatchSeatTargetRoom(currentSelectedRoom || activeLibrary?.rooms?.[0] || null);
-                    setIsBatchSeatModalOpen(true);
-                  }}
-                  className="bg-white dark:bg-[#1c1c1e] hover:bg-slate-50 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                >
-                  <Armchair className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                  <span>+ Add Seats</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setIsRoomModalOpen(true)}
-                  className="bg-white dark:bg-[#1c1c1e] hover:bg-slate-50 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-                >
-                  <Building2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                  <span>+ Add Room</span>
                 </button>
               </div>
             </div>
@@ -4395,6 +4396,70 @@ export default function MobileDashboard() {
                     </button>
                   );
                 })}
+              </div>
+            )}
+
+            {/* Contextual Hall Toolbar: Only visible when a specific hall is selected */}
+            {currentSelectedRoom && (
+              <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-[#181818] border border-slate-200/80 dark:border-[#262626]">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <Building2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    {currentSelectedRoom.name}
+                  </span>
+                  <span className="text-[11px] text-slate-500 dark:text-neutral-400 font-medium">
+                    ({currentRoomSeats.length} seats)
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedRoomId(currentSelectedRoom.id);
+                      setIsAddRowModalOpen(true);
+                    }}
+                    className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-2xs transition-colors cursor-pointer active:scale-95"
+                    title={`Add new row to ${currentSelectedRoom.name}`}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Add Row</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBatchSeatTargetRow('');
+                      setBatchSeatTargetRoom(currentSelectedRoom);
+                      setIsBatchSeatModalOpen(true);
+                    }}
+                    className="bg-white dark:bg-[#1c1c1e] hover:bg-slate-50 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-2xs transition-colors cursor-pointer active:scale-95"
+                    title={`Add seats to ${currentSelectedRoom.name}`}
+                  >
+                    <Armchair className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>+ Add Seats</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEditingRoom(currentSelectedRoom)}
+                    className="bg-white dark:bg-[#1c1c1e] hover:bg-slate-50 dark:hover:bg-[#262626] text-slate-700 dark:text-neutral-200 border border-slate-200 dark:border-[#262626] px-2 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-2xs transition-colors cursor-pointer active:scale-95"
+                    title="Edit Hall Name"
+                  >
+                    <Pencil className="w-3 h-3 text-slate-500 dark:text-neutral-400" />
+                    <span className="hidden sm:inline">Edit</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteRoom(currentSelectedRoom.id)}
+                    className="bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-900/40 text-rose-700 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/40 px-2 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-2xs transition-colors cursor-pointer active:scale-95"
+                    title="Delete Hall"
+                  >
+                    <Trash2 className="w-3 h-3 text-rose-500" />
+                    <span className="hidden sm:inline">Delete</span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -4836,6 +4901,7 @@ export default function MobileDashboard() {
           student={selectedStudentForProfile}
           initialTab={profileInitialTab}
           availableSeats={seats.filter((s) => s.status === 'AVAILABLE')}
+          rooms={displayRooms}
           onAssignSeat={handleAssignSeat}
           onUpdateStudent={handleUpdateStudent}
           onDeleteStudent={handleDeleteStudent}
@@ -4885,6 +4951,7 @@ export default function MobileDashboard() {
           preselectedShift={preselectedShiftForFeeCollection}
           preselectedDuration={preselectedDurationForFeeCollection}
           availableSeats={seats.filter((s) => s.status === 'AVAILABLE')}
+          rooms={displayRooms}
           onAssignSeat={handleAssignSeat}
           onRecordPayment={handleRecordFeePayment}
         />
@@ -4927,7 +4994,7 @@ export default function MobileDashboard() {
           students={students}
           isLoadingStudents={isLoadingStudents}
           initialShift={preselectedShiftForAssignment}
-          onAssign={async (studentId, seatNumber, shift, isReserved, seatId, roomId, rowName) => {
+          onAssign={async (studentId, seatNumber, shift, isReserved, seatId, roomId, rowName, customSlot, forceReassign) => {
             await handleAssignSeat(
               studentId,
               seatNumber,
@@ -4935,7 +5002,9 @@ export default function MobileDashboard() {
               isReserved,
               seatId || selectedSeatForAssignment?.id,
               roomId ?? selectedSeatForAssignment?.roomId,
-              rowName || selectedSeatForAssignment?.rowName
+              rowName || selectedSeatForAssignment?.rowName,
+              customSlot,
+              forceReassign
             );
           }}
           onEnrollNewStudent={(seatNumber) => {

@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "pnpm --filter @library/database exec prisma migrate deploy && next dev",
     "postinstall": "prisma generate --schema=../../packages/database/prisma/schema.prisma || true",
-    "build": "prisma generate --schema=../../packages/database/prisma/schema.prisma && next build",
-    "start": "next start",
+    "build": "pnpm --filter @library/database exec prisma migrate deploy && prisma generate --schema=../../packages/database/prisma/schema.prisma && next build",
+    "start": "pnpm --filter @library/database exec prisma migrate deploy && next start",
     "typecheck": "tsc --noEmit",
     "lint": "next lint"
   },

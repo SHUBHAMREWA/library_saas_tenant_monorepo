@@ -6,6 +6,8 @@ import { StudentItem, getStudentPreviousSeat } from './StudentList';
 import { WhatsAppIcon } from './WhatsAppIcon';
 import { generateWhatsAppReceiptText, openWhatsApp, FeeReceiptData, formatShiftSummary, formatDateDMY, printFeeReceipt } from '@/lib/receipt-utils';
 import { formatMonthPeriod, getDetailedPeriodLabel, addMonthsToDate, getMonthsDifference } from '@/lib/billing-periods';
+import { QUICK_CUSTOM_SLOT_PRESETS, encodeCustomSlot, parseCustomSlotFromNotes, minutesToTimeString, timeStringToMinutes } from '@/lib/slot-utils';
+import { Time12Picker, formatTime12 } from './Time12Picker';
 
 interface CollectFeeModalProps {
   isOpen: boolean;
@@ -13,10 +15,21 @@ interface CollectFeeModalProps {
   students: StudentItem[];
   preselectedStudent?: StudentItem | null;
   preselectedSeatNumber?: string | null;
-  preselectedShift?: 'MORNING' | 'EVENING' | 'FULL_DAY' | null;
+  preselectedShift?: 'MORNING' | 'EVENING' | 'FULL_DAY' | 'CUSTOM' | string | null;
   preselectedDuration?: 'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY' | null;
-  availableSeats?: { id: string; seatNumber: string; rowName?: string; roomId?: string | null }[];
-  onAssignSeat?: (studentId: string, seatNumber: string | null, shift?: string, isReserved?: boolean, seatId?: string, roomId?: string | null, rowName?: string) => Promise<void> | void;
+  availableSeats?: { id: string; seatNumber: string; rowName?: string; roomId?: string | null; roomName?: string | null }[];
+  rooms?: { id: string; name: string }[];
+  onAssignSeat?: (
+    studentId: string,
+    seatNumber: string | null,
+    shift?: string,
+    isReserved?: boolean,
+    seatId?: string,
+    roomId?: string | null,
+    rowName?: string,
+    customSlot?: any,
+    forceReassign?: boolean
+  ) => Promise<void> | void;
   libraryName?: string;
   libraryPhone?: string;
   onRecordPayment: (paymentData: {
@@ -35,6 +48,7 @@ interface CollectFeeModalProps {
     stayDuration?: string;
     isSettlingDue?: boolean;
     assignedSeatNumber?: string;
+    customSlot?: any;
   }) => Promise<any> | any;
 }
 
@@ -49,8 +63,14 @@ const getMonthOptions = () => {
   return options;
 };
 
-const getSuggestedFee = (shift: string, stayDuration: string, customMonthlyFee?: number) => {
+const getSuggestedFee = (shift: string, stayDuration: string, customMonthlyFee?: number, customHours?: number) => {
   if (customMonthlyFee && customMonthlyFee > 0) return customMonthlyFee;
+  if (shift === 'CUSTOM') {
+    const hours = customHours || 3;
+    if (hours <= 2) return 500;
+    if (hours <= 3) return 700;
+    return 800;
+  }
   if (shift === 'FULL_DAY') return 1200;
   if (stayDuration === 'FOUR_HOURS') return 600;
   if (stayDuration === 'HALF_DAY') return 900;
@@ -79,6 +99,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
   preselectedShift,
   preselectedDuration,
   availableSeats = [],
+  rooms = [],
   onAssignSeat,
   libraryName = 'seeLibrary Study Center',
   libraryPhone,
@@ -91,6 +112,28 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
   const [studentSearchQuery, setStudentSearchQuery] = useState<string>('');
   const [isStudentDropdownOpen, setIsStudentDropdownOpen] = useState<boolean>(false);
   const [assignedSeatNumber, setAssignedSeatNumber] = useState<string>('');
+  const [assignedSeatId, setAssignedSeatId] = useState<string>('');
+
+  // Group available seats cleanly by Hall / Room with natural numeric sorting
+  const seatsByRoom = useMemo(() => {
+    const roomMap = new Map<string, typeof availableSeats>();
+    for (const seat of availableSeats) {
+      const rName = seat.roomName || 'Study Hall';
+      if (!roomMap.has(rName)) {
+        roomMap.set(rName, []);
+      }
+      roomMap.get(rName)!.push(seat);
+    }
+
+    const groups: { roomName: string; seats: typeof availableSeats }[] = [];
+    roomMap.forEach((seatsList, roomName) => {
+      const sorted = [...seatsList].sort((a, b) =>
+        a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' })
+      );
+      groups.push({ roomName, seats: sorted });
+    });
+    return groups;
+  }, [availableSeats]);
   const [paymentType, setPaymentType] = useState<'REMAINING_DUE' | 'NEW_MONTH'>('NEW_MONTH');
   const [monthsCount, setMonthsCount] = useState<number>(1);
   const [perMonthRate, setPerMonthRate] = useState<number>(1200);
@@ -102,8 +145,11 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
     return addMonthsToDate(d, 1);
   });
   const [paidForMonth, setPaidForMonth] = useState<string>(currentMonth);
-  const [selectedShift, setSelectedShift] = useState<'MORNING' | 'EVENING' | 'FULL_DAY'>('FULL_DAY');
+  const [selectedShift, setSelectedShift] = useState<'MORNING' | 'EVENING' | 'FULL_DAY' | 'CUSTOM'>('FULL_DAY');
   const [stayDuration, setStayDuration] = useState<'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY'>('FULL_DAY');
+  const [customStartMin, setCustomStartMin] = useState<number>(600); // 10:00 AM
+  const [customEndMin, setCustomEndMin] = useState<number>(780); // 01:00 PM
+  const [customPresetLabel, setCustomPresetLabel] = useState<string>('10:00 AM – 01:00 PM (3h)');
   const [paymentMode, setPaymentMode] = useState<string>('UPI');
   const [paymentDate, setPaymentDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState<string>('');
@@ -112,35 +158,47 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
   const [copied, setCopied] = useState<boolean>(false);
 
   const resolveStudentShiftAndDuration = (std?: StudentItem | null) => {
-    if (!std) return { shift: 'FULL_DAY' as const, duration: 'FULL_DAY' as const };
+    if (!std) return { shift: 'FULL_DAY' as const, duration: 'FULL_DAY' as const, customSlot: null };
     const latestTx = std.transactions?.[0];
     const rawShift = (latestTx?.shift || std.shift || 'FULL_DAY').toUpperCase();
     const rawDuration = (latestTx?.stayDuration || std.stayDuration || 'FULL_DAY').toUpperCase();
+    const rawNotes = latestTx?.notes || '';
+    const parsedSlot = parseCustomSlotFromNotes(rawNotes);
+
+    if (parsedSlot || rawShift === 'CUSTOM') {
+      return {
+        shift: 'CUSTOM' as const,
+        duration: 'FOUR_HOURS' as const,
+        customSlot: parsedSlot,
+      };
+    }
     if (rawShift === 'MORNING') {
       return {
         shift: 'MORNING' as const,
         duration: rawDuration === 'FOUR_HOURS' ? ('FOUR_HOURS' as const) : ('HALF_DAY' as const),
+        customSlot: null,
       };
     }
     if (rawShift === 'EVENING') {
       return {
         shift: 'EVENING' as const,
         duration: rawDuration === 'FOUR_HOURS' ? ('FOUR_HOURS' as const) : ('HALF_DAY' as const),
+        customSlot: null,
       };
     }
     if (rawShift === 'FOUR_HOURS') {
-      return { shift: 'MORNING' as const, duration: 'FOUR_HOURS' as const };
+      return { shift: 'MORNING' as const, duration: 'FOUR_HOURS' as const, customSlot: null };
     }
     if (rawShift === 'HALF_DAY') {
-      return { shift: 'MORNING' as const, duration: 'HALF_DAY' as const };
+      return { shift: 'MORNING' as const, duration: 'HALF_DAY' as const, customSlot: null };
     }
-    return { shift: 'FULL_DAY' as const, duration: 'FULL_DAY' as const };
+    return { shift: 'FULL_DAY' as const, duration: 'FULL_DAY' as const, customSlot: null };
   };
 
   const handleDurationChange = (
     newMonthsCount: number,
     customFrom?: string,
-    overrideShift?: 'MORNING' | 'EVENING' | 'FULL_DAY',
+    overrideShift?: 'MORNING' | 'EVENING' | 'FULL_DAY' | 'CUSTOM',
     overrideDuration?: 'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY',
     overrideStudent?: StudentItem | null
   ) => {
@@ -187,13 +245,28 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
       if (activeStudent) {
         setSelectedStudentId(activeStudent.id);
         const prevSeat = getStudentPreviousSeat(activeStudent);
-        const seatToSet = preselectedSeatNumber || activeStudent.seatNumber || (prevSeat.seatNumber && availableSeats.some((s) => s.seatNumber === prevSeat.seatNumber) ? prevSeat.seatNumber : '');
-        setAssignedSeatNumber(seatToSet);
+        const matchingSeat = preselectedSeatNumber
+          ? (availableSeats.find((s) => s.id === preselectedSeatNumber || s.seatNumber === preselectedSeatNumber))
+          : activeStudent.seatId
+          ? (availableSeats.find((s) => s.id === activeStudent.seatId))
+          : activeStudent.seatNumber
+          ? (availableSeats.find((s) => s.seatNumber === activeStudent.seatNumber && (!activeStudent.roomId || s.roomId === activeStudent.roomId)) || availableSeats.find((s) => s.seatNumber === activeStudent.seatNumber))
+          : (prevSeat.seatNumber
+            ? (availableSeats.find((s) => s.seatNumber === prevSeat.seatNumber && (!prevSeat.roomId || s.roomId === prevSeat.roomId)) || availableSeats.find((s) => s.seatNumber === prevSeat.seatNumber))
+            : null);
+
+        if (matchingSeat) {
+          setAssignedSeatId(matchingSeat.id);
+          setAssignedSeatNumber(matchingSeat.seatNumber);
+        } else {
+          setAssignedSeatId('');
+          setAssignedSeatNumber(preselectedSeatNumber || activeStudent.seatNumber || '');
+        }
 
         // If a specific shift or duration was requested (e.g. from AssignSeatModal), use it.
         // Otherwise fall back to the student's historical shift.
-        const { shift: historicalShift, duration: historicalDuration } = resolveStudentShiftAndDuration(activeStudent);
-        const initShift: 'MORNING' | 'EVENING' | 'FULL_DAY' = preselectedShift || historicalShift;
+        const { shift: historicalShift, duration: historicalDuration, customSlot: historicalCustomSlot } = resolveStudentShiftAndDuration(activeStudent);
+        const initShift: 'MORNING' | 'EVENING' | 'FULL_DAY' | 'CUSTOM' = (preselectedShift as any) || historicalShift;
         const initDuration: 'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY' = preselectedDuration
           ? preselectedDuration
           : preselectedShift
@@ -201,6 +274,15 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
           : historicalDuration;
         setSelectedShift(initShift);
         setStayDuration(initDuration);
+
+        if (initShift === 'CUSTOM') {
+          const effectiveSlot = historicalCustomSlot || parseCustomSlotFromNotes(activeStudent?.notes);
+          if (effectiveSlot) {
+            setCustomStartMin(effectiveSlot.startMin);
+            setCustomEndMin(effectiveSlot.endMin);
+            setCustomPresetLabel(effectiveSlot.label);
+          }
+        }
 
         const hasDue = Boolean(activeStudent.remainingFee && activeStudent.remainingFee > 0);
         const agreed = getStudentAgreedRate(activeStudent);
@@ -225,7 +307,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         }
       } else {
         setPaymentType('NEW_MONTH');
-        const initShift: 'MORNING' | 'EVENING' | 'FULL_DAY' = preselectedShift || 'FULL_DAY';
+        const initShift: 'MORNING' | 'EVENING' | 'FULL_DAY' | 'CUSTOM' = (preselectedShift as any) || 'FULL_DAY';
         const initDuration: 'FOUR_HOURS' | 'HALF_DAY' | 'FULL_DAY' = preselectedDuration
           ? preselectedDuration
           : initShift === 'FULL_DAY'
@@ -238,7 +320,9 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         setTotalFee(fee);
         setAmount(fee);
         setPaidForMonth(formatMonthPeriod(todayStr, nextMonth));
-        setAssignedSeatNumber(preselectedSeatNumber || '');
+        const preselectedObj = preselectedSeatNumber ? availableSeats.find((s) => s.id === preselectedSeatNumber || s.seatNumber === preselectedSeatNumber) : null;
+        setAssignedSeatId(preselectedObj?.id || '');
+        setAssignedSeatNumber(preselectedObj?.seatNumber || preselectedSeatNumber || '');
         setNotes('');
       }
     }
@@ -255,12 +339,33 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
     const found = students.find((s) => s.id === stdId);
     if (found) {
       const prevSeat = getStudentPreviousSeat(found);
-      const seatToSet = found.seatNumber || (prevSeat.seatNumber && availableSeats.some((s) => s.seatNumber === prevSeat.seatNumber) ? prevSeat.seatNumber : '');
-      setAssignedSeatNumber(seatToSet);
+      const matchingSeat = found.seatId
+        ? (availableSeats.find((s) => s.id === found.seatId))
+        : found.seatNumber
+        ? (availableSeats.find((s) => s.seatNumber === found.seatNumber && (!found.roomId || s.roomId === found.roomId)) || availableSeats.find((s) => s.seatNumber === found.seatNumber))
+        : (prevSeat.seatNumber
+          ? (availableSeats.find((s) => s.seatNumber === prevSeat.seatNumber && (!prevSeat.roomId || s.roomId === prevSeat.roomId)) || availableSeats.find((s) => s.seatNumber === prevSeat.seatNumber))
+          : null);
 
-      const { shift: initShift, duration: initDuration } = resolveStudentShiftAndDuration(found);
+      if (matchingSeat) {
+        setAssignedSeatId(matchingSeat.id);
+        setAssignedSeatNumber(matchingSeat.seatNumber);
+      } else {
+        setAssignedSeatId('');
+        setAssignedSeatNumber(found.seatNumber || '');
+      }
+
+      const { shift: initShift, duration: initDuration, customSlot: initCustomSlot } = resolveStudentShiftAndDuration(found);
       setSelectedShift(initShift);
       setStayDuration(initDuration);
+      if (initShift === 'CUSTOM') {
+        const slot = initCustomSlot || parseCustomSlotFromNotes(found.notes);
+        if (slot) {
+          setCustomStartMin(slot.startMin);
+          setCustomEndMin(slot.endMin);
+          setCustomPresetLabel(slot.label);
+        }
+      }
 
       const hasDue = Boolean(found.remainingFee && found.remainingFee > 0);
       const agreed = getStudentAgreedRate(found);
@@ -417,12 +522,14 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
 
     // Guard: Prevent duplicate fee collection if already paid for this period
     if (isPeriodAlreadyPaid) {
-      if (assignedSeatNumber && assignedSeatNumber !== currentStudent?.seatNumber && onAssignSeat) {
+      const targetSeatObj = availableSeats?.find((s) => (assignedSeatId && s.id === assignedSeatId) || s.id === assignedSeatNumber || s.seatNumber === assignedSeatNumber);
+      const finalSeatNumber = targetSeatObj?.seatNumber || assignedSeatNumber;
+
+      if (finalSeatNumber && finalSeatNumber !== currentStudent?.seatNumber && onAssignSeat) {
         setIsLoading(true);
         try {
-          const targetSeatObj = availableSeats?.find((s) => s.seatNumber === assignedSeatNumber || s.id === assignedSeatNumber);
-          await onAssignSeat(selectedStudentId, assignedSeatNumber, selectedShift, false, targetSeatObj?.id, targetSeatObj?.roomId, targetSeatObj?.rowName);
-          alert(`Seat ${assignedSeatNumber} successfully assigned to ${currentStudent?.fullName || 'student'}. Fee for this period (${paidForMonth}) was already cleared.`);
+          await onAssignSeat(selectedStudentId, finalSeatNumber, selectedShift, false, targetSeatObj?.id, targetSeatObj?.roomId ?? currentStudent?.roomId, targetSeatObj?.rowName);
+          alert(`Seat ${finalSeatNumber} successfully assigned to ${currentStudent?.fullName || 'student'}. Fee for this period (${paidForMonth}) was already cleared.`);
           onClose();
         } catch (err) {
           console.error('Failed to assign seat:', err);
@@ -455,10 +562,33 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
 
     setIsLoading(true);
     try {
-      if (assignedSeatNumber && assignedSeatNumber !== currentStudent?.seatNumber && onAssignSeat) {
+      const customSlotTag = selectedShift === 'CUSTOM'
+        ? encodeCustomSlot(customStartMin, customEndMin, customPresetLabel)
+        : '';
+      const finalNotes = selectedShift === 'CUSTOM'
+        ? `${(notes || '').replace(/SLOT:[^|\n]+(?:\|[^\n\r]+)?/g, '').trim()} ${customSlotTag}`.trim()
+        : notes.trim();
+
+      const customSlotPayload = selectedShift === 'CUSTOM'
+        ? { startMin: customStartMin, endMin: customEndMin, label: customPresetLabel }
+        : undefined;
+
+      const targetSeatObj = availableSeats?.find((s) => (assignedSeatId && s.id === assignedSeatId) || s.id === assignedSeatNumber || s.seatNumber === assignedSeatNumber);
+      const finalSeatNumber = targetSeatObj?.seatNumber || assignedSeatNumber;
+
+      const seatOrShiftChanged = (finalSeatNumber && finalSeatNumber !== currentStudent?.seatNumber) || (finalSeatNumber && selectedShift !== currentStudent?.shift);
+      if (seatOrShiftChanged && onAssignSeat) {
         try {
-          const targetSeatObj = availableSeats?.find((s) => s.seatNumber === assignedSeatNumber || s.id === assignedSeatNumber);
-          await onAssignSeat(selectedStudentId, assignedSeatNumber, selectedShift, false, targetSeatObj?.id, targetSeatObj?.roomId, targetSeatObj?.rowName);
+          await onAssignSeat(
+            selectedStudentId,
+            finalSeatNumber,
+            selectedShift,
+            false,
+            targetSeatObj?.id,
+            targetSeatObj?.roomId ?? currentStudent?.roomId,
+            targetSeatObj?.rowName,
+            customSlotPayload
+          );
         } catch (err) {
           console.error('Failed to assign seat during fee collection:', err);
         }
@@ -474,12 +604,13 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         paidForMonth,
         paymentMode,
         paymentDate: new Date(paymentDate).toISOString(),
-        notes: notes.trim() || (isSettlingDue ? `Remaining fee clearance for ${paidForMonth}` : undefined),
+        notes: finalNotes || (isSettlingDue ? `Remaining fee clearance for ${paidForMonth}` : undefined),
         extendDays: calculatedDays,
         shift: selectedShift,
-        stayDuration: selectedShift === 'FULL_DAY' ? 'FULL_DAY' : stayDuration,
+        stayDuration: selectedShift === 'CUSTOM' ? 'FOUR_HOURS' : (selectedShift === 'FULL_DAY' ? 'FULL_DAY' : stayDuration),
         isSettlingDue,
-        assignedSeatNumber: assignedSeatNumber || currentStudent?.seatNumber || undefined,
+        assignedSeatNumber: finalSeatNumber || currentStudent?.seatNumber || undefined,
+        customSlot: customSlotPayload,
       });
 
       const receiptNum = res?.receiptNumber || `REC-${Date.now().toString().slice(-6)}`;
@@ -488,9 +619,9 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         libraryPhone,
         studentName: currentStudent?.fullName || 'Student',
         studentPhone: currentStudent?.phone || '',
-        seatNumber: currentStudent?.seatNumber || null,
-        shift: selectedShift,
-        stayDuration: selectedShift === 'FULL_DAY' ? 'FULL_DAY' : stayDuration,
+        seatNumber: finalSeatNumber || currentStudent?.seatNumber || null,
+        shift: selectedShift === 'CUSTOM' ? (customPresetLabel || 'Custom Slot') : selectedShift,
+        stayDuration: selectedShift === 'CUSTOM' ? 'FOUR_HOURS' : (selectedShift === 'FULL_DAY' ? 'FULL_DAY' : stayDuration),
         receiptNumber: receiptNum,
         paidForMonth,
         validFrom,
@@ -500,7 +631,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
         remainingFee: remainingDue,
         paymentMode,
         paymentDate: new Date(paymentDate).toISOString(),
-        notes: notes.trim() || (isSettlingDue ? `Remaining fee clearance for ${paidForMonth}` : undefined),
+        notes: finalNotes || (isSettlingDue ? `Remaining fee clearance for ${paidForMonth}` : undefined),
         isSettlingDue,
       });
     } catch (err) {
@@ -531,7 +662,7 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/60 dark:bg-black/80 backdrop-blur-xs overflow-y-auto p-3 sm:p-6 flex min-h-full items-center justify-center">
-      <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] w-full max-w-md rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4 my-auto relative animate-in fade-in zoom-in-95 duration-200 border border-slate-100 dark:border-[#262626]">
+      <div className="bg-white dark:bg-[#121212] text-slate-900 dark:text-[#f5f5f5] w-full max-w-lg sm:max-w-xl rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4 my-auto relative animate-in fade-in zoom-in-95 duration-200 border border-slate-100 dark:border-[#262626]">
         {/* Loading Overlay */}
         {isLoading && (
           <div className="absolute inset-0 z-50 bg-white/90 dark:bg-[#121212]/90 backdrop-blur-xs rounded-2xl flex flex-col items-center justify-center space-y-3 p-6 animate-in fade-in duration-150">
@@ -696,13 +827,18 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3.5">
-          {/* Searchable Student Selector */}
-          <div className="space-y-1.5 relative">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* ========================================================= */}
+          {/* SECTION 1: STUDENT & SEAT ALLOCATION                      */}
+          {/* ========================================================= */}
+          <div className="p-3.5 bg-slate-50/70 dark:bg-[#18181b]/70 border border-slate-200/90 dark:border-[#27272a] rounded-2xl space-y-3 shadow-2xs">
             <div className="flex items-center justify-between">
-              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300">
-                Select Enrolled Student *
-              </label>
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-black flex items-center justify-center">1</div>
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-neutral-200">
+                  Student & Seat Allocation
+                </h4>
+              </div>
               <button
                 type="button"
                 onClick={() => setIsStudentDropdownOpen((prev) => !prev)}
@@ -880,7 +1016,6 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                 </div>
               </div>
             )}
-          </div>
 
           {/* Seat Allocation Selector */}
           {availableSeats && availableSeats.length > 0 && (
@@ -904,13 +1039,19 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
               {/* Intelligent Previous Seat Quick Suggestion (< 30 days inactive) */}
               {!currentStudent?.seatNumber && previousSeatInfo.seatNumber && (
                 (() => {
-                  const isPrevSeatAvail = availableSeats.some((s) => s.seatNumber === previousSeatInfo.seatNumber);
+                  const matchingOldSeat = availableSeats.find(
+                    (s) => s.seatNumber === previousSeatInfo.seatNumber && (!previousSeatInfo.roomId || s.roomId === previousSeatInfo.roomId)
+                  ) || availableSeats.find((s) => s.seatNumber === previousSeatInfo.seatNumber);
+                  const isPrevSeatAvail = Boolean(matchingOldSeat);
+                  const prevHallLabel = matchingOldSeat?.roomName || previousSeatInfo.roomName || '';
                   return (
                     <div className="p-2 bg-indigo-50/90 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/60 rounded-xl flex items-center justify-between text-xs animate-in fade-in duration-150">
                       <div className="flex items-center gap-1.5 text-indigo-950 dark:text-indigo-200">
                         <Armchair className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
                         <span>
-                          Previous Seat: <strong className="font-bold text-indigo-700 dark:text-indigo-300">Seat {previousSeatInfo.seatNumber}</strong>
+                          Previous Seat: <strong className="font-bold text-indigo-700 dark:text-indigo-300">
+                            {prevHallLabel ? `[${prevHallLabel}] ` : ''}Seat {previousSeatInfo.seatNumber}
+                          </strong>
                           {previousSeatInfo.inactiveDays > 0 ? (
                             <span className="text-[11px] text-slate-500 dark:text-neutral-400 ml-1">
                               ({previousSeatInfo.inactiveDays}d ago)
@@ -921,14 +1062,21 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                       {isPrevSeatAvail ? (
                         <button
                           type="button"
-                          onClick={() => setAssignedSeatNumber(previousSeatInfo.seatNumber!)}
+                          onClick={() => {
+                            if (matchingOldSeat) {
+                              setAssignedSeatId(matchingOldSeat.id);
+                              setAssignedSeatNumber(matchingOldSeat.seatNumber);
+                            } else {
+                              setAssignedSeatNumber(previousSeatInfo.seatNumber!);
+                            }
+                          }}
                           className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer shadow-2xs ${
-                            assignedSeatNumber === previousSeatInfo.seatNumber
+                            (matchingOldSeat && assignedSeatId === matchingOldSeat.id) || assignedSeatNumber === previousSeatInfo.seatNumber
                               ? 'bg-emerald-600 text-white'
                               : 'bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95'
                           }`}
                         >
-                          {assignedSeatNumber === previousSeatInfo.seatNumber ? 'Selected ✓' : 'Assign Old Seat'}
+                          {((matchingOldSeat && assignedSeatId === matchingOldSeat.id) || assignedSeatNumber === previousSeatInfo.seatNumber) ? 'Selected ✓' : 'Assign Old Seat'}
                         </button>
                       ) : (
                         <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100/70 dark:bg-amber-950/60 px-2 py-0.5 rounded-md border border-amber-300 dark:border-amber-800/60">
@@ -941,25 +1089,34 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
               )}
 
               <select
-                value={assignedSeatNumber}
-                onChange={(e) => setAssignedSeatNumber(e.target.value)}
+                value={assignedSeatId || (availableSeats.find((s) => s.seatNumber === assignedSeatNumber)?.id || '')}
+                onChange={(e) => {
+                  const sId = e.target.value;
+                  setAssignedSeatId(sId);
+                  const foundSeat = availableSeats.find((s) => s.id === sId);
+                  setAssignedSeatNumber(foundSeat ? foundSeat.seatNumber : '');
+                }}
                 className="w-full px-3 py-2 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="">
                   {currentStudent?.seatNumber
-                    ? `Keep Current (Seat ${currentStudent.seatNumber})`
+                    ? `Keep Current (${currentStudent.roomName ? `[${currentStudent.roomName}] ` : ''}Seat ${currentStudent.seatNumber})`
                     : previousSeatInfo.seatNumber
-                    ? `-- Select Seat to Assign (Old Seat: ${previousSeatInfo.seatNumber}) --`
+                    ? `-- Select Seat to Assign (Old Seat: ${previousSeatInfo.roomName ? `[${previousSeatInfo.roomName}] ` : ''}${previousSeatInfo.seatNumber}) --`
                     : '-- Select Seat to Assign --'}
                 </option>
-                {availableSeats.map((seat) => {
-                  const isOldSeat = previousSeatInfo.seatNumber && seat.seatNumber === previousSeatInfo.seatNumber;
-                  return (
-                    <option key={seat.id} value={seat.seatNumber}>
-                      {isOldSeat ? '⭐ ' : ''}Seat {seat.seatNumber} {seat.rowName ? `(${seat.rowName})` : ''} {isOldSeat ? '(Previous Seat)' : ''}
-                    </option>
-                  );
-                })}
+                {seatsByRoom.map((group) => (
+                  <optgroup key={group.roomName} label={`🏢 ${group.roomName}`}>
+                    {group.seats.map((seat) => {
+                      const isOldSeat = previousSeatInfo.seatNumber && seat.seatNumber === previousSeatInfo.seatNumber;
+                      return (
+                        <option key={seat.id} value={seat.id}>
+                          {isOldSeat ? '⭐ ' : ''}[{seat.roomName || group.roomName}] Seat {seat.seatNumber} (Row {seat.rowName || 'A'}){isOldSeat ? ' (Previous Seat)' : ''}
+                        </option>
+                      );
+                    })}
+                  </optgroup>
+                ))}
               </select>
             </div>
           )}
@@ -1125,27 +1282,32 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
               )}
             </div>
           )}
+          </div>
 
-          {/* SHIFT & STAY DURATION SELECTOR (Only in NEW_MONTH mode) */}
+          {/* ========================================================= */}
+          {/* SECTION 2: SHIFT & TIME SLOT (12-Hour AM/PM)              */}
+          {/* ========================================================= */}
           {paymentType === 'NEW_MONTH' ? (
-            <div className="space-y-3">
-              {/* Tier 1: Shift Selector (Morning, Evening, Full Day) */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-semibold text-slate-700 dark:text-neutral-300 flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                    <span>Select Shift *</span>
-                  </label>
-                  <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
-                    {selectedShift === 'MORNING'
-                      ? 'Morning Shift'
-                      : selectedShift === 'EVENING'
-                      ? 'Evening Shift'
-                      : 'Full Day'}
-                  </span>
+            <div className="p-3.5 bg-slate-50/70 dark:bg-[#18181b]/70 border border-slate-200/90 dark:border-[#27272a] rounded-2xl space-y-3 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-black flex items-center justify-center">2</div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-neutral-200">
+                    Shift & Time Slot
+                  </h4>
                 </div>
+                <span className="text-[10px] font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/60 px-2 py-0.5 rounded-md">
+                  {selectedShift === 'MORNING'
+                    ? 'Morning Shift'
+                    : selectedShift === 'EVENING'
+                    ? 'Evening Shift'
+                    : selectedShift === 'CUSTOM'
+                    ? `Custom (${customPresetLabel || '2–3h'})`
+                    : 'Full Day'}
+                </span>
+              </div>
 
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
                     {
                       id: 'MORNING' as const,
@@ -1165,6 +1327,12 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                       subtitle: '24/7 Unlimited',
                       icon: '☀️',
                     },
+                    {
+                      id: 'CUSTOM' as const,
+                      title: 'Custom Slot',
+                      subtitle: '2–3h Flexible',
+                      icon: '⏱️',
+                    },
                   ].map((shiftOption) => (
                     <button
                       key={shiftOption.id}
@@ -1175,6 +1343,9 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                         if (shiftOption.id === 'FULL_DAY') {
                           nextDuration = 'FULL_DAY';
                           setStayDuration('FULL_DAY');
+                        } else if (shiftOption.id === 'CUSTOM') {
+                          nextDuration = 'FOUR_HOURS';
+                          setStayDuration('FOUR_HOURS');
                         } else if (stayDuration === 'FULL_DAY') {
                           nextDuration = 'HALF_DAY';
                           setStayDuration('HALF_DAY');
@@ -1187,7 +1358,8 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                         const singleFee = getSuggestedFee(
                           shiftOption.id,
                           nextDuration,
-                          isStudentDefaultPlan && agreed > 0 ? agreed : undefined
+                          isStudentDefaultPlan && agreed > 0 ? agreed : undefined,
+                          shiftOption.id === 'CUSTOM' ? 3 : undefined
                         );
                         setPerMonthRate(singleFee);
                         const newTotal = singleFee * monthsCount;
@@ -1208,10 +1380,80 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                     </button>
                   ))}
                 </div>
-              </div>
 
-              {/* Tier 2: Stay Duration (Conditional: only for Morning or Evening shifts) */}
-              {selectedShift !== 'FULL_DAY' ? (
+              {/* Tier 2: Stay Duration (Conditional: CUSTOM, MORNING/EVENING, or FULL_DAY) */}
+              {selectedShift === 'CUSTOM' ? (
+                <div className="p-3 bg-indigo-50/70 dark:bg-[#161616] border border-indigo-200 dark:border-indigo-800/60 rounded-xl space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                      <span>Custom Flexible Shift (2–3 Hours)</span>
+                    </label>
+                    <span className="text-[10px] font-black text-indigo-800 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-950 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800">
+                      {customPresetLabel || `${minutesToTimeString(customStartMin)} – ${minutesToTimeString(customEndMin)}`}
+                    </span>
+                  </div>
+
+                  {/* Quick Presets */}
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-semibold text-slate-500 dark:text-neutral-400">Quick Time Presets:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {QUICK_CUSTOM_SLOT_PRESETS.map((preset) => {
+                        const isSelected = customStartMin === preset.startMin && customEndMin === preset.endMin;
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => {
+                              setCustomStartMin(preset.startMin);
+                              setCustomEndMin(preset.endMin);
+                              setCustomPresetLabel(preset.label);
+                              const singleFee = getSuggestedFee('CUSTOM', 'FOUR_HOURS', undefined, preset.durationHours);
+                              setPerMonthRate(singleFee);
+                              const newTotal = singleFee * monthsCount;
+                              setTotalFee(newTotal);
+                              setAmount(newTotal);
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all border cursor-pointer ${
+                              isSelected
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                : 'bg-white dark:bg-[#1f1f1f] border-slate-200 dark:border-[#2d2d2d] text-slate-700 dark:text-neutral-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40'
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Custom Start & End Time Input (12-Hour AM/PM) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 border-t border-indigo-100 dark:border-[#262626]">
+                    <Time12Picker
+                      label="Start Time"
+                      totalMinutes={customStartMin}
+                      onChange={(newStart) => {
+                        setCustomStartMin(newStart);
+                        const safeEnd = customEndMin <= newStart ? Math.min(newStart + 180, 1440) : customEndMin;
+                        if (customEndMin <= newStart) setCustomEndMin(safeEnd);
+                        setCustomPresetLabel(`${formatTime12(newStart)} – ${formatTime12(safeEnd)}`);
+                      }}
+                    />
+                    <Time12Picker
+                      label="End Time"
+                      totalMinutes={customEndMin}
+                      onChange={(newEnd) => {
+                        setCustomEndMin(newEnd);
+                        setCustomPresetLabel(`${formatTime12(customStartMin)} – ${formatTime12(newEnd)}`);
+                      }}
+                    />
+                  </div>
+
+                  <p className="text-[10px] text-indigo-700 dark:text-indigo-400 font-medium">
+                    ✨ You can freely set any custom price / monthly fee in the inputs below.
+                  </p>
+                </div>
+              ) : selectedShift !== 'FULL_DAY' ? (
                 <div className="p-2.5 bg-slate-50/80 dark:bg-[#161616] border border-slate-200 dark:border-[#262626] rounded-xl space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
                   <div className="flex items-center justify-between">
                     <label className="text-[11px] font-semibold text-slate-700 dark:text-neutral-300 flex items-center gap-1">
@@ -1288,346 +1530,377 @@ export const CollectFeeModal: React.FC<CollectFeeModalProps> = ({
                 Current Active Plan:
               </span>
               <span className="font-bold text-slate-800 dark:text-neutral-200">
-                {formatShiftSummary(selectedShift, stayDuration)} (₹{currentStudent?.monthlyFee || 1200}/mo)
+                {selectedShift === 'CUSTOM' ? (customPresetLabel || 'Custom Slot') : formatShiftSummary(selectedShift, stayDuration, currentStudent?.notes || currentStudent?.transactions?.[0]?.notes)} (₹{currentStudent?.monthlyFee || 1200}/mo)
               </span>
             </div>
           )}
 
-          {/* FEE INPUTS: Differentiated for REMAINING_DUE vs NEW_MONTH */}
-          {paymentType === 'REMAINING_DUE' ? (
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                  Pending Due Amount
-                </label>
-                <div className="px-3 py-2 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700/60 rounded-xl text-xs font-black text-amber-800 dark:text-amber-300 flex items-center justify-between">
-                  <span>₹{currentStudent?.remainingFee}</span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200">
-                    To Clear
+          {/* ========================================================= */}
+          {/* SECTION 3: FEE COLLECTION & PAYMENT MODE                  */}
+          {/* ========================================================= */}
+          <div className="p-3.5 bg-slate-50/70 dark:bg-[#18181b]/70 border border-slate-200/90 dark:border-[#27272a] rounded-2xl space-y-3 shadow-2xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-black flex items-center justify-center">3</div>
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-neutral-200">
+                  Fee Collection & Payment
+                </h4>
+              </div>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border ${
+                remainingDue > 0
+                  ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
+                  : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60'
+              }`}>
+                {remainingDue > 0 ? `⚠️ ₹${remainingDue} Due` : '✅ Due Cleared'}
+              </span>
+            </div>
+
+            {/* Fee Inputs */}
+            {paymentType === 'REMAINING_DUE' ? (
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
+                    Pending Due Amount
+                  </label>
+                  <div className="px-3 py-2 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700/60 rounded-xl text-xs font-black text-amber-800 dark:text-amber-300 flex items-center justify-between">
+                    <span>₹{currentStudent?.remainingFee}</span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200">
+                      To Clear
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
+                    Amount Received Now *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2.5 text-emerald-600 dark:text-emerald-400 font-bold text-xs">₹</span>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      max={currentStudent?.remainingFee}
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                      placeholder={String(currentStudent?.remainingFee || '')}
+                      className="w-full pl-7 pr-3 py-2 bg-white dark:bg-[#1c1c1e] border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-bold text-emerald-800 dark:text-emerald-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : isPeriodAlreadyPaid ? (
+              <div className="p-3 bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700/60 rounded-xl space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>Fee for {paidForMonth} is Fully Cleared</span>
+                  </span>
+                  <span className="text-[10px] font-extrabold text-emerald-800 dark:text-emerald-300 bg-emerald-200/70 dark:bg-emerald-900/60 px-2 py-0.5 rounded-full">
+                    ₹0 Due (Paid)
                   </span>
                 </div>
+                <p className="text-[11px] text-emerald-800 dark:text-emerald-300">
+                  Student already has an active paid enrollment for this cycle. Duplicate fees cannot be added for the same month period.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
+                    Total Fee (₹) *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2.5 text-slate-400 dark:text-neutral-500 font-bold text-xs">₹</span>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      value={totalFee}
+                      onChange={(e) => {
+                        const val = e.target.value === '' ? '' : Number(e.target.value);
+                        setTotalFee(val);
+                        if (amount === totalFee) {
+                          setAmount(val);
+                        }
+                        if (typeof val === 'number' && val > 0 && monthsCount > 0) {
+                          setPerMonthRate(Math.round(val / monthsCount));
+                        }
+                      }}
+                      placeholder="1200"
+                      className="w-full pl-7 pr-3 py-2 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-bold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
+                    Amount Received (Get Fee) *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2.5 text-emerald-600 dark:text-emerald-400 font-bold text-xs">₹</span>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                      placeholder="1200"
+                      className="w-full pl-7 pr-3 py-2 bg-white dark:bg-[#1c1c1e] border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-bold text-emerald-800 dark:text-emerald-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Remaining Due Status Banner */}
+            <div
+              className={`p-2.5 rounded-xl border flex items-center justify-between text-xs transition-colors ${
+                remainingDue > 0
+                  ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300'
+                  : 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300'
+              }`}
+            >
+              <span className="font-semibold flex items-center gap-1.5">
+                {remainingDue > 0 ? (
+                  <>
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <span>Remaining Due After This:</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>Payment Status:</span>
+                  </>
+                )}
+              </span>
+              <span className="font-extrabold">
+                {remainingDue > 0 ? `₹${remainingDue} Remaining Due` : 'Due Cleared (₹0 Due) ✅'}
+              </span>
+            </div>
+
+            {/* Payment Mode Selector */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
+                Payment Mode
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'UPI', label: '📱 UPI / QR' },
+                  { id: 'CASH', label: '💵 Cash' },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setPaymentMode(m.id)}
+                    className={`py-2.5 px-3 rounded-xl text-xs font-bold border text-center transition-all cursor-pointer ${
+                      paymentMode === m.id
+                        ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-500 dark:border-emerald-500 text-emerald-800 dark:text-emerald-300 ring-1 ring-emerald-500 shadow-2xs'
+                        : 'bg-white dark:bg-[#1c1c1e] border-slate-200 dark:border-[#262626] text-slate-600 dark:text-neutral-300 hover:bg-slate-50 dark:hover:bg-[#262626]'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Payment Date & Note */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
+                  Payment Date
+                </label>
+                <input
+                  type="date"
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-medium text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                />
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                  Amount Received Now *
+                  Notes / Txn ID <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-normal">(Optional)</span>
                 </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-2.5 text-emerald-600 dark:text-emerald-400 font-bold text-xs">₹</span>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    max={currentStudent?.remainingFee}
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                    placeholder={String(currentStudent?.remainingFee || '')}
-                    className="w-full pl-7 pr-3 py-2 bg-white dark:bg-[#1c1c1e] border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-bold text-emerald-800 dark:text-emerald-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
+                <input
+                  type="text"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="e.g. GPay / PhonePe ref"
+                  className="w-full px-3 py-2 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-medium text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                />
               </div>
             </div>
-          ) : isPeriodAlreadyPaid ? (
-            <div className="p-3 bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700/60 rounded-xl space-y-1">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                  <span>Fee for {paidForMonth} is Fully Cleared</span>
-                </span>
-                <span className="text-[10px] font-extrabold text-emerald-800 dark:text-emerald-300 bg-emerald-200/70 dark:bg-emerald-900/60 px-2 py-0.5 rounded-full">
-                  ₹0 Due (Paid)
-                </span>
-              </div>
-              <p className="text-[11px] text-emerald-800 dark:text-emerald-300">
-                Student already has an active paid enrollment for this cycle. Duplicate fees cannot be added for the same month period.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                  Total Fee (₹) *
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-2.5 text-slate-400 dark:text-neutral-500 font-bold text-xs">₹</span>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    value={totalFee}
-                    onChange={(e) => {
-                      const val = e.target.value === '' ? '' : Number(e.target.value);
-                      setTotalFee(val);
-                      if (amount === totalFee) {
-                        setAmount(val);
-                      }
-                      if (typeof val === 'number' && val > 0 && monthsCount > 0) {
-                        setPerMonthRate(Math.round(val / monthsCount));
-                      }
-                    }}
-                    placeholder="1200"
-                    className="w-full pl-7 pr-3 py-2 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-bold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                  Amount Received (Get Fee) *
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-2.5 text-emerald-600 dark:text-emerald-400 font-bold text-xs">₹</span>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                    placeholder="1200"
-                    className="w-full pl-7 pr-3 py-2 bg-white dark:bg-[#1c1c1e] border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-bold text-emerald-800 dark:text-emerald-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Remaining Due Status Banner */}
-          <div
-            className={`p-2.5 rounded-xl border flex items-center justify-between text-xs transition-colors ${
-              remainingDue > 0
-                ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300'
-                : 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300'
-            }`}
-          >
-            <span className="font-semibold flex items-center gap-1.5">
-              {remainingDue > 0 ? (
-                <>
-                  <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                  <span>Remaining Due After This:</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                  <span>Payment Status:</span>
-                </>
-              )}
-            </span>
-            <span className="font-extrabold">
-              {remainingDue > 0 ? `₹${remainingDue} Remaining Due` : 'Due Cleared (₹0 Due) ✅'}
-            </span>
           </div>
 
-          {/* Duration / Multi-Month Cycle Selector (Only in NEW_MONTH mode) */}
+          {/* ========================================================= */}
+          {/* SECTION 4: MEMBERSHIP DURATION & VALIDITY DATES           */}
+          {/* ========================================================= */}
           {paymentType === 'NEW_MONTH' && (
-            <div className="p-3 bg-slate-50/90 dark:bg-[#181818] border border-slate-200 dark:border-[#2a2a2a] rounded-xl space-y-2.5">
+            <div className="p-3.5 bg-slate-50/70 dark:bg-[#18181b]/70 border border-slate-200/90 dark:border-[#27272a] rounded-2xl space-y-3 shadow-2xs">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-slate-700 dark:text-neutral-300 flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                  <span>Membership Duration</span>
-                </label>
-                <span className="text-[10px] font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/50 px-2 py-0.5 rounded-md">
-                  {monthsCount === 1 ? '1 Month Cycle' : monthsCount === 12 ? '1 Year (12 Months)' : `${monthsCount} Months Cycle`}
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-black flex items-center justify-center">4</div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-neutral-200">
+                    Membership Validity & Period
+                  </h4>
+                </div>
+                <span className="text-[10px] font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/60 px-2 py-0.5 rounded-md">
+                  {monthsCount === 1 ? '1 Month Cycle' : monthsCount === 12 ? '1 Year (12 Mos)' : `${monthsCount} Months Cycle`}
                 </span>
               </div>
 
               {/* Quick Presets + Stepper */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {[
-                  { count: 1, label: '1 Mo' },
-                  { count: 2, label: '2 Mos' },
-                  { count: 3, label: '3 Mos' },
-                  { count: 6, label: '6 Mos' },
-                  { count: 12, label: '1 Year' },
-                ].map((preset) => {
-                  const isSelected = monthsCount === preset.count;
-                  return (
-                    <button
-                      key={preset.count}
-                      type="button"
-                      onClick={() => handleDurationChange(preset.count)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-white dark:bg-[#222] border border-slate-200 dark:border-[#333] text-slate-700 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-[#2c2c2c]'
-                      }`}
-                    >
-                      {preset.label}
-                    </button>
-                  );
-                })}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-700 dark:text-neutral-300 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span>Membership Duration</span>
+                </label>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {[
+                    { count: 1, label: '1 Mo' },
+                    { count: 2, label: '2 Mos' },
+                    { count: 3, label: '3 Mos' },
+                    { count: 6, label: '6 Mos' },
+                    { count: 12, label: '1 Year' },
+                  ].map((preset) => {
+                    const isSelected = monthsCount === preset.count;
+                    return (
+                      <button
+                        key={preset.count}
+                        type="button"
+                        onClick={() => handleDurationChange(preset.count)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-indigo-600 text-white shadow-xs'
+                            : 'bg-white dark:bg-[#222] border border-slate-200 dark:border-[#333] text-slate-700 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-[#2c2c2c]'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
 
-                {/* Add More Month Stepper Controls */}
-                <div className="ml-auto flex items-center gap-1 bg-white dark:bg-[#222] border border-slate-200 dark:border-[#333] rounded-lg p-0.5">
-                  <button
-                    type="button"
-                    disabled={monthsCount <= 1}
-                    onClick={() => handleDurationChange(Math.max(1, monthsCount - 1))}
-                    className="p-1 rounded text-slate-600 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-[#333] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                    title="Decrease 1 Month"
-                  >
-                    <Minus className="w-3.5 h-3.5" />
-                  </button>
-                  <span className="text-xs font-black px-1.5 text-slate-800 dark:text-white min-w-[2.2rem] text-center">
-                    {monthsCount}m
-                  </span>
-                  <button
-                    type="button"
-                    disabled={monthsCount >= 36}
-                    onClick={() => handleDurationChange(monthsCount + 1)}
-                    className="p-1 rounded text-slate-600 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-[#333] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                    title="Add 1 More Month"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
+                  {/* Month Stepper */}
+                  <div className="ml-auto flex items-center gap-1 bg-white dark:bg-[#222] border border-slate-200 dark:border-[#333] rounded-lg p-0.5">
+                    <button
+                      type="button"
+                      disabled={monthsCount <= 1}
+                      onClick={() => handleDurationChange(Math.max(1, monthsCount - 1))}
+                      className="p-1 rounded text-slate-600 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-[#333] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                      title="Decrease 1 Month"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="text-xs font-black px-1.5 text-slate-800 dark:text-white min-w-[2.2rem] text-center">
+                      {monthsCount}m
+                    </span>
+                    <button
+                      type="button"
+                      disabled={monthsCount >= 36}
+                      onClick={() => handleDurationChange(monthsCount + 1)}
+                      className="p-1 rounded text-slate-600 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-[#333] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                      title="Add 1 More Month"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
+
+                {/* Dynamic Calculation Breakdown */}
+                {(() => {
+                  const agreed = getStudentAgreedRate(currentStudent);
+                  const effectiveSingleRate = perMonthRate > 0
+                    ? perMonthRate
+                    : (agreed > 0 ? agreed : getSuggestedFee(selectedShift, stayDuration));
+                  const approxDays = validFrom && validTo ? Math.max(1, Math.round((new Date(validTo).getTime() - new Date(validFrom).getTime()) / (1000 * 60 * 60 * 24))) : monthsCount * 30;
+                  return (
+                    <div className="pt-2 border-t border-slate-200/70 dark:border-[#2a2a2a] flex items-center justify-between text-[11px]">
+                      <span className="text-slate-500 dark:text-neutral-400">
+                        Rate: <strong className="text-slate-800 dark:text-neutral-200">₹{effectiveSingleRate.toLocaleString('en-IN')}/mo × {monthsCount} {monthsCount === 1 ? 'month' : 'months'}</strong>
+                      </span>
+                      <span className="font-bold text-emerald-700 dark:text-emerald-400">
+                        ≈ {approxDays} Days Active
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
 
-              {/* Dynamic Calculation Breakdown */}
-              {(() => {
-                const agreed = getStudentAgreedRate(currentStudent);
-                const effectiveSingleRate = perMonthRate > 0
-                  ? perMonthRate
-                  : (agreed > 0 ? agreed : getSuggestedFee(selectedShift, stayDuration));
-                const approxDays = validFrom && validTo ? Math.max(1, Math.round((new Date(validTo).getTime() - new Date(validFrom).getTime()) / (1000 * 60 * 60 * 24))) : monthsCount * 30;
-                return (
-                  <div className="pt-2 border-t border-slate-200/70 dark:border-[#2a2a2a] flex items-center justify-between text-[11px]">
-                    <span className="text-slate-500 dark:text-neutral-400">
-                      Rate calculation: <strong className="text-slate-800 dark:text-neutral-200">₹{effectiveSingleRate.toLocaleString('en-IN')}/mo × {monthsCount} {monthsCount === 1 ? 'month' : 'months'}</strong>
-                    </span>
-                    <span className="font-bold text-emerald-700 dark:text-emerald-400">
-                      ≈ {approxDays} Days Active
+              {/* Date Range: Valid From & Valid To */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-700 dark:text-neutral-300 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span>Membership Date Range (From - To) *</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <span className="text-[10px] text-slate-400 dark:text-neutral-500 block mb-0.5">Valid From</span>
+                    <input
+                      type="date"
+                      required
+                      value={validFrom}
+                      onChange={(e) => {
+                        const newFrom = e.target.value;
+                        setValidFrom(newFrom);
+                        if (newFrom) {
+                          const newTo = addMonthsToDate(newFrom, monthsCount);
+                          setValidTo(newTo);
+                          setPaidForMonth(formatMonthPeriod(newFrom, newTo));
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-medium text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 dark:text-neutral-500 block mb-0.5">Valid To (Next Due Date)</span>
+                    <input
+                      type="date"
+                      required
+                      value={validTo}
+                      onChange={(e) => {
+                        const newTo = e.target.value;
+                        setValidTo(newTo);
+                        if (validFrom && newTo) {
+                          const diffMonths = getMonthsDifference(validFrom, newTo);
+                          setMonthsCount(diffMonths);
+                          setPaidForMonth(formatMonthPeriod(validFrom, newTo));
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-medium text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Period Cycle Banner */}
+                {validFrom && validTo && (
+                  <div className="p-2 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-800/50 rounded-xl text-xs flex items-center justify-between">
+                    <span className="text-slate-500 dark:text-neutral-400 font-medium text-[11px]">Period Cycle:</span>
+                    <span className="font-bold text-indigo-700 dark:text-indigo-300 text-[11px]">
+                      {getDetailedPeriodLabel(validFrom, validTo)}
+                      {monthsCount > 1 ? ` (${monthsCount} Months)` : ''}
                     </span>
                   </div>
-                );
-              })()}
+                )}
+              </div>
+
+              {/* Fee for Month Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
+                  Billing Month Reference *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={paidForMonth}
+                  onChange={(e) => setPaidForMonth(e.target.value)}
+                  placeholder="e.g. Jan – Feb 2026"
+                  className="w-full px-3 py-2 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
             </div>
           )}
-
-          {/* Date Range: Valid From & Valid To */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-700 dark:text-neutral-300 flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span>Membership Date Range (From - To) *</span>
-            </label>
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <span className="text-[10px] text-slate-400 dark:text-neutral-500 block mb-0.5">Valid From</span>
-                <input
-                  type="date"
-                  required
-                  value={validFrom}
-                  onChange={(e) => {
-                    const newFrom = e.target.value;
-                    setValidFrom(newFrom);
-                    if (newFrom) {
-                      const newTo = addMonthsToDate(newFrom, monthsCount);
-                      setValidTo(newTo);
-                      setPaidForMonth(formatMonthPeriod(newFrom, newTo));
-                    }
-                  }}
-                  className="w-full px-3 py-1.5 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-medium text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 dark:text-neutral-500 block mb-0.5">Valid To (Next Due Date)</span>
-                <input
-                  type="date"
-                  required
-                  value={validTo}
-                  onChange={(e) => {
-                    const newTo = e.target.value;
-                    setValidTo(newTo);
-                    if (validFrom && newTo) {
-                      const diffMonths = getMonthsDifference(validFrom, newTo);
-                      setMonthsCount(diffMonths);
-                      setPaidForMonth(formatMonthPeriod(validFrom, newTo));
-                    }
-                  }}
-                  className="w-full px-3 py-1.5 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-medium text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-            </div>
-
-            {/* Dynamic Billing Period Label */}
-            {validFrom && validTo && (
-              <div className="p-2 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-800/50 rounded-xl text-xs flex items-center justify-between">
-                <span className="text-slate-500 dark:text-neutral-400 font-medium text-[11px]">Period Cycle:</span>
-                <span className="font-bold text-indigo-700 dark:text-indigo-300 text-[11px]">
-                  {getDetailedPeriodLabel(validFrom, validTo)}
-                  {monthsCount > 1 ? ` (${monthsCount} Months)` : ''}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Fee for Month Selector */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-              Billing Month Reference *
-            </label>
-            <input
-              type="text"
-              required
-              value={paidForMonth}
-              onChange={(e) => setPaidForMonth(e.target.value)}
-              placeholder="e.g. Jan – Feb 2026"
-              className="w-full px-3 py-2 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-
-          {/* Payment Mode Selector (Only UPI / QR and Cash) */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-              Payment Mode
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { id: 'UPI', label: 'UPI / QR' },
-                { id: 'CASH', label: 'Cash' },
-              ].map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setPaymentMode(m.id)}
-                  className={`py-2.5 px-3 rounded-xl text-xs font-bold border text-center transition-all cursor-pointer ${
-                    paymentMode === m.id
-                      ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-500 dark:border-emerald-500 text-emerald-800 dark:text-emerald-300 ring-1 ring-emerald-500 shadow-2xs'
-                      : 'bg-white dark:bg-[#1c1c1e] border-slate-200 dark:border-[#262626] text-slate-600 dark:text-neutral-300 hover:bg-slate-50 dark:hover:bg-[#262626]'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Payment Date & Note */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                Payment Date
-              </label>
-              <input
-                type="date"
-                value={paymentDate}
-                onChange={(e) => setPaymentDate(e.target.value)}
-                className="w-full px-3 py-2 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-medium text-slate-900 dark:text-neutral-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-neutral-300 mb-1">
-                Notes / Txn ID <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-normal">(Optional)</span>
-              </label>
-              <input
-                type="text"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="e.g. GPay / PhonePe ref"
-                className="w-full px-3 py-2 bg-white dark:bg-[#1c1c1e] border border-slate-200 dark:border-[#262626] rounded-xl text-xs font-medium text-slate-900 dark:text-neutral-100 placeholder:text-slate-400 dark:placeholder:text-neutral-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-          </div>
 
 
           {/* Action buttons */}

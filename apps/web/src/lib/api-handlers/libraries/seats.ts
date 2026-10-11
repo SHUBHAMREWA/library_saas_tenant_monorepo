@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@library/database';
 import { serverCache } from '@/lib/server-cache';
+import {
+  parseCustomSlotFromNotes,
+  resolveEffectiveTimeSlot,
+  checkSlotsOverlap,
+  encodeCustomSlot,
+} from '@/lib/slot-utils';
 import crypto from 'crypto';
 
 const NO_CACHE_HEADERS = {
@@ -35,6 +41,12 @@ export async function handleGetSeats(_req: NextRequest, libraryId: string) {
                 seatAssignments: {
                   where: { status: 'ACTIVE' },
                   include: {
+                    membership: {
+                      select: {
+                        notes: true,
+                        shift: true,
+                      },
+                    },
                     student: {
                       select: {
                         id: true,
@@ -63,6 +75,8 @@ export async function handleGetSeats(_req: NextRequest, libraryId: string) {
 
     const seenSeatKeys = new Set<string>();
     const allSeats: any[] = [];
+    const assignmentsToRelease: string[] = [];
+    const seatsToFree: string[] = [];
     const now = new Date();
 
     const formattedRooms = rooms.map((rm) => {
@@ -95,20 +109,25 @@ export async function handleGetSeats(_req: NextRequest, libraryId: string) {
             const isExpired = latestValidEndDate ? latestValidEndDate.getTime() <= now.getTime() : false;
 
             if (isExpired) {
-              // Asynchronously release expired seat assignment in DB
-              prisma.seatAssignment.update({
-                where: { id: sa.id },
-                data: { status: 'RELEASED', endDate: now },
-              }).catch(() => {});
+              assignmentsToRelease.push(sa.id);
               continue;
             }
+
+            const customSlot = parseCustomSlotFromNotes(sa.membership?.notes) ||
+              parseCustomSlotFromNotes(std.memberships?.[0]?.notes) ||
+              parseCustomSlotFromNotes(std.feeTransactions?.[0]?.notes);
+
+            const displayShift = customSlot ? customSlot.label : (sa.shift || 'FULL_DAY');
+            const resolvedSlot = customSlot || resolveEffectiveTimeSlot(sa.shift, sa.membership?.notes || std.memberships?.[0]?.notes);
 
             activeOccupants.push({
               studentId: std.id,
               studentName: std.fullName,
               phone: std.phone,
               photoUrl: std.photoUrl || undefined,
-              shift: sa.shift || 'FULL_DAY',
+              shift: displayShift,
+              rawShift: sa.shift || 'FULL_DAY',
+              timeSlot: resolvedSlot,
             });
           }
 
@@ -119,7 +138,7 @@ export async function handleGetSeats(_req: NextRequest, libraryId: string) {
             mainName = activeOccupants[0].studentName;
             mainShift = activeOccupants[0].shift;
           } else if (activeOccupants.length > 1) {
-            mainName = activeOccupants.map((o: any) => `${o.studentName} (${o.shift.charAt(0)})`).join(' • ');
+            mainName = activeOccupants.map((o: any) => `${o.studentName} (${o.shift})`).join(' • ');
             mainShift = 'SHARED';
           }
 
@@ -128,6 +147,7 @@ export async function handleGetSeats(_req: NextRequest, libraryId: string) {
             seatStatus = st.status === 'RESERVED' ? 'RESERVED' : 'OCCUPIED';
           } else if (st.status === 'OCCUPIED') {
             seatStatus = 'AVAILABLE';
+            seatsToFree.push(st.id);
           }
 
           allSeats.push({
@@ -139,6 +159,7 @@ export async function handleGetSeats(_req: NextRequest, libraryId: string) {
             shift: mainShift,
             occupants: activeOccupants,
             roomId: rm.id,
+            roomName: rm.name,
             hasLocker: st.hasLocker || rw.hasLocker || false,
           });
         });
@@ -150,6 +171,19 @@ export async function handleGetSeats(_req: NextRequest, libraryId: string) {
         rows: uniqueRowNames,
       };
     });
+
+    if (assignmentsToRelease.length > 0) {
+      prisma.seatAssignment.updateMany({
+        where: { id: { in: assignmentsToRelease } },
+        data: { status: 'RELEASED', endDate: now },
+      }).catch((e) => console.warn('Could not batch release seat assignments:', e));
+    }
+    if (seatsToFree.length > 0) {
+      prisma.seat.updateMany({
+        where: { id: { in: seatsToFree } },
+        data: { status: 'AVAILABLE' },
+      }).catch((e) => console.warn('Could not free phantom occupied seats:', e));
+    }
 
     allSeats.sort((a, b) =>
       a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' })
@@ -420,7 +454,7 @@ export async function handleDeleteSeats(req: NextRequest, libraryId: string) {
 export async function handleAssignSeat(req: NextRequest, libraryId: string) {
   try {
     const body = await req.json();
-    const { studentId, seatId, seatNumber, roomId, rowName, shift, reserveSeat } = body;
+    const { studentId, seatId, seatNumber, roomId, rowName, shift, reserveSeat, customSlot, forceReassign } = body;
 
     if (!studentId) {
       return NextResponse.json({ error: 'studentId is required' }, { status: 400 });
@@ -447,38 +481,144 @@ export async function handleAssignSeat(req: NextRequest, libraryId: string) {
 
     const isUnassign = Boolean(body.unassign) || !seatNumber || seatNumber === 'UNASSIGN';
 
-    if (!membership) {
-      membership = await prisma.membership.create({
-        data: {
-          id: crypto.randomUUID(),
-          libraryId,
-          studentId: student.id,
-          startDate: now,
-          expectedEndDate: end,
-          status: 'ACTIVE',
-          feeAmount: 1000,
-          shift: (shift || 'FULL_DAY') as any,
-        },
+    if (isUnassign) {
+      const existingAssignments = await prisma.seatAssignment.findMany({
+        where: { studentId: student.id, status: 'ACTIVE' },
+        include: { seat: true },
       });
-    } else if (isUnassign) {
+
+      for (const assignment of existingAssignments) {
+        await prisma.seatAssignment.update({
+          where: { id: assignment.id },
+          data: { status: 'RELEASED', endDate: new Date() },
+        });
+
+        if (assignment.seatId) {
+          const remainingCount = await prisma.seatAssignment.count({
+            where: { seatId: assignment.seatId, status: 'ACTIVE' },
+          });
+
+          if (remainingCount === 0) {
+            await prisma.seat.update({
+              where: { id: assignment.seatId },
+              data: { status: 'AVAILABLE' },
+            });
+          }
+        }
+      }
+
+      await prisma.seatAssignment.updateMany({
+        where: { studentId: student.id, status: 'ACTIVE' },
+        data: { status: 'RELEASED', endDate: new Date() },
+      });
+
       if (membership) {
         await prisma.membership.update({
           where: { id: membership.id },
           data: { status: 'PAUSED' },
         });
       }
-    } else {
-      const isPastOrExpired = !membership.expectedEndDate || new Date(membership.expectedEndDate).getTime() <= now.getTime();
-      membership = await prisma.membership.update({
-        where: { id: membership.id },
-        data: {
-          status: 'ACTIVE',
-          shift: (shift || membership.shift) as any,
-          expectedEndDate: isPastOrExpired ? end : membership.expectedEndDate,
-        },
+
+      serverCache.invalidate(libraryId);
+
+      return NextResponse.json({
+        success: true,
+        assigned: false,
+        studentId: student.id,
+        studentName: student.fullName,
+        seatId: null,
+        seatNumber: null,
       });
     }
 
+    // --- ASSIGN SEAT FLOW ---
+    let targetSeat = null;
+    if (seatId) {
+      targetSeat = await prisma.seat.findFirst({
+        where: { id: seatId, libraryId },
+      });
+    }
+    if (!targetSeat && seatNumber && (roomId || rowName)) {
+      targetSeat = await prisma.seat.findFirst({
+        where: {
+          seatNumber,
+          libraryId,
+          ...(roomId ? { row: { roomId } } : {}),
+          ...(rowName ? { row: { name: rowName } } : {}),
+        },
+      });
+    }
+    if (!targetSeat && seatNumber) {
+      targetSeat = await prisma.seat.findFirst({
+        where: { seatNumber, libraryId },
+      });
+    }
+
+    if (!targetSeat) {
+      return NextResponse.json({ error: 'Seat not found' }, { status: 404 });
+    }
+
+    const slotInput = typeof customSlot === 'string'
+      ? customSlot
+      : (customSlot?.startMin !== undefined && customSlot?.endMin !== undefined
+          ? encodeCustomSlot(customSlot.startMin, customSlot.endMin, customSlot.label)
+          : (customSlot?.label || membership?.notes));
+
+    const requestedSlot = resolveEffectiveTimeSlot(shift, slotInput);
+
+    // Conflict detection against active occupants on targetSeat
+    const prevOccupantAssignments = await prisma.seatAssignment.findMany({
+      where: { seatId: targetSeat.id, libraryId, status: 'ACTIVE' },
+      include: {
+        student: { select: { fullName: true } },
+        membership: { select: { notes: true, shift: true } },
+      },
+    });
+
+    for (const poa of prevOccupantAssignments) {
+      if (poa.studentId === student.id) continue;
+
+      const poaSlot = resolveEffectiveTimeSlot(poa.shift, poa.membership?.notes);
+      const isConflict = checkSlotsOverlap(requestedSlot, poaSlot);
+
+      if (isConflict) {
+        if (forceReassign) {
+          await prisma.seatAssignment.update({
+            where: { id: poa.id },
+            data: { status: 'RELEASED', endDate: new Date() },
+          });
+        } else {
+          return NextResponse.json(
+            {
+              error: `Time clash on Seat #${targetSeat.seatNumber}: ${poa.student?.fullName || 'Existing student'} is already assigned (${poaSlot.label}). Please choose an available time slot.`,
+              code: 'SLOT_CONFLICT',
+              conflictingStudent: poa.student?.fullName,
+              conflictingSlot: poaSlot.label,
+            },
+            { status: 409 }
+          );
+        }
+      }
+    }
+
+    // Determine DB-safe ShiftType (Postgres enum allows only MORNING, EVENING, NIGHT, FULL_DAY, FOUR_HOURS, HALF_DAY)
+    const VALID_SHIFTS = ['MORNING', 'EVENING', 'NIGHT', 'FULL_DAY', 'FOUR_HOURS', 'HALF_DAY'];
+    const isCustom = requestedSlot.isCustom || shift === 'CUSTOM' || Boolean(customSlot);
+    const dbSafeShift: 'FULL_DAY' | 'MORNING' | 'EVENING' | 'NIGHT' | 'FOUR_HOURS' | 'HALF_DAY' = isCustom
+      ? 'FOUR_HOURS'
+      : (shift && VALID_SHIFTS.includes(shift.toUpperCase())
+          ? (shift.toUpperCase() as any)
+          : (membership?.shift && VALID_SHIFTS.includes(membership.shift.toUpperCase())
+              ? (membership.shift.toUpperCase() as any)
+              : 'FULL_DAY'));
+
+    let updatedNotes = membership?.notes || '';
+    if (isCustom) {
+      const slotTag = encodeCustomSlot(requestedSlot.startMin, requestedSlot.endMin, requestedSlot.label);
+      updatedNotes = `${updatedNotes.replace(/SLOT:[^|\n]+(?:\|[^\n\r]+)?/g, '').trim()} ${slotTag}`.trim();
+    }
+
+    // Release old active assignments for this student
     const existingAssignments = await prisma.seatAssignment.findMany({
       where: { studentId: student.id, status: 'ACTIVE' },
       include: { seat: true },
@@ -490,7 +630,7 @@ export async function handleAssignSeat(req: NextRequest, libraryId: string) {
         data: { status: 'RELEASED', endDate: new Date() },
       });
 
-      if (assignment.seatId) {
+      if (assignment.seatId && assignment.seatId !== targetSeat.id) {
         const remainingCount = await prisma.seatAssignment.count({
           where: { seatId: assignment.seatId, status: 'ACTIVE' },
         });
@@ -509,104 +649,65 @@ export async function handleAssignSeat(req: NextRequest, libraryId: string) {
       data: { status: 'RELEASED', endDate: new Date() },
     });
 
-    if (!isUnassign && (seatId || seatNumber)) {
-      let targetSeat = null;
-      if (seatId) {
-        targetSeat = await prisma.seat.findFirst({
-          where: { id: seatId, libraryId },
-        });
-      }
-      if (!targetSeat && seatNumber && (roomId || rowName)) {
-        targetSeat = await prisma.seat.findFirst({
-          where: {
-            seatNumber,
-            libraryId,
-            ...(roomId ? { row: { roomId } } : {}),
-            ...(rowName ? { row: { name: rowName } } : {}),
-          },
-        });
-      }
-      if (!targetSeat && seatNumber) {
-        targetSeat = await prisma.seat.findFirst({
-          where: { seatNumber, libraryId },
-        });
-      }
-
-      if (!targetSeat) {
-        return NextResponse.json({ error: 'Seat not found' }, { status: 404 });
-      }
-
-      const targetShift = (shift || membership.shift || 'FULL_DAY').toUpperCase();
-      const isMorning = targetShift === 'MORNING' || targetShift === 'FOUR_HOURS' || targetShift === 'HALF_DAY';
-      const isEvening = targetShift === 'EVENING';
-
-      const prevOccupantAssignments = await prisma.seatAssignment.findMany({
-        where: { seatId: targetSeat.id, libraryId, status: 'ACTIVE' },
-      });
-
-      for (const poa of prevOccupantAssignments) {
-        if (poa.studentId === student.id) continue;
-
-        const poaShift = (poa.shift || 'FULL_DAY').toUpperCase();
-        const poaIsMorning = poaShift === 'MORNING' || poaShift === 'FOUR_HOURS' || poaShift === 'HALF_DAY';
-        const poaIsEvening = poaShift === 'EVENING';
-
-        const isConflict =
-          targetShift === 'FULL_DAY' ||
-          poaShift === 'FULL_DAY' ||
-          (isMorning && poaIsMorning) ||
-          (isEvening && poaIsEvening);
-
-        if (isConflict) {
-          await prisma.seatAssignment.update({
-            where: { id: poa.id },
-            data: { status: 'RELEASED', endDate: new Date() },
-          });
-        }
-      }
-
-      const newStatus = reserveSeat ? 'RESERVED' : 'OCCUPIED';
-      await prisma.seat.update({
-        where: { id: targetSeat.id },
-        data: { status: newStatus as any },
-      });
-
-      await prisma.seatAssignment.create({
+    // Create or update membership ONCE with safe ShiftType
+    const isPastOrExpired = !membership?.expectedEndDate || new Date(membership.expectedEndDate).getTime() <= now.getTime();
+    if (!membership) {
+      membership = await prisma.membership.create({
         data: {
           id: crypto.randomUUID(),
           libraryId,
-          seatId: targetSeat.id,
           studentId: student.id,
-          membershipId: membership.id,
-          shift: (shift || membership.shift) as any,
-          startDate: new Date(),
+          startDate: now,
+          expectedEndDate: end,
           status: 'ACTIVE',
+          feeAmount: 1000,
+          shift: dbSafeShift,
+          notes: updatedNotes || null,
         },
       });
-
-      serverCache.invalidate(libraryId);
-
-      return NextResponse.json({
-        success: true,
-        assigned: true,
-        studentId: student.id,
-        studentName: student.fullName,
-        seatId: targetSeat.id,
-        seatNumber: targetSeat.seatNumber,
-        status: newStatus,
-        shift: shift || membership.shift,
+    } else {
+      membership = await prisma.membership.update({
+        where: { id: membership.id },
+        data: {
+          status: 'ACTIVE',
+          shift: dbSafeShift,
+          notes: updatedNotes || null,
+          expectedEndDate: isPastOrExpired ? end : membership.expectedEndDate,
+        },
       });
     }
+
+    const newStatus = reserveSeat ? 'RESERVED' : 'OCCUPIED';
+    await prisma.seat.update({
+      where: { id: targetSeat.id },
+      data: { status: newStatus as any },
+    });
+
+    await prisma.seatAssignment.create({
+      data: {
+        id: crypto.randomUUID(),
+        libraryId,
+        seatId: targetSeat.id,
+        studentId: student.id,
+        membershipId: membership.id,
+        shift: dbSafeShift,
+        startDate: new Date(),
+        status: 'ACTIVE',
+      },
+    });
 
     serverCache.invalidate(libraryId);
 
     return NextResponse.json({
       success: true,
-      assigned: false,
+      assigned: true,
       studentId: student.id,
       studentName: student.fullName,
-      seatId: null,
-      seatNumber: null,
+      seatId: targetSeat.id,
+      seatNumber: targetSeat.seatNumber,
+      status: newStatus,
+      shift: isCustom ? requestedSlot.label : (shift || membership.shift),
+      timeSlot: requestedSlot,
     });
   } catch (error: any) {
     console.error('API POST /api/libraries/[id]/seats/assign error:', error);

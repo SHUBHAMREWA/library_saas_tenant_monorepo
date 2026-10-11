@@ -113,8 +113,9 @@ interface StudentProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   student: StudentItem | null;
-  availableSeats: { id: string; seatNumber: string; rowName?: string; roomId?: string | null }[];
-  onAssignSeat: (studentId: string, seatNumber: string | null, shift?: string, isReserved?: boolean, seatId?: string, roomId?: string | null, rowName?: string) => Promise<void> | void;
+  availableSeats: { id: string; seatNumber: string; rowName?: string; roomId?: string | null; roomName?: string | null }[];
+  rooms?: { id: string; name: string }[];
+  onAssignSeat: (studentId: string, seatNumber: string | null, shift?: string, isReserved?: boolean, seatId?: string, roomId?: string | null, rowName?: string, customSlot?: any, forceReassign?: boolean) => Promise<void> | void;
   onUpdateStudent?: (studentId: string, data: Partial<StudentItem>) => Promise<void> | void;
   onDeleteStudent?: (studentId: string) => Promise<void> | void;
   onCollectFee?: (student: StudentItem) => void;
@@ -138,6 +139,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   onClose,
   student,
   availableSeats,
+  rooms = [],
   onAssignSeat,
   onUpdateStudent,
   onDeleteStudent,
@@ -154,6 +156,27 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [previewingImage, setPreviewingImage] = useState<string | null>(null);
+
+  // Group available seats cleanly by Hall / Room with natural numeric sorting
+  const seatsByRoom = useMemo(() => {
+    const roomMap = new Map<string, typeof availableSeats>();
+    for (const seat of availableSeats) {
+      const rName = seat.roomName || 'Study Hall';
+      if (!roomMap.has(rName)) {
+        roomMap.set(rName, []);
+      }
+      roomMap.get(rName)!.push(seat);
+    }
+
+    const groups: { roomName: string; seats: typeof availableSeats }[] = [];
+    roomMap.forEach((seatsList, roomName) => {
+      const sorted = [...seatsList].sort((a, b) =>
+        a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true, sensitivity: 'base' })
+      );
+      groups.push({ roomName, seats: sorted });
+    });
+    return groups;
+  }, [availableSeats]);
 
   const isFeePending = Boolean(
     student &&
@@ -1209,7 +1232,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                             Assigned Desk
                           </span>
                           <span className="text-xs font-extrabold text-slate-900 dark:text-white">
-                            {student.seatNumber ? `Seat ${student.seatNumber}` : 'No Seat Assigned'}
+                            {student.seatNumber ? `${student.roomName ? `[${student.roomName}] ` : ''}Seat ${student.seatNumber}` : 'No Seat Assigned'}
                           </span>
                         </div>
                       </div>
@@ -1250,10 +1273,14 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                           className="w-full px-3 py-1.5 bg-white dark:bg-[#121212] border border-slate-300 dark:border-[#363636] rounded-xl text-xs font-semibold text-slate-900 dark:text-neutral-100"
                         >
                           <option value="">-- Choose an Available Seat --</option>
-                          {availableSeats.map((s) => (
-                            <option key={s.id} value={s.seatNumber}>
-                              Seat {s.seatNumber} ({s.rowName || 'Main Hall'})
-                            </option>
+                          {seatsByRoom.map((group) => (
+                            <optgroup key={group.roomName} label={`🏢 ${group.roomName}`}>
+                              {group.seats.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  [{s.roomName || group.roomName}] Seat {s.seatNumber} (Row {s.rowName || 'A'})
+                                </option>
+                              ))}
+                            </optgroup>
                           ))}
                           {student.seatNumber && (
                             <option value="UNASSIGN">Remove / Unassign Seat</option>

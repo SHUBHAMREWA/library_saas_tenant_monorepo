@@ -52,6 +52,7 @@ export interface StudentItem {
   monthlyFee?: number;
   totalFee?: number;
   remainingFee?: number;
+  notes?: string;
   transactions?: StudentFeeRecord[];
 }
 
@@ -248,6 +249,7 @@ interface StudentListProps {
 
 export const formatShift = (shift?: string): string => {
   if (!shift) return '';
+  if (shift.includes('–') || shift.includes('-')) return shift;
   switch (shift.toUpperCase()) {
     case 'FOUR_HOURS':
       return '4 Hours';
@@ -261,6 +263,8 @@ export const formatShift = (shift?: string): string => {
       return 'Evening';
     case 'NIGHT':
       return 'Night';
+    case 'CUSTOM':
+      return 'Custom Slot';
     default:
       return shift;
   }
@@ -365,12 +369,19 @@ export const getEffectiveStayDuration = (student: StudentItem): string => {
   return 'FOUR_HOURS';
 };
 
-export const getStudentPreviousSeat = (student: StudentItem): { seatNumber: string | null; inactiveDays: number } => {
-  if (student.seatNumber) return { seatNumber: null, inactiveDays: 0 };
+export const getStudentPreviousSeat = (student: StudentItem): {
+  seatNumber: string | null;
+  inactiveDays: number;
+  roomId?: string | null;
+  roomName?: string | null;
+} => {
+  if (student.seatNumber) return { seatNumber: null, inactiveDays: 0, roomId: student.roomId, roomName: student.roomName };
   if (student.previousSeatNumber !== undefined && student.previousSeatNumber !== null) {
     return {
       seatNumber: student.previousSeatNumber,
       inactiveDays: student.inactiveDays || 0,
+      roomId: student.roomId,
+      roomName: student.roomName,
     };
   }
 
@@ -390,7 +401,12 @@ export const getStudentPreviousSeat = (student: StudentItem): { seatNumber: stri
   const inactiveDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
 
   if (inactiveDays <= 30) {
-    return { seatNumber: txWithSeat.seatNumber, inactiveDays };
+    return {
+      seatNumber: txWithSeat.seatNumber,
+      inactiveDays,
+      roomId: student.roomId,
+      roomName: student.roomName,
+    };
   }
 
   return { seatNumber: null, inactiveDays };
@@ -836,7 +852,7 @@ export const StudentList: React.FC<StudentListProps> = ({
                 <div className="flex flex-col items-end gap-1 shrink-0">
                   {hasSeat ? (
                     <span className="text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-md flex items-center gap-1 border border-indigo-100 dark:border-indigo-900/60">
-                      <Armchair className="w-3 h-3" /> {student.seatNumber}
+                      <Armchair className="w-3 h-3" /> {student.roomName ? `[${student.roomName}] ` : ''}Seat {student.seatNumber}
                     </span>
                   ) : hasActiveValidity ? (
                     <button

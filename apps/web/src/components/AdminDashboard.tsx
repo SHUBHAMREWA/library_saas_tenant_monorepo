@@ -479,9 +479,12 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
 
       const data = await res.json();
       if (res.ok && data.success) {
-        setUsers((prev) =>
-          prev.map((u) => (u.id === targetUser.id ? { ...u, role: newRole } : u))
-        );
+        setUsers((prev) => {
+          const updated = prev.map((u) => (u.id === targetUser.id ? { ...u, role: newRole } : u));
+          setAdminCache('admin_users', updated);
+          return updated;
+        });
+        setTabLastUpdated((prev) => ({ ...prev, users: Date.now() }));
         setStatusMessage({
           type: 'success',
           text: `User '${targetUser.email}' role updated to ${newRole}!`,
@@ -974,7 +977,6 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
         setUsers(cached.data);
         setTabLastUpdated((prev) => ({ ...prev, users: cached.updatedAt }));
         setTabLoaded((prev) => ({ ...prev, users: true }));
-        if (Date.now() - cached.updatedAt < 5 * 60 * 1000) return;
       }
     }
 
@@ -1296,16 +1298,19 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
       });
 
       if (res.ok) {
-        setLibraries((prev) =>
-          prev.map((lib) => (lib.id === selectedLibForToggle.id ? { ...lib, isActive: newStatus } : lib))
-        );
-        if (metrics) {
-          setMetrics({
-            ...metrics,
-            activeLibraries: newStatus ? metrics.activeLibraries + 1 : metrics.activeLibraries - 1,
-            suspendedLibraries: newStatus ? metrics.suspendedLibraries - 1 : metrics.suspendedLibraries + 1,
-          });
-        }
+        setLibraries((prev) => {
+          const updated = prev.map((lib) => (lib.id === selectedLibForToggle.id ? { ...lib, isActive: newStatus } : lib));
+          if (metrics) {
+            const updatedMetrics = {
+              ...metrics,
+              activeLibraries: newStatus ? metrics.activeLibraries + 1 : metrics.activeLibraries - 1,
+              suspendedLibraries: newStatus ? metrics.suspendedLibraries - 1 : metrics.suspendedLibraries + 1,
+            };
+            setMetrics(updatedMetrics);
+            setAdminCache('admin_overview', { metrics: updatedMetrics, libraries: updated });
+          }
+          return updated;
+        });
         setStatusMessage({
           type: 'success',
           text: `Library "${selectedLibForToggle.name}" has been ${newStatus ? 'activated' : 'suspended'}.`,
@@ -1502,7 +1507,11 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
       });
 
       if (res.ok) {
-        setCoupons((prev) => prev.filter((c) => c.id !== selectedCouponForDelete.id));
+        setCoupons((prev) => {
+          const updated = prev.filter((c) => c.id !== selectedCouponForDelete.id);
+          setAdminCache('admin_coupons', updated);
+          return updated;
+        });
         setStatusMessage({
           type: 'success',
           text: `Coupon '${selectedCouponForDelete.code}' deleted successfully!`,
@@ -1528,9 +1537,11 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
       });
 
       if (res.ok) {
-        setCoupons((prev) =>
-          prev.map((c) => (c.id === couponId ? { ...c, isActive: !c.isActive } : c))
-        );
+        setCoupons((prev) => {
+          const updated = prev.map((c) => (c.id === couponId ? { ...c, isActive: !c.isActive } : c));
+          setAdminCache('admin_coupons', updated);
+          return updated;
+        });
       }
     } catch (err) {
       console.error('Failed to toggle coupon:', err);
