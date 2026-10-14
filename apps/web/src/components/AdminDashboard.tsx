@@ -22,6 +22,7 @@ import {
   Layers,
   Edit3,
   CreditCard,
+  Zap,
   Calendar,
   Clock,
   Percent,
@@ -108,6 +109,25 @@ interface PlatformMetrics {
   totalRevenue: number;
 }
 
+export interface AdminLibrarySubscription {
+  id?: string;
+  status: string;
+  planName?: string;
+  planCode?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  validUntil: string;
+  daysRemaining?: number;
+  isExpired?: boolean;
+  autoRenew: boolean;
+  autoRenewCancelledAt: string | null;
+  cancellationReason: string | null;
+  plan?: {
+    name: string;
+    code: string;
+  } | null;
+}
+
 interface AdminLibrary {
   id: string;
   name: string;
@@ -123,13 +143,8 @@ interface AdminLibrary {
     email: string;
     phone?: string;
   };
-  subscription?: {
-    status: string;
-    autoRenew: boolean;
-    autoRenewCancelledAt: string | null;
-    cancellationReason: string | null;
-    validUntil: string;
-  } | null;
+  subscription?: AdminLibrarySubscription | null;
+  activeSubscription?: AdminLibrarySubscription | null;
   counts?: {
     rooms?: number;
     seats?: number;
@@ -787,7 +802,17 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
       const cached = await getAdminCache<{ metrics: PlatformMetrics; libraries: AdminLibrary[] }>('admin_overview');
       if (cached?.data) {
         if (cached.data.metrics) setMetrics(cached.data.metrics);
-        if (cached.data.libraries) setLibraries(cached.data.libraries);
+        if (cached.data.libraries) {
+          const cachedLibs = cached.data.libraries.map((lib: any) => {
+            const rawSub = lib.subscription || lib.activeSubscription || null;
+            return {
+              ...lib,
+              subscription: rawSub,
+              activeSubscription: rawSub,
+            };
+          });
+          setLibraries(cachedLibs);
+        }
         setTabLastUpdated((prev) => ({ ...prev, overview: cached.updatedAt }));
         setTabLoaded((prev) => ({ ...prev, overview: true }));
         setIsLoading(false);
@@ -819,20 +844,63 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
       if (libsRes.ok) {
         const l = await libsRes.json();
         const rawLibs = l.libraries || l.data || [];
-        newLibraries = rawLibs.map((lib: any) => ({
-          ...lib,
-          owner: lib.owner || {
-            id: lib.ownerId || '',
-            fullName: lib.ownerName || 'Owner',
-            email: lib.ownerEmail || '',
-            phone: lib.contactPhone || '',
-          },
-          counts: {
-            seats: lib.counts?.seats ?? lib.seatCount ?? lib.totalSeats ?? 0,
-            students: lib.counts?.students ?? lib.studentCount ?? lib.totalStudents ?? 0,
-            rooms: lib.counts?.rooms ?? lib.roomCount ?? 0,
-          },
-        }));
+        newLibraries = rawLibs.map((lib: any) => {
+          const rawSub = lib.subscription || lib.activeSubscription || null;
+          let sub: AdminLibrarySubscription | null = null;
+          if (rawSub) {
+            const endDateStr = rawSub.endDate || rawSub.validUntil;
+            let validUntilFormatted = rawSub.validUntil || 'N/A';
+            let daysLeft = rawSub.daysRemaining ?? 0;
+            let expired = rawSub.isExpired ?? false;
+
+            if (endDateStr && !isNaN(new Date(endDateStr).getTime())) {
+              const d = new Date(endDateStr);
+              validUntilFormatted = d.toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+              });
+              daysLeft = Math.max(0, Math.ceil((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+              expired = d.getTime() < Date.now();
+            }
+
+            sub = {
+              id: rawSub.id,
+              status: rawSub.status || 'ACTIVE',
+              planName:
+                rawSub.planName ||
+                rawSub.plan?.name ||
+                (rawSub.planCode ? `${rawSub.planCode} Plan` : 'SaaS Plan'),
+              planCode: rawSub.planCode || rawSub.plan?.code || 'BASIC',
+              startDate: rawSub.startDate || null,
+              endDate: rawSub.endDate || null,
+              validUntil: validUntilFormatted,
+              daysRemaining: daysLeft,
+              isExpired: expired,
+              autoRenew: Boolean(rawSub.autoRenew),
+              autoRenewCancelledAt: rawSub.autoRenewCancelledAt || null,
+              cancellationReason: rawSub.cancellationReason || null,
+              plan: rawSub.plan || null,
+            };
+          }
+
+          return {
+            ...lib,
+            owner: lib.owner || {
+              id: lib.ownerId || '',
+              fullName: lib.ownerName || 'Owner',
+              email: lib.ownerEmail || '',
+              phone: lib.contactPhone || '',
+            },
+            subscription: sub,
+            activeSubscription: sub,
+            counts: {
+              seats: lib.counts?.seats ?? lib.seatCount ?? lib.totalSeats ?? 0,
+              students: lib.counts?.students ?? lib.studentCount ?? lib.totalStudents ?? 0,
+              rooms: lib.counts?.rooms ?? lib.roomCount ?? 0,
+            },
+          };
+        });
         setLibraries(newLibraries);
       }
 
@@ -1901,6 +1969,7 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                       <th className="px-5 py-3.5">Library</th>
                       <th className="px-5 py-3.5">Owner</th>
                       <th className="px-5 py-3.5">Stats</th>
+                      <th className="px-5 py-3.5">Subscription</th>
                       <th className="px-5 py-3.5">Status</th>
                       <th className="px-5 py-3.5">Created</th>
                       <th className="px-5 py-3.5 text-right">Actions</th>
@@ -1953,6 +2022,90 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                           </div>
                         </td>
                         <td className="px-5 py-4">
+                          {lib.subscription ? (
+                            <div className="flex flex-col gap-1.5 min-w-[170px]">
+                              {/* Plan Badge */}
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {(() => {
+                                  const code = (lib.subscription.planCode || '').toUpperCase();
+                                  const name = lib.subscription.planName || 'Standard Plan';
+                                  if (code.includes('PRO') || name.toLowerCase().includes('pro') || name.toLowerCase().includes('year')) {
+                                    return (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 shadow-2xs">
+                                        <Crown className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                                        <span>{name}</span>
+                                      </span>
+                                    );
+                                  } else if (code.includes('ADVANCE') || name.toLowerCase().includes('advance') || name.toLowerCase().includes('3 month')) {
+                                    return (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 shadow-2xs">
+                                        <Zap className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                                        <span>{name}</span>
+                                      </span>
+                                    );
+                                  } else {
+                                    return (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 shadow-2xs">
+                                        <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                        <span>{name}</span>
+                                      </span>
+                                    );
+                                  }
+                                })()}
+                              </div>
+
+                              {/* Validity & Days Remaining */}
+                              <div className="flex items-center gap-1.5 text-xs">
+                                {lib.subscription.isExpired ? (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400">
+                                    <AlertTriangle className="w-3 h-3 shrink-0" />
+                                    <span>Expired on {lib.subscription.validUntil}</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 dark:text-neutral-300">
+                                    <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
+                                    <span>
+                                      Valid till <strong className="font-semibold text-slate-800 dark:text-white">{lib.subscription.validUntil}</strong>
+                                      {typeof lib.subscription.daysRemaining === 'number' && (
+                                        <span className={`ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                          lib.subscription.daysRemaining <= 7
+                                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300'
+                                            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                        }`}>
+                                          {lib.subscription.daysRemaining}d left
+                                        </span>
+                                      )}
+                                    </span>
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Autopay Status */}
+                              {lib.subscription.autoRenew ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40 w-fit">
+                                  <RefreshCw className="w-2.5 h-2.5 text-emerald-600 animate-spin-slow" />
+                                  <span>Autopay Active</span>
+                                </span>
+                              ) : lib.subscription.autoRenewCancelledAt ? (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40 w-fit"
+                                  title={`Autopay cancelled on ${new Date(lib.subscription.autoRenewCancelledAt).toLocaleDateString('en-IN')}`}
+                                >
+                                  <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
+                                  <span>Autopay Cancelled</span>
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-1">
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 dark:text-neutral-400 bg-slate-100 dark:bg-[#1f1f22] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#2e2e30] w-fit">
+                                <span>Free Starter (No Plan)</span>
+                              </span>
+                              <span className="text-[10px] text-slate-400 dark:text-neutral-500">No active subscription</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-5 py-4">
                           <div className="flex flex-col gap-1.5">
                             {lib.isActive ? (
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50 w-fit">
@@ -1964,30 +2117,6 @@ export function AdminDashboard({ currentUser, onSwitchToLibraryView, onLogout }:
                                 <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
                                 Suspended
                               </span>
-                            )}
-
-                            {/* Autopay & Subscription Badge */}
-                            {lib.subscription ? (
-                              lib.subscription.autoRenew ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100/70 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50 w-fit">
-                                  <RefreshCw className="w-2.5 h-2.5 animate-spin-slow" />
-                                  Autopay Active
-                                </span>
-                              ) : lib.subscription.autoRenewCancelledAt ? (
-                                <span
-                                  className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100/70 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 w-fit"
-                                  title={`Autopay cancelled on ${new Date(lib.subscription.autoRenewCancelledAt).toLocaleDateString('en-IN')}`}
-                                >
-                                  <AlertTriangle className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
-                                  Autopay Cancelled
-                                </span>
-                              ) : (
-                                <span className="text-[10px] text-slate-400 dark:text-neutral-500 font-medium">
-                                  One-time Sub (until {lib.subscription.validUntil})
-                                </span>
-                              )
-                            ) : (
-                              <span className="text-[10px] text-slate-400 dark:text-neutral-500 italic">No Sub</span>
                             )}
                           </div>
                         </td>
