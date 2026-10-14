@@ -79,6 +79,7 @@ export class AdminController {
               autoRenew: true,
               autoRenewCancelledAt: true,
               cancellationReason: true,
+              startDate: true,
               endDate: true,
               plan: {
                 select: {
@@ -99,8 +100,59 @@ export class AdminController {
         orderBy: { createdAt: 'desc' },
       });
 
+      const libIds = libraries.map((l) => l.id);
+      const ownerIds = libraries.map((l) => l.owner?.id).filter(Boolean) as string[];
+
+      const allSubs = await prisma.subscription.findMany({
+        where: {
+          OR: [
+            { libraryId: { in: libIds } },
+            { userId: { in: ownerIds } },
+          ],
+        },
+        include: {
+          plan: {
+            select: { name: true, code: true },
+          },
+        },
+        orderBy: { endDate: 'desc' },
+      });
+
       const formatted = libraries.map((lib) => {
-        const sub = lib.subscriptions?.[0] || null;
+        const sub =
+          allSubs.find((s) => s.libraryId === lib.id) ||
+          allSubs.find((s) => s.userId === lib.owner?.id) ||
+          lib.subscriptions?.[0] ||
+          null;
+
+        const subObj = sub
+          ? {
+              id: sub.id,
+              status: sub.status,
+              planName: sub.plan?.name || 'SaaS Plan',
+              planCode: sub.plan?.code || 'BASIC',
+              startDate: sub.startDate ? new Date(sub.startDate).toISOString() : null,
+              endDate: sub.endDate ? new Date(sub.endDate).toISOString() : null,
+              validUntil: sub.endDate
+                ? new Date(sub.endDate).toLocaleDateString('en-IN', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  })
+                : 'N/A',
+              daysRemaining: sub.endDate
+                ? Math.max(0, Math.ceil((new Date(sub.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+                : 0,
+              isExpired: sub.endDate ? new Date(sub.endDate).getTime() < Date.now() : false,
+              autoRenew: Boolean(sub.autoRenew),
+              autoRenewCancelledAt: sub.autoRenewCancelledAt
+                ? new Date(sub.autoRenewCancelledAt).toISOString()
+                : null,
+              cancellationReason: sub.cancellationReason || null,
+              plan: sub.plan ? { name: sub.plan.name, code: sub.plan.code } : null,
+            }
+          : null;
+
         return {
           id: lib.id,
           name: lib.name,
@@ -126,17 +178,8 @@ export class AdminController {
             seats: lib._count?.seats || 0,
             rooms: lib._count?.rooms || 0,
           },
-          activeSubscription: sub
-            ? {
-                id: sub.id,
-                status: sub.status,
-                autoRenew: sub.autoRenew,
-                autoRenewCancelledAt: sub.autoRenewCancelledAt?.toISOString() || null,
-                cancellationReason: sub.cancellationReason || null,
-                endDate: sub.endDate?.toISOString() || null,
-                plan: sub.plan ? { name: sub.plan.name, code: sub.plan.code } : null,
-              }
-            : null,
+          subscription: subObj,
+          activeSubscription: subObj,
         };
       });
 

@@ -189,6 +189,7 @@ export async function handleGetLibraries(req: NextRequest) {
       expiringCounts,
       monthlyRevenues,
       pendingDuesAggs,
+      recentTransactions,
     ] = libraryIds.length > 0
       ? await Promise.all([
           // Total and occupied seats
@@ -228,7 +229,7 @@ export async function handleGetLibraries(req: NextRequest) {
             by: ['libraryId'],
             where: {
               libraryId: { in: libraryIds },
-              status: 'SUCCESS',
+              status: { notIn: ['FAILED', 'REFUNDED', 'CANCELLED'] },
               paymentDate: { gte: startOfMonth },
             },
             _sum: { amount: true },
@@ -238,13 +239,36 @@ export async function handleGetLibraries(req: NextRequest) {
             by: ['libraryId'],
             where: {
               libraryId: { in: libraryIds },
+              status: { notIn: ['FAILED', 'REFUNDED', 'CANCELLED'] },
               remainingFee: { gt: 0 },
             },
             _sum: { remainingFee: true },
             _count: { id: true },
           }),
+          // Pre-fetch latest 30 transactions for instant dashboard rendering
+          prisma.studentFeeTransaction.findMany({
+            where: {
+              libraryId: { in: libraryIds },
+              status: { notIn: ['FAILED', 'REFUNDED', 'CANCELLED'] },
+            },
+            take: 30,
+            orderBy: [{ paymentDate: 'desc' }, { createdAt: 'desc' }],
+            include: {
+              student: {
+                select: {
+                  fullName: true,
+                  phone: true,
+                  seatAssignments: {
+                    where: { status: 'ACTIVE' },
+                    include: { seat: true },
+                    take: 1,
+                  },
+                },
+              },
+            },
+          }),
         ])
-      : [[], [], [], [], [], []];
+      : [[], [], [], [], [], [], []];
 
     // Build O(1) in-memory lookup maps
     const totalSeatsMap = new Map<string, number>();
@@ -282,6 +306,30 @@ export async function handleGetLibraries(req: NextRequest) {
         sum: Number(pd._sum.remainingFee || 0),
         count: pd._count.id,
       });
+    }
+
+    const recentTxMap = new Map<string, any[]>();
+    for (const tx of recentTransactions as any[]) {
+      const list = recentTxMap.get(tx.libraryId) || [];
+      list.push({
+        id: tx.id,
+        studentId: tx.studentId,
+        studentName: tx.student?.fullName || 'Student',
+        studentPhone: tx.student?.phone || '',
+        seatNumber: tx.student?.seatAssignments?.[0]?.seat?.seatNumber || null,
+        amount: Number(tx.amount),
+        totalFee: tx.totalFee ? Number(tx.totalFee) : Number(tx.amount),
+        remainingFee: tx.remainingFee ? Number(tx.remainingFee) : 0,
+        validFrom: tx.validFrom ? tx.validFrom.toISOString() : undefined,
+        validTo: tx.validTo ? tx.validTo.toISOString() : undefined,
+        paidForMonth: tx.paidForMonth,
+        paymentDate: tx.paymentDate.toISOString(),
+        paymentMode: tx.paymentMode,
+        status: tx.status,
+        receiptNumber: tx.receiptNumber || undefined,
+        notes: tx.notes || undefined,
+      });
+      recentTxMap.set(tx.libraryId, list);
     }
 
     const formattedLibraries = libraries.map((lib) => {
@@ -338,7 +386,7 @@ export async function handleGetLibraries(req: NextRequest) {
           rooms: formattedRooms,
           seats: [], // On-demand: loaded when user opens Seats tab
           students: [], // On-demand: loaded when user opens Students tab
-          feeTransactions: [], // On-demand: loaded when user opens Transactions tab
+          feeTransactions: recentTxMap.get(lib.id) || [], // Pre-fetched latest transactions for instant dashboard stats & chart
           stats: {
             totalSeats,
             occupiedSeats,

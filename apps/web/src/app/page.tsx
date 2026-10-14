@@ -444,7 +444,19 @@ export default function MobileDashboard() {
 
       if (fetchedLibraries && Array.isArray(fetchedLibraries)) {
         if (fetchedLibraries.length > 0) {
-          setLibraries(fetchedLibraries);
+          setLibraries((prev) => {
+            return fetchedLibraries.map((newLib) => {
+              const existingLib = prev.find((p) => p.id === newLib.id);
+              return {
+                ...newLib,
+                seats: (newLib.seats && newLib.seats.length > 0) ? newLib.seats : (existingLib?.seats || []),
+                students: (newLib.students && newLib.students.length > 0) ? newLib.students : (existingLib?.students || []),
+                feeTransactions: (newLib.feeTransactions && newLib.feeTransactions.length > 0)
+                  ? newLib.feeTransactions
+                  : (existingLib?.feeTransactions || []),
+              };
+            });
+          });
           saveLibrariesToStorageSafely(fetchedLibraries);
 
           const savedActiveId = typeof window !== 'undefined' ? localStorage.getItem('seelibrary_active_lib_id') : null;
@@ -844,7 +856,7 @@ export default function MobileDashboard() {
   };
 
   const fetchLibraryTransactions = async (libraryId: string) => {
-    if (!libraryId || !hasActiveSubscription) return;
+    if (!libraryId) return;
     setIsLoadingTransactions(true);
     try {
       const res = await fetch(`/api/libraries/${libraryId}/transactions?_t=${Date.now()}`, {
@@ -891,22 +903,26 @@ export default function MobileDashboard() {
         fetchLibraryStudents(libId);
       }
     } else if (activeTab === 'home') {
-      // Pre-warm seats and students in parallel in background
+      // Pre-warm seats, students, and fee transactions in parallel in background
       if (!activeLibrary.seats || activeLibrary.seats.length === 0) {
         fetchLibrarySeats(libId);
       }
       if (!activeLibrary.students || activeLibrary.students.length === 0) {
         fetchLibraryStudents(libId);
       }
+      if (!activeLibrary.feeTransactions || activeLibrary.feeTransactions.length === 0) {
+        fetchLibraryTransactions(libId);
+      }
     }
   }, [activeTab, activeLibrary?.id, hasActiveSubscription]);
 
-  // When active library changes or initializes, immediately fetch seats & students in parallel
+  // When active library changes or initializes, immediately fetch seats, students & transactions in parallel
   useEffect(() => {
     if (!activeLibrary?.id) return;
     const libId = activeLibrary.id;
     fetchLibrarySeats(libId);
     fetchLibraryStudents(libId);
+    fetchLibraryTransactions(libId);
   }, [activeLibrary?.id]);
 
   // On-demand modal triggers: if user opens student/seat/collect fee modal, ensure both seats and students are loaded
